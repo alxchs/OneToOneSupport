@@ -1,0 +1,144 @@
+import { app, BrowserWindow, screen, ipcMain, session } from 'electron';
+import * as path from 'path';
+import * as fs from 'fs';
+import { initDb } from './db/connection';
+
+let mainWindow: BrowserWindow | null = null;
+
+function createWindow(): BrowserWindow {
+  const primaryDisplay = screen.getPrimaryDisplay();
+  const { width: screenWidth, height: screenHeight } = primaryDisplay.bounds;
+  const { width: workWidth, height: workHeight } = primaryDisplay.workArea;
+  const scaleFactor = primaryDisplay.scaleFactor;
+
+  console.log(
+    `[Main] Monitor primário detectado: ${screenWidth}x${screenHeight} @ ${Math.round(
+      scaleFactor * 100
+    )}% scale factor (Área útil de trabalho: ${workWidth}x${workHeight})`
+  );
+
+  // Dimensionamento proporcional à área útil do display (evita pixels fixos que quebram em 4K @150%)
+  const initialWidth = Math.max(960, Math.round(workWidth * 0.85));
+  const initialHeight = Math.max(640, Math.round(workHeight * 0.85));
+
+  // Aplicar CSP estrita via header HTTP
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [
+          "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws: wss:;"
+        ],
+      },
+    });
+  });
+
+  const preloadPath = path.join(__dirname, 'preload.js');
+
+  const win = new BrowserWindow({
+    width: initialWidth,
+    height: initialHeight,
+    minWidth: Math.round(workWidth * 0.4),
+    minHeight: Math.round(workHeight * 0.4),
+    center: true,
+    show: false,
+    backgroundColor: '#0f172a', // Slate escuro elegante (sem vermelho)
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      preload: preloadPath,
+      devTools: true,
+    },
+  });
+
+  // Bloqueio rigoroso de navegação e novas janelas (window.open)
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    console.warn(`[Segurança] Bloqueada tentativa de window.open para: ${url}`);
+    return { action: 'deny' };
+  });
+
+  win.webContents.on('will-navigate', (event, navigationUrl) => {
+    const devServer = process.env.VITE_DEV_SERVER_URL;
+    if (devServer && navigationUrl.startsWith(devServer)) {
+      return;
+    }
+    if (navigationUrl.startsWith('file://')) {
+      return;
+    }
+    event.preventDefault();
+    console.warn(`[Segurança] Bloqueada tentativa de navegação externa para: ${navigationUrl}`);
+  });
+
+  // Exibir janela apenas quando pronta para evitar flashes
+  win.once('ready-to-show', () => {
+    win.show();
+  });
+
+  // Carregar Renderer (Vite dev server ou build empacotado)
+  const devUrl = process.env.VITE_DEV_SERVER_URL;
+  if (devUrl) {
+    win.loadURL(devUrl);
+  } else {
+    const candidateRendererDist = path.join(__dirname, '../renderer/index.html');
+    const candidateRootHtml = path.resolve(__dirname, '../../index.html');
+
+    if (fs.existsSync(candidateRendererDist)) {
+      win.loadFile(candidateRendererDist);
+    } else if (fs.existsSync(candidateRootHtml)) {
+      win.loadFile(candidateRootHtml);
+    } else {
+      // Fallback mínimo inline seguro
+      win.loadURL(
+        `data:text/html;charset=utf-8,${encodeURIComponent(
+          '<!DOCTYPE html><html><head><meta charset="utf-8"><title>OneToOneSupport</title><style>body{background:#0f172a;color:#f8fafc;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;}</style></head><body><div style="text-align:center"><h1>OneToOneSupport</h1><p>Electron Shell Seguro Inicializado</p></div></body></html>'
+        )}`
+      );
+    }
+  }
+
+  return win;
+}
+
+// Configurar handlers de IPC do Preload
+ipcMain.handle('desktop:get-scale-factor', () => {
+  const primary = screen.getPrimaryDisplay();
+  return primary.scaleFactor;
+});
+
+ipcMain.handle('desktop:get-display-metrics', () => {
+  const primary = screen.getPrimaryDisplay();
+  return {
+    width: primary.bounds.width,
+    height: primary.bounds.height,
+    scaleFactor: primary.scaleFactor,
+  };
+});
+
+ipcMain.handle('desktop:get-app-version', () => {
+  return app.getVersion();
+});
+
+app.whenReady().then(() => {
+  // Inicializar banco de dados do Host
+  try {
+    initDb();
+    console.log('[Main] Banco de dados SQLite inicializado com sucesso.');
+  } catch (err) {
+    console.error('[Main] Falha ao inicializar o banco de dados:', err);
+  }
+
+  mainWindow = createWindow();
+
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) {
+      mainWindow = createWindow();
+    }
+  });
+});
+
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') {
+    app.quit();
+  }
+});
