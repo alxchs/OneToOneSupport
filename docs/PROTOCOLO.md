@@ -4,7 +4,7 @@
 - **Alexandre** — dono do produto. Único que autoriza merge em `main` e `git push` (CodeCommit).
 - **Claude Code (chefe técnico)** — decide a ordem das fases, escreve as ordens de serviço (`docs/prompts/`),
   aprova ou rejeita entregas, mantém `docs/HANDOFF.md`, `docs/ADR/` e o `AGENTS.md`. A palavra final técnica é dele.
-- **Executores (Antigravity, Gemini CLI, qualquer IA nova)** — implementam o que a ordem de serviço manda.
+- **Executores (Google Antigravity é o principal; qualquer IA nova também)** — implementam o que a ordem de serviço manda.
   Não mudam escopo, stack, ordem de fases nem critérios de aceite. Se discordarem, registram em
   `docs/ADR/PROPOSTA-*.md` e **continuam** o que foi ordenado; o chefe decide.
 
@@ -12,10 +12,10 @@
 Entregar apenas: "Leia `AGENTS.md` e execute `docs/prompts/fase-NN-*.md`." Todo o resto está no repositório.
 
 ## Como as ordens chegam ao executor
-1. **Automático (preferido):** `tools/despachar.ps1 -Fase NN -Executor gemini` roda o Gemini CLI em modo headless
-   dentro da branch da fase, com o prompt da fase. Só é executado com o OK do Alexandre (o modo usa aprovação automática).
-2. **Manual:** Alexandre cola o prompt no Antigravity (que é um IDE sem CLI de despacho; busca feita só na pasta de instalação e no PATH).
-   Limite honesto: o Claude Code não comanda o Antigravity diretamente. A ordem vai pelo repositório.
+1. **Automático (preferido):** `tools/despachar.ps1 -Fase NN` roda o **Antigravity CLI** (`~/.gemini/bin/agy.exe`, modo `--print`,
+   `--mode accept-edits`) dentro da branch da fase, com o prompt da fase. Log em `docs/execucoes/`.
+   Sem `--dangerously-skip-permissions`; se um dia for necessário, exige autorização explícita do Alexandre.
+2. **Manual:** Alexandre cola o prompt no Antigravity (IDE).
 
 ## Ciclo de cada fase (o chefe conduz)
 1. `main` limpa, fase anterior mergeada. `git switch -c fase/NN-slug`.

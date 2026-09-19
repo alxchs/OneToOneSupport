@@ -1,16 +1,19 @@
 <#
-  Despacha uma fase para um executor headless, dentro da branch da fase.
-  Uso: tools\despachar.ps1 -Fase 01 [-Executor gemini] [-Modelo <nome>]
-  NUNCA faz push. Só roda depois do OK do Alexandre (o Gemini roda em --approval-mode yolo).
+  Despacha uma fase para o Antigravity CLI (agy) em modo headless, dentro da branch da fase.
+  Uso: tools\despachar.ps1 -Fase 01 [-Modelo <nome>] [-Esforco low|medium|high]
+  NUNCA faz push. O agy roda com --mode accept-edits (edições aprovadas; demais ações seguem as permissões do próprio agy).
 #>
 param(
   [Parameter(Mandatory)][string]$Fase,
-  [ValidateSet('gemini')][string]$Executor = 'gemini',
-  [string]$Modelo
+  [string]$Modelo,
+  [ValidateSet('low','medium','high')][string]$Esforco = 'high'
 )
 $ErrorActionPreference = 'Stop'
 $raiz = Split-Path -Parent $PSScriptRoot
 Set-Location $raiz
+
+$agy = Join-Path $env:USERPROFILE '.gemini\bin\agy.exe'
+if (-not (Test-Path $agy)) { throw "agy.exe não encontrado em $agy" }
 
 $prompt = Get-ChildItem "docs\prompts\fase-$Fase-*.md" | Select-Object -First 1
 if (-not $prompt) { throw "Ordem de serviço da fase $Fase não encontrada em docs\prompts" }
@@ -20,12 +23,13 @@ if ($branch -notlike "fase/$Fase-*") { throw "Branch atual '$branch' não é fas
 if (git status --porcelain) { throw "Working tree suja. Commit ou stash antes." }
 
 New-Item -ItemType Directory -Force docs\execucoes | Out-Null
-$log = "docs\execucoes\fase-$Fase-$Executor-$(Get-Date -Format yyyyMMdd_HHmm).log"
+$log = "docs\execucoes\fase-$Fase-agy-$(Get-Date -Format yyyyMMdd_HHmm).log"
 
 $texto = "Leia AGENTS.md e execute integralmente a ordem de serviço abaixo. Não faça push.`n`n" + (Get-Content $prompt.FullName -Raw)
-$args = @('-p', $texto, '--approval-mode', 'yolo')
-if ($Modelo) { $args += @('-m', $Modelo) }
+$env:ELECTRON_RUN_AS_NODE = $null
+$argumentos = @('--print', $texto, '--mode', 'accept-edits', '--effort', $Esforco)
+if ($Modelo) { $argumentos += @('--model', $Modelo) }
 
-Write-Host "Despachando fase $Fase para $Executor na branch $branch. Log: $log"
-& gemini @args 2>&1 | Tee-Object -FilePath $log
+Write-Host "Despachando fase $Fase para o Antigravity (agy) na branch $branch. Log: $log"
+& $agy @argumentos 2>&1 | Tee-Object -FilePath $log
 Write-Host "Execução terminada. Agora o chefe (Claude Code) audita: 'revisar fase $Fase'."
