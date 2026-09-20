@@ -23,6 +23,34 @@ import {
   WhiteboardEvent,
 } from '../../src/shared/events/reducer';
 
+export const ID_REGEX = /^[A-Za-z0-9_-]{1,64}$/;
+
+export function isValidId(id: unknown): id is string {
+  return typeof id === 'string' && ID_REGEX.test(id);
+}
+
+export const TIPOS_EVENTO_CONHECIDOS = new Set([
+  'DRAW_ADD',
+  'DRAW_HIDE',
+  'CLEAR_TAB',
+  'UNDO',
+  'REDO',
+  'LOCK_SCREEN',
+  'UNLOCK_MEDIA',
+  'TAB_SWITCH',
+  'SCREEN_LOCKED',
+  'GUEST_MUTED',
+  'PLAY',
+  'PAUSE',
+  'SEEK',
+  'MEDIA_CONTROL',
+  'AUTH',
+  'HANDSHAKE_INIT',
+  'ENCRYPTED',
+  'RECONNECT',
+  'ERROR',
+]);
+
 export interface EventoServiceOptions {
   db?: DatabaseType;
   snapshotsDir?: string;
@@ -75,26 +103,38 @@ export class EventoService {
 
   /**
    * Valida a autoridade do autor e as permissões de execução (Mestre §4, §11, §16).
+   * Lista de PERMISSÃO: autor deve ser exatamente 'host' ou 'guest'.
+   * Decisão de segurança: identidade estrita sem trim silencioso que altere a semântica.
+   * Qualquer outro valor é rejeitado com AUTOR_INVALIDO. Tipos desconhecidos são rejeitados com TIPO_INVALIDO.
    */
   public validarAutorEPermissao(
     tipo: string,
     autor: string,
     screenLocked: boolean = false
   ): { permitido: boolean; motivo?: string } {
-    const autorLower = (autor || '').toLowerCase();
+    // 1. Lista de permissão rigorosa de autores reconhecidos
+    if (autor !== 'host' && autor !== 'guest') {
+      return { permitido: false, motivo: 'AUTOR_INVALIDO' };
+    }
 
-    // Se a tela estiver bloqueada pelo Host, Guest não pode emitir nenhuma ação interativa
-    if (autorLower === 'guest' && screenLocked) {
+    // 2. Lista de permissão rigorosa de tipos de evento reconhecidos
+    if (!tipo || typeof tipo !== 'string' || !TIPOS_EVENTO_CONHECIDOS.has(tipo)) {
+      return { permitido: false, motivo: 'TIPO_INVALIDO' };
+    }
+
+    // 3. Se a tela estiver bloqueada pelo Host, Guest não pode emitir nenhuma ação
+    if (autor === 'guest' && screenLocked) {
       return { permitido: false, motivo: 'SCREEN_LOCKED' };
     }
 
-    // Ações estritamente exclusivas do Host
-    if (autorLower === 'guest') {
+    // 4. Ações estritamente exclusivas do Host (proibidas ao Guest)
+    if (autor === 'guest') {
       if (
         tipo === 'CLEAR_TAB' ||
         tipo === 'LOCK_SCREEN' ||
         tipo === 'UNLOCK_MEDIA' ||
-        tipo === 'TAB_SWITCH'
+        tipo === 'TAB_SWITCH' ||
+        tipo === 'SCREEN_LOCKED'
       ) {
         return { permitido: false, motivo: 'FORBIDDEN_ACTION_GUEST' };
       }
@@ -104,12 +144,20 @@ export class EventoService {
   }
 
   /**
-   * Grava um novo evento após validação rigorosa de permissão, aplicando snapshot se atingir o limiar N.
+   * Grava um novo evento após validação rigorosa de permissão e sanitização de identificadores.
    */
   public gravarEvento(
     input: EventoInput,
     screenLocked: boolean = false
   ): GravarEventoResult {
+    // Defesa contra Path Traversal: validação de sessao_id e aba_id
+    if (!isValidId(input.sessao_id)) {
+      return { sucesso: false, motivo: 'SESSAO_ID_INVALIDO' };
+    }
+    if (input.aba_id !== null && input.aba_id !== undefined && !isValidId(input.aba_id)) {
+      return { sucesso: false, motivo: 'ABA_ID_INVALIDO' };
+    }
+
     const validacao = this.validarAutorEPermissao(input.tipo, input.autor, screenLocked);
     if (!validacao.permitido) {
       return { sucesso: false, motivo: validacao.motivo };
@@ -130,7 +178,7 @@ export class EventoService {
   }
 
   /**
-   * Salva um arquivo de snapshot físico no disco para uma sessão e aba específicas.
+   * Salva um arquivo de snapshot físico no disco com validação de caminho e defesa em profundidade.
    */
   public salvarSnapshotEmDisco(
     sessaoId: string,
@@ -138,11 +186,28 @@ export class EventoService {
     eventoIdx: number,
     state: TabState
   ): void {
-    const sessionDir = path.join(this.snapshotsDir, sessaoId);
+    if (!isValidId(sessaoId)) {
+      throw new Error(`IDENTIFICADOR_INVALIDO: sessaoId '${sessaoId}' inválido.`);
+    }
+    if (!isValidId(abaId)) {
+      throw new Error(`IDENTIFICADOR_INVALIDO: abaId '${abaId}' inválido.`);
+    }
+
+    const resolvedSnapshotsDir = path.resolve(this.snapshotsDir);
+    const sessionDir = path.resolve(resolvedSnapshotsDir, sessaoId);
+    if (!sessionDir.startsWith(resolvedSnapshotsDir + path.sep)) {
+      throw new Error(`PATH_TRAVERSAL_DETECTED: Caminho de sessão '${sessionDir}' fora de snapshots.`);
+    }
+
     if (!fs.existsSync(sessionDir)) {
       fs.mkdirSync(sessionDir, { recursive: true });
     }
-    const filePath = path.join(sessionDir, `snapshot_${abaId}_${eventoIdx}.json`);
+
+    const filePath = path.resolve(sessionDir, `snapshot_${abaId}_${eventoIdx}.json`);
+    if (!filePath.startsWith(sessionDir + path.sep)) {
+      throw new Error(`PATH_TRAVERSAL_DETECTED: Caminho de arquivo '${filePath}' fora do diretório da sessão.`);
+    }
+
     fs.writeFileSync(filePath, JSON.stringify(state, null, 2), 'utf8');
   }
 
@@ -154,7 +219,16 @@ export class EventoService {
     abaId: string,
     maxEventoIdx?: number
   ): { eventoIdx: number; state: TabState } | null {
-    const sessionDir = path.join(this.snapshotsDir, sessaoId);
+    if (!isValidId(sessaoId) || !isValidId(abaId)) {
+      return null;
+    }
+
+    const resolvedSnapshotsDir = path.resolve(this.snapshotsDir);
+    const sessionDir = path.resolve(resolvedSnapshotsDir, sessaoId);
+    if (!sessionDir.startsWith(resolvedSnapshotsDir + path.sep)) {
+      return null;
+    }
+
     if (!fs.existsSync(sessionDir)) {
       return null;
     }
@@ -181,7 +255,10 @@ export class EventoService {
 
     if (melhorArquivo && melhorIdx >= 0) {
       try {
-        const fullPath = path.join(sessionDir, melhorArquivo);
+        const fullPath = path.resolve(sessionDir, melhorArquivo);
+        if (!fullPath.startsWith(sessionDir + path.sep)) {
+          return null;
+        }
         const content = fs.readFileSync(fullPath, 'utf8');
         const state = JSON.parse(content) as TabState;
         return { eventoIdx: melhorIdx, state };
@@ -197,14 +274,21 @@ export class EventoService {
    * Apaga todos os snapshots em disco (usado para provar que snapshot é pura otimização e replay produz estado idêntico).
    */
   public apagarTodosSnapshots(sessaoId?: string): void {
+    const resolvedSnapshotsDir = path.resolve(this.snapshotsDir);
     if (sessaoId) {
-      const sessionDir = path.join(this.snapshotsDir, sessaoId);
+      if (!isValidId(sessaoId)) {
+        throw new Error(`IDENTIFICADOR_INVALIDO: sessaoId '${sessaoId}' inválido.`);
+      }
+      const sessionDir = path.resolve(resolvedSnapshotsDir, sessaoId);
+      if (!sessionDir.startsWith(resolvedSnapshotsDir + path.sep)) {
+        throw new Error(`PATH_TRAVERSAL_DETECTED: Caminho de sessão '${sessionDir}' fora de snapshots.`);
+      }
       if (fs.existsSync(sessionDir)) {
         fs.rmSync(sessionDir, { recursive: true, force: true });
       }
     } else {
-      if (fs.existsSync(this.snapshotsDir)) {
-        fs.rmSync(this.snapshotsDir, { recursive: true, force: true });
+      if (fs.existsSync(resolvedSnapshotsDir)) {
+        fs.rmSync(resolvedSnapshotsDir, { recursive: true, force: true });
       }
     }
   }
@@ -217,6 +301,12 @@ export class EventoService {
     abaId: string,
     corteIdx?: number
   ): TabState {
+    if (!isValidId(sessaoId)) {
+      throw new Error(`IDENTIFICADOR_INVALIDO: sessaoId '${sessaoId}' inválido.`);
+    }
+    if (!isValidId(abaId)) {
+      throw new Error(`IDENTIFICADOR_INVALIDO: abaId '${abaId}' inválido.`);
+    }
     const total = countEventosBySessao(sessaoId, this.db);
     const targetIdx = corteIdx !== undefined ? Math.min(corteIdx, total) : total;
 
@@ -235,6 +325,12 @@ export class EventoService {
     abaId: string,
     corteEventoIdx?: number
   ): TabState {
+    if (!isValidId(sessaoId)) {
+      throw new Error(`IDENTIFICADOR_INVALIDO: sessaoId '${sessaoId}' inválido.`);
+    }
+    if (!isValidId(abaId)) {
+      throw new Error(`IDENTIFICADOR_INVALIDO: abaId '${abaId}' inválido.`);
+    }
     const total = countEventosBySessao(sessaoId, this.db);
     const limiteCorte = corteEventoIdx !== undefined ? Math.min(corteEventoIdx, total) : total;
 
@@ -279,8 +375,14 @@ export class EventoService {
    * Cria um snapshot final e imutável ao encerrar a sessão.
    */
   public consolidarAoEncerrar(sessaoId: string, abasIds: string[]): void {
+    if (!isValidId(sessaoId)) {
+      throw new Error(`IDENTIFICADOR_INVALIDO: sessaoId '${sessaoId}' inválido.`);
+    }
     const total = countEventosBySessao(sessaoId, this.db);
     for (const abaId of abasIds) {
+      if (!isValidId(abaId)) {
+        throw new Error(`IDENTIFICADOR_INVALIDO: abaId '${abaId}' inválido.`);
+      }
       this.gerarSnapshotAba(sessaoId, abaId, total);
     }
   }
@@ -294,6 +396,17 @@ export class EventoService {
     autor: string,
     abasIds: string[] = ['default']
   ): RevisaoRecord {
+    if (!isValidId(sessaoId)) {
+      throw new Error(`IDENTIFICADOR_INVALIDO: sessaoId '${sessaoId}' inválido.`);
+    }
+    if (autor !== 'host') {
+      throw new Error('AUTOR_INVALIDO: Apenas o host pode salvar revisões imutáveis.');
+    }
+    for (const abaId of abasIds) {
+      if (!isValidId(abaId)) {
+        throw new Error(`IDENTIFICADOR_INVALIDO: abaId '${abaId}' inválido.`);
+      }
+    }
     const totalEventos = countEventosBySessao(sessaoId, this.db);
 
     // Garante que existe snapshot gerado para todas as abas no ponto exato da revisão
@@ -321,6 +434,12 @@ export class EventoService {
     numeroVersao: number,
     abaId: string = 'default'
   ): { revisao: RevisaoRecord; estadoAba: TabState } {
+    if (!isValidId(sessaoId)) {
+      throw new Error(`IDENTIFICADOR_INVALIDO: sessaoId '${sessaoId}' inválido.`);
+    }
+    if (!isValidId(abaId)) {
+      throw new Error(`IDENTIFICADOR_INVALIDO: abaId '${abaId}' inválido.`);
+    }
     const revisao = getRevisaoByVersao(sessaoId, numeroVersao, this.db);
     if (!revisao) {
       throw new Error(`Revisão versão ${numeroVersao} não encontrada para a sessão '${sessaoId}'.`);

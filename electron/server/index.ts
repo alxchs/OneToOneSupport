@@ -4,7 +4,7 @@ import { startHttpServer, HttpServerHandle } from './http';
 import { createWebSocketServer, WsServerHandle } from './ws';
 import { getLanInterfaces, getDefaultLanIp, LanInterface } from './network';
 import { buildInviteUrl } from '../../src/shared/crypto/invite';
-import { EventoService } from '../services/evento.service';
+import { EventoService, isValidId } from '../services/evento.service';
 
 export interface ServerSessionInfo {
   sessaoId: string;
@@ -77,7 +77,20 @@ export class ServerSessionController {
   }
 
   private handleGuestEvent(envelope: any): void {
-    // Se for evento de desenho, persiste no banco de dados
+    if (!envelope || typeof envelope !== 'object') {
+      return;
+    }
+
+    // Validação na borda de abaId do Guest contra Path Traversal (C1):
+    // Se abaId for enviado, valida estritamente. Se inválido, descarta e NÃO repassa ao Host.
+    const candidateAbaId = envelope.payload?.abaId ?? envelope.abaId;
+    if (candidateAbaId !== undefined && candidateAbaId !== null && !isValidId(candidateAbaId)) {
+      console.warn('[ServerSessionController] Descartando evento do Guest com abaId inválido:', candidateAbaId);
+      return;
+    }
+    const abaId = candidateAbaId || 'default';
+
+    // Se for evento de desenho/quadro branco, persiste no banco de dados SQLite
     if (
       envelope.type === 'DRAW_ADD' ||
       envelope.type === 'DRAW_HIDE' ||
@@ -87,15 +100,24 @@ export class ServerSessionController {
         const eventoService = new EventoService();
         const payloadData = envelope.payload?.data ?? envelope.payload;
         const payloadStr = typeof payloadData === 'string' ? payloadData : JSON.stringify(payloadData);
-        eventoService.gravarEvento({
-          sessao_id: this.sessionManager?.sessaoId || '',
-          aba_id: envelope.payload?.abaId || 'default',
-          tipo: envelope.type,
-          payload: payloadStr,
-          autor: 'guest',
-        });
+        const res = eventoService.gravarEvento(
+          {
+            sessao_id: this.sessionManager?.sessaoId || '',
+            aba_id: abaId,
+            tipo: envelope.type,
+            payload: payloadStr,
+            autor: 'guest',
+          },
+          this.sessionManager?.isScreenLocked() || false
+        );
+
+        if (!res.sucesso) {
+          console.warn('[ServerSessionController] Evento do guest rejeitado por gravarEvento:', res.motivo);
+          return; // Retorno de falha: NÃO repassa ao Host (C3)!
+        }
       } catch (err) {
         console.error('[ServerSessionController] Erro ao gravar evento do guest no SQLite:', err);
+        return; // Lançou exceção: NÃO repassa ao Host (C3)!
       }
     }
 
