@@ -38,7 +38,7 @@ Limite honesto: o chefe **não enxerga o próprio consumo de tokens**; quem vê 
 
 | Fase | Custo do chefe: preparar ordem | Custo do chefe: auditar | Total | Observação |
 | --- | --- | --- | --- | --- |
-| 01 | _preencher_ | _preencher_ (leitura manual, clone limpo, sonda manual) | _preencher_ | baseline |
+| 01 | não medido | não medido | não medido | baseline sem medição; auditoria feita com leitura manual de código e logs |
 | 02 | _preencher_ | _preencher_ (`auditar.cjs` + tela + amostra) | _preencher_ | 1º uso do auditor |
 
 Alavancas já aplicadas para gastar menos: implementação 100% delegada; auditoria automatizada que devolve resumo curto; gate `npm run verify` que o executor roda sozinho; sonda de runtime reutilizável; regras estáticas (`noUnusedLocals`) no próprio typecheck.
@@ -46,3 +46,12 @@ Sinal de alerta: se o custo de auditar de uma fase passar do que custaria implem
 
 ## Registro da fase 02, tentativa 1 (falha de despacho)
 O `agy` terminou sem produzir nada: iniciou uma busca em segundo plano do repositório e o modo `--print` encerrou antes. Causa provável: a ordem cita `tools/probe-runtime.cjs`. Correção: o despacho agora informa o diretório absoluto, usa `--add-dir`, proíbe tarefas em segundo plano e o script falha se não houver commit novo. Custo: 1 despacho perdido, 0 tokens de auditoria do chefe.
+
+## Medição real (fonte: `/usage` do Alexandre, 2026-09-20 ~02:50, antes da fase 02)
+Sessão atual: 2% usado (janela reinicia 07:59). Semana (todos os modelos): 24% usado (reinicia 25/09 13:59).
+Diagnóstico do `/usage`: **94% do uso das últimas 24h e 96% dos últimos 7 dias ocorreram com contexto > 150k tokens** e 80% em sessões ativas há 8+ horas. O custo está no tamanho da conversa carregada a cada resposta, não na auditoria em si.
+Consequência: a principal alavanca é **uma sessão limpa por fase** guiada por `docs/CHEFE.md` (poucos milhares de tokens de contexto em vez de centenas de milhares). Anotar aqui, a cada fase, `/usage` (semana %) antes do despacho e depois da auditoria; a diferença de pontos percentuais é o custo do chefe naquela fase. Nota: o percentual da semana inclui outras sessões e projetos; comparar só janelas em que este projeto foi o único uso.
+
+| Fase | Semana % antes | Semana % depois | Delta | Sessão limpa? |
+| --- | --- | --- | --- | --- |
+| 02 | 24% | _preencher_ | _preencher_ | _sim/não_ |
