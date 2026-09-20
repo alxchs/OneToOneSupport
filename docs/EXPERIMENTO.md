@@ -66,3 +66,9 @@ Consequência: a principal alavanca é **uma sessão limpa por fase** guiada por
 - **Falha repetida (3ª vez):** o `agy` roda comando longo (`npm run verify`) em segundo plano, escreve "aguardando" e o modo `--print` encerra sem commit. Causa raiz tratada: (a) regra crítica no cabeçalho do despacho (não terminar turno esperando; fazer polling), (b) a correção automática agora passa a evidência do auditor e **proíbe** repetir comandos longos, (c) `rodar-lote` audita antes de redespachar fase já entregue.
 
 Leitura do lote 1: 3 fases (~10 mil linhas novas, 121 testes, servidor E2EE, UI com QR) por +2 pontos da semana, incluindo despacho, correções de ferramenta e a auditoria do chefe. Ressalvas: percentuais inteiros (erro de até ~1 ponto), a semana soma outros usos, e a sessão foi longa (contexto grande, o pior caso de custo). Próximo teste: lote 2 em sessão limpa via docs/CHEFE.md, para medir o efeito da sessão curta.
+
+## Registro do lote 2 (2026-09-20, sessão limpa via docs/CHEFE.md)
+- Fases 05, 06, 07 entregues (139 → 158 → 172 testes; sonda 14 → 16 → 21). Auditor automático verde nas três; **falsos PASS: 2 defeitos reais da fase 05** (autoridade que falha aberta, path traversal por `abaId`) que só a leitura do chefe achou, e a afirmação falsa sobre `SCREEN_LOCKED`.
+- **Red team falhou nas 3 fases**: bug do kit (variável `$modelo` colidindo com parâmetro `$Modelo`). Causa raiz achada e corrigida na 3ª ocorrência do mesmo erro (esperei o lote acabar para não sujar a árvore).
+- Lições da fase 04 (timingSafeEqual, token queimado antes do handshake, teste de limites): resolvidas na 05, sem recorrência.
+- Custo: semana 27% ao disparar o lote; 27% no início desta sessão (o Alexandre informou). Falta o /usage final.
