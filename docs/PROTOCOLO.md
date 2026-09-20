@@ -20,8 +20,8 @@ Entregar apenas: "Leia `AGENTS.md` e execute `docs/prompts/fase-NN-*.md`." Todo 
 ## Ciclo de cada fase (o chefe conduz)
 1. `main` limpa, fase anterior mergeada. `git switch -c fase/NN-slug`.
 2. Chefe **refina** a ordem de serviço com o estado real do código (a ordem é escrita para ser autossuficiente).
-3. Executor implementa, roda os comandos de verificação da ordem, cola as saídas em `docs/HANDOFF.md`, commita e para.
-4. Chefe **audita sem confiar no relato**: checkout, `npm ci`, build, testes, leitura do diff, cada critério de aceite,
+3. Executor implementa, **se autoaudita** (seção do `AGENTS.md`: clone limpo, `npm run verify`, ataque à própria entrega, `docs/reviews/autoauditoria-NN.md`), cola as saídas no `docs/HANDOFF.md`, commita e para.
+4. Chefe **audita sem confiar no relato** e registra a comparação em `docs/EXPERIMENTO.md`: checkout, `npm ci`, build, testes, leitura do diff, cada critério de aceite,
    e a checklist de verificação do `AGENTS.md`. Fase com UI: abre o app de verdade.
 5. Veredito escrito em `docs/reviews/fase-NN.md`: **APROVADA** ou **REJEITADA + lista de correções numeradas**.
    Rejeitada → chefe emite prompt de correção ao executor (ou corrige pequenas coisas ele mesmo). Repetir 4.

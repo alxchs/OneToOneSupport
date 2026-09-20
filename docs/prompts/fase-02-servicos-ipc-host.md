@@ -10,10 +10,15 @@ Leia: `AGENTS.md`, Mestre, `docs/FASES.md`, `docs/HANDOFF.md`, ADRs. Pré-requis
 5. Layout legível em 3840x2160 @150% (unidades relativas, sem tamanhos fixos que fiquem minúsculos). Tema sem vermelho em nenhum elemento (erros e alertas em âmbar/laranja escuro sobre fundo azul-escuro/neutro, nunca vermelho, nunca vermelho+amarelo).
 6. Testes: services (regras, soft delete, purga 10 anos com relógio injetável), contrato IPC (validação rejeita payload ruim), Renderer não importa nada de `electron/`.
 
-## Verificação (cole no HANDOFF)
-`npm run typecheck` · `npm test` · `npm run build` · `npm run dev` e **usar a UI de verdade**: criar atendido, tentar criar o mesmo de novo (deve mostrar duplicado), editar, desativar, mudar o rótulo Psicólogo→Professor e ver refletir. Descreva o que viu.
+## Pontos herdados da auditoria da fase 01 (resolver nesta fase)
+- Verifique o modo `npm run dev`: o header CSP do `main.ts` (`script-src 'self'`) pode bloquear o script inline do React Fast Refresh. Se bloquear, ajuste o dev (ex.: CSP mais frouxa **só quando `VITE_DEV_SERVER_URL` existir**) sem enfraquecer o build. Prove com a sonda que o build continua com CSP efetiva.
+- Estenda `tools/probe-runtime.cjs` para exercitar a UI nova de verdade: criar atendido, tentar o mesmo de novo e ler a mensagem de duplicado, editar, desativar, trocar o rótulo do dicionário. FAIL na sonda = fase não pronta.
+- Teste também a validação de payload do IPC com o preload real (chamar canal com dado inválido e ver o erro tipado).
+
+## Verificação e autoauditoria
+Siga a seção **Autoauditoria obrigatória** do `AGENTS.md` (clone limpo, `npm run verify`, ataque à própria entrega, `docs/reviews/autoauditoria-02.md`). Além disso cole no HANDOFF a saída da sequência de UI descrita acima e o resultado da consulta ao banco (sem duplicados).
 
 ## Aceite
-Tudo acima verde; grep prova que `src/` não contém SQL nem acesso a `fs`/`better-sqlite3`; nenhum dado duplicado após a sequência de UI acima (consultar o banco e colar o resultado).
+`npm run verify` verde num clone limpo; grep prova que `src/` não contém SQL nem acesso a `fs`/`better-sqlite3`; nenhum dado duplicado após a sequência de UI; CSP do build efetiva; dev mode funcionando.
 ## Não fazer
 Servidor, WS, cripto, canvas. Nada de push. Encerrar com HANDOFF (seção 17) e parar.
