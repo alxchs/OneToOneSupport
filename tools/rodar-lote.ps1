@@ -22,10 +22,17 @@ foreach ($f in $Fases) {
   if (git branch --list $branch) { git switch -q $branch } else { git switch -q -c $branch }
   Registra "=== FASE $f | branch $branch | $(Get-Date -Format HH:mm:ss)"
 
+  # Fase já entregue (branch existe e sua ponta difere da fase anterior/main)? Então audita primeiro, sem refazer.
+  $ant = (git branch --list ("fase/{0:d2}-*" -f ([int]$f - 1)) | Select-Object -First 1)
+  $base = if ($ant) { $ant.Trim().TrimStart('*').Trim() } else { 'main' }
+  $jaEntregue = (git rev-parse $branch).Trim() -ne (git rev-parse $base).Trim()
+  if ($jaEntregue) { Registra "  fase $f já tem entrega na branch: auditando antes de qualquer novo despacho" }
   $extra = $null
   for ($i = 0; $i -le $Tentativas; $i++) {
+    if ($i -eq 0 -and $jaEntregue) { $pular = $true } else { $pular = $false }
     try {
-      if ($extra) { & "$PSScriptRoot\despachar.ps1" -Fase $f -Autonomo -Extra $extra }
+      if ($pular) { }
+      elseif ($extra) { & "$PSScriptRoot\despachar.ps1" -Fase $f -Autonomo -Extra $extra }
       else        { & "$PSScriptRoot\despachar.ps1" -Fase $f -Autonomo }
     } catch { Registra "  despacho falhou: $($_.Exception.Message)"; if ($i -eq $Tentativas) { Registra "PAROU na fase $f (despacho)."; exit 1 } ; continue }
 
@@ -35,7 +42,7 @@ foreach ($f in $Fases) {
     $reprov = ($saida -split "`n" | Where-Object { $_ -match '^FAIL' }) -join "`n"
     Registra "  auditor automático REPROVOU (tentativa $($i + 1)):`n$reprov"
     if ($i -eq $Tentativas) { Registra "PAROU na fase ${f}: continua reprovada após $Tentativas correções. Veja docs\execucoes\auditoria-fase-$f.log"; exit 1 }
-    $extra = $reprov
+    $extra = "REPROVAÇÕES:`n$reprov`n`nO auditor automático JÁ rodou clone limpo, npm ci, verify e sonda; a evidência completa está abaixo. NÃO rode npm ci, npm run verify nem clone limpo de novo (são longos e encerram a sua execução). Corrija SOMENTE as reprovações (ex.: escreva o arquivo docs/reviews/autoauditoria-$f.md usando esta evidência, com PASS/FAIL por critério e a lista do que NÃO foi verificado), commite e termine.`n`nEVIDÊNCIA DO AUDITOR:`n$saida"
   }
 }
 Registra "LOTE CONCLUÍDO: fases $($Fases -join ', ') entregues e com auditor automático verde. Resumo: $resumo"

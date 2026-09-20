@@ -30,6 +30,7 @@ $log = "docs\execucoes\fase-$Fase-agy-$(Get-Date -Format yyyyMMdd_HHmm).log"
 $cabecalho = @"
 Seu repositório e diretório de trabalho é: $raiz (branch $branch). Ele JÁ EXISTE e é o diretório atual: NÃO o procure em outros discos e NÃO inicie buscas ou tarefas em segundo plano.
 Todos os arquivos citados na ordem existem nele (ex.: tools\probe-runtime.cjs, AGENTS.md). Trabalhe em primeiro plano até concluir TODA a ordem: se você encerrar com tarefa pendente, o trabalho é perdido.
+REGRA CRÍTICA DE EXECUÇÃO: seu processo ENCERRA quando você termina uma resposta sem chamar ferramenta. Se um comando longo (npm ci, npm run verify, testes, build) for para segundo plano, NUNCA escreva "aguardando" e pare: continue chamando ferramentas em sequência (ex.: `Start-Sleep 20` e ler a saída) até ele terminar, dentro da mesma execução. Só termine depois de commitar TUDO.
 Leia AGENTS.md e execute integralmente a ordem de serviço abaixo, incluindo a autoauditoria. Não faça push nem merge.
 
 "@
