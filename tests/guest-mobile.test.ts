@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, beforeAll } from 'vitest';
 import * as path from 'path';
 import * as fs from 'fs';
 import { WebSocket as WsImplementation } from 'ws';
@@ -30,6 +30,17 @@ describe('Fase 07 - Guest Mobile e Interoperabilidade E2EE', () => {
   });
 
   describe('1. Servidor Express e Entrega do Bundle do Guest (ADR-005)', () => {
+    beforeAll(async () => {
+      const guestDistIndex = path.resolve(__dirname, '../dist/guest/index.html');
+      const assetsDir = path.resolve(__dirname, '../dist/guest/assets');
+      if (!fs.existsSync(guestDistIndex) || !fs.existsSync(assetsDir)) {
+        const { build } = await import('vite');
+        await build({
+          configFile: path.resolve(__dirname, '../vite.config.guest.ts'),
+        });
+      }
+    }, 30000);
+
     it('serve o index.html compilado do Guest em /join/:token com cabeçalhos CSP estritos', async () => {
       sessionController = new ServerSessionController();
       const sessionInfo = await sessionController.startSession(
