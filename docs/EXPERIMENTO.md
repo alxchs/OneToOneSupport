@@ -12,6 +12,9 @@ Método: a partir da fase 02, o executor entrega junto o `docs/reviews/autoaudit
 | Fase | D_chefe | D_auto | Falsos PASS | Custo do chefe | Observações |
 | --- | --- | --- | --- | --- | --- |
 | 01 (baseline, sem autoauditoria) | 2 (CSP em file://, `info.changes` ignorado) | n/a | n/a | alto: leitura de código + clone limpo + sonda manual | HANDOFF afirmava "CSP ajustada"; era falso em produção |
+| 02 | 0 achados (auditoria por amostra) | autoauditoria verde, 13/13 sonda | 0 | baixo: auditor automático + leitura de trechos | dev CSP tratada como pedido |
+| 03 | 3 (HANDOFF cita eventos inexistentes; "Opus" inventado; branch/divergência erradas) | autoauditoria só após 1ª reprovação do auditor | 1 (HANDOFF/autoauditoria afirmam algo que o código não tem) | baixo | executor **inventa escopo** e omite passos; auditor pega omissões, não invenções |
+| 04 | 3 ressalvas de segurança/teste (timingSafeEqual, token queimado antes do handshake, rate limit sem teste) + 1 invenção repetida | 28 PASS / 0 FAIL, mas nenhuma das 3 ressalvas | 1 (evento inexistente citado de novo) | baixo: 4 leituras de trechos | testes de ataque presentes e coerentes; faltou atacar a própria lógica de token |
 
 ## Critério de decisão
 Se por 2 fases seguidas `D_chefe == 0` e `Falsos PASS == 0`, o chefe reduz a auditoria a: reexecutar `npm run verify` em clone limpo, conferir `autoauditoria-NN.md` por amostragem e abrir a tela. Caso contrário, mantém a auditoria completa e endurece o `AGENTS.md`.
