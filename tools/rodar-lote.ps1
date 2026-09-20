@@ -13,6 +13,7 @@ New-Item -ItemType Directory -Force docs\execucoes | Out-Null
 $resumo = "docs\execucoes\lote-$(Get-Date -Format yyyyMMdd_HHmm).log"
 function Registra($t) { Write-Host $t; Add-Content $resumo $t }
 
+$Fases = @($Fases | ForEach-Object { $_ -split "[,; ]+" } | Where-Object { $_ })  # com -File, "02,03,04" chega como um texto só
 foreach ($f in $Fases) {
   $f = $f.PadLeft(2, '0')
   $p = Get-ChildItem "docs\prompts\fase-$f-*.md" | Select-Object -First 1
