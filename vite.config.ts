@@ -32,6 +32,10 @@ export default defineConfig({
   resolve: {
     alias: {
       '@shared': path.resolve(__dirname, 'src/shared'),
+      'libsodium-wrappers-sumo': path.resolve(
+        __dirname,
+        'node_modules/libsodium-wrappers-sumo/dist/modules-sumo/libsodium-wrappers.js'
+      ),
     },
   },
 });

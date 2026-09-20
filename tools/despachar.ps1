@@ -22,7 +22,7 @@ if (-not $prompt) { throw "Ordem de serviço da fase $Fase não encontrada em do
 
 $branch = (git rev-parse --abbrev-ref HEAD).Trim()
 if ($branch -notlike "fase/$Fase-*") { throw "Branch atual '$branch' não é fase/$Fase-*. Crie/troque antes de despachar." }
-if (git status --porcelain -- . ':!docs/execucoes') { throw "Working tree suja. Commit ou stash antes." }
+if (git status --porcelain -- . ':!docs/execucoes' ':!.gitignore') { throw "Working tree suja. Commit ou stash antes." }
 
 New-Item -ItemType Directory -Force docs\execucoes | Out-Null
 $log = "docs\execucoes\fase-$Fase-agy-$(Get-Date -Format yyyyMMdd_HHmm).log"

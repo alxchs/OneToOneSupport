@@ -75,3 +75,4 @@ ehthumbs.db
 # Test coverage & reports
 coverage/
 .vitest/
+node_modules
