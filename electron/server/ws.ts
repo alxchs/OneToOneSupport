@@ -410,9 +410,9 @@ export function createWebSocketServer(options: WsServerOptions): WsServerHandle 
               innerMessage.payload !== undefined && innerMessage.payload !== null
                 ? innerMessage.payload
                 : innerMessage;
-            const innerEnvelope = createEnvelope(innerType, actualPayload as unknown as never);
-            if (innerMessage.abaId) {
-              (innerEnvelope as any).abaId = innerMessage.abaId;
+            const innerEnvelope: ProtocolEnvelope & { abaId?: string } = createEnvelope(innerType, actualPayload as unknown as never);
+            if (innerMessage.abaId && typeof innerMessage.abaId === 'string') {
+              innerEnvelope.abaId = innerMessage.abaId;
             }
             onGuestEvent(innerEnvelope);
           } catch (err) {

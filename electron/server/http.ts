@@ -256,8 +256,9 @@ export async function startHttpServer(
         port: assignedPort,
         close: () =>
           new Promise<void>((res, rej) => {
-            if (typeof (server as any).closeAllConnections === 'function') {
-              (server as any).closeAllConnections();
+            const extServer = server as http.Server & { closeAllConnections?: () => void };
+            if (typeof extServer.closeAllConnections === 'function') {
+              extServer.closeAllConnections();
             }
             server.close((err) => (err ? rej(err) : res()));
           }),

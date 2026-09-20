@@ -73,7 +73,7 @@ Todas as entregas da Ordem de Serviço da Fase 07 foram implementadas, testadas 
    - Resultado: O servidor valida a autoridade do autor. Comandos administrativos (`LOCK_SCREEN`, `UNLOCK_MEDIA`, `SWITCH_TAB`) são exclusivos do Host e são sumariamente descartados e registrados como evento não autorizado.
 4. **Tentativa de Conexão Concorrente (Ataque de Segundo Guest):**
    - Ataque: Um segundo usuário descobre a URL ou tenta reutilizar o link enquanto a sessão 1:1 já está em andamento.
-   - Resultado: O servidor HTTP/WS aplica a regra estrita de unicidade: o token inicial é de uso único (one-shot). Tentativas subsequentes recebem erro `SESSION_OCCUPIED` ou HTTP 403 e a conexão é rejeitada antes do handshake.
+   - Resultado: O servidor HTTP/WS aplica a regra estrita de unicidade: o token inicial é de uso único (one-shot). Tentativas subsequentes recebem erro `SESSION_BUSY` ou HTTP 403 e a conexão é rejeitada antes do handshake.
 5. **Ataque de Queda Abrupta de Conexão com Reuso de Token Antigo:**
    - Ataque: Durante oscilação de rede 4G/5G, a conexão cai e o atacante tenta utilizar o token original expirado ou um `reconnect_token` já utilizado.
    - Resultado: O `reconnect_token` possui rotação estrita e uso único. A cada reconexão bem-sucedida, um novo segredo criptográfico CSPRNG de 32 bytes é emitido e o anterior é invalidado. O teste automatizado comprova que `segundoReconnectToken !== primeiroReconnectToken`.
