@@ -2,8 +2,23 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 
+// O header CSP do main.ts não é aplicado a páginas file:// (build empacotado); no build a política vai no próprio HTML.
+const CSP =
+  "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws: wss:;";
+
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    {
+      name: 'csp-meta',
+      apply: 'build',
+      transformIndexHtml: {
+        order: 'post',
+        handler: (html: string) =>
+          html.replace('<head>', `<head>\n    <meta http-equiv="Content-Security-Policy" content="${CSP}" />`),
+      },
+    },
+  ],
   base: './',
   root: '.',
   build: {

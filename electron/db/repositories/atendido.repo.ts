@@ -174,6 +174,9 @@ export function updateAtendido(
       newNotas
     );
 
+    if (info.changes === 0) {
+      return { updated: false, reason: 'NOT_FOUND' } as UpdateAtendidoResult;
+    }
     return { updated: true, id } as UpdateAtendidoResult;
   });
 
