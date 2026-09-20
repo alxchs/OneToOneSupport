@@ -1,32 +1,29 @@
 <#
-  Revisão cruzada: o Antigravity (agy) revisa, SEM alterar nada, artefatos escritos pelo chefe (Claude Code).
-  Uso: tools\revisao-cruzada.ps1 -Fase 02
-  Saída: docs\reviews\revisao-cruzada-NN.md (escrito por este script, não pelo agente).
-  Precisa de --dangerously-skip-permissions (o headless não consegue pedir permissão nem para ler arquivos);
-  por isso o script confere, ao final, que o agente não alterou NENHUM arquivo rastreado ou novo.
+  Revisão cruzada: o executor (agy) revisa, SEM alterar nada, os artefatos escritos pelo chefe (ordem de serviço, ferramentas, regras).
+  Uso: tools\revisao-cruzada.ps1 -Fase 02 -Autonomo
+  Saída: docs\reviews\revisao-cruzada-NN.md (escrito por este script). Confere no fim que o agente não alterou NENHUM arquivo.
 #>
-param([Parameter(Mandatory)][string]$Fase)
-$ErrorActionPreference = 'Stop'
-$raiz = Split-Path -Parent $PSScriptRoot
-Set-Location $raiz
-$agy = Join-Path $env:USERPROFILE '.gemini\bin\agy.exe'
-$saida = "docs\reviews\revisao-cruzada-$Fase.md"
-$ignorar = @($saida.Replace('\','/'), 'docs/execucoes')
-function Estado { (git status --porcelain) | Where-Object { $l = $_; -not ($ignorar | Where-Object { $l -like "*$_*" }) } }
-if (Estado) { throw "Working tree suja; commit antes de rodar a revisão cruzada." }
-
-$p = @"
-Seu repositório e diretório de trabalho é $raiz (já existe; NÃO o procure em outros discos; NÃO use tarefas em segundo plano).
+param([Parameter(Mandatory)][string]$Fase, [switch]$Autonomo)
+. "$PSScriptRoot\_comum.ps1"
+$cfg = Get-Cfg
+Set-Location $cfg.Raiz
+$Fase = $Fase.PadLeft(2, '0')
+$saida = "docs/reviews/revisao-cruzada-$Fase.md"
+if (-not $Autonomo) { throw "A revisão cruzada precisa de -Autonomo (headless não lê arquivos sem permissão). Exige autorização do dono." }
+if (-not (Test-ArvoreLimpa @('docs/execucoes', '.gitignore', $saida))) { throw "Working tree suja; commit antes." }
+$pre = (git rev-parse HEAD).Trim()
+$texto = (New-Cabecalho $cfg (git rev-parse --abbrev-ref HEAD).Trim()) + @"
 MODO SOMENTE LEITURA ABSOLUTO: não edite, não crie, não apague arquivos; não rode git commit/add/checkout/reset; não instale nada. Só leia.
-Revise criticamente estes artefatos, escritos por outra IA (o chefe técnico), e aponte LACUNAS REAIS:
-docs/prompts/fase-$Fase-*.md, tools/auditar.cjs, tools/probe-runtime.cjs, tools/despachar.ps1 e a seção 'Autoauditoria obrigatória' do AGENTS.md.
-Procure: ambiguidades que fariam um executor errar; requisitos sem critério de aceite verificável; bugs nas ferramentas; casos que o auditor automático não detectaria; riscos de segurança; contradições com docs/DOCUMENTO_MESTRE.md.
+Revise criticamente estes artefatos, escritos por outra IA (o chefe técnico), e aponte LACUNAS REAIS: $($cfg.PromptsDir)/fase-$Fase-*.md, tools/*.cjs, tools/*.ps1 e a seção de autoauditoria do AGENTS.md.
+Procure: ambiguidades que fariam um executor errar; requisitos sem critério de aceite verificável; bugs nas ferramentas; casos que o auditor automático não detectaria; riscos de segurança.
 Responda em português, no máximo 25 linhas, lista numerada por gravidade, cada item com arquivo e motivo concreto. Sem elogios.
 "@
-$env:ELECTRON_RUN_AS_NODE = $null
-$r = & $agy --print $p --effort high --add-dir $raiz --dangerously-skip-permissions 2>&1 | Out-String
-if (Estado) { throw "O agente ALTEROU arquivos durante uma revisão somente leitura. Confira com git status e descarte (git restore .; git clean -fd -e docs/execucoes)." }
-if ([string]::IsNullOrWhiteSpace($r) -or $r -match 'auto-denied') { throw "Revisão sem conteúdo utilizável:`n$r" }
+$log = "docs\execucoes\revisao-cruzada-$Fase-$(Get-Date -Format yyyyMMdd_HHmm).log"
+New-Item -ItemType Directory -Force docs\execucoes | Out-Null
+$r = & { Invoke-Agy -Cfg $cfg -Texto $texto -Log $log -Autonomo }  | Out-String
+$viol = @(Get-AlteracoesForaDoPermitido $pre @($saida))
+if ($viol.Count -gt 0) { throw "O agente ALTEROU arquivos numa revisão somente leitura: $($viol -join ', '). Confira com git status e descarte." }
+if ([string]::IsNullOrWhiteSpace($r)) { throw "Revisão sem conteúdo utilizável (veja $log)." }
 New-Item -ItemType Directory -Force docs\reviews | Out-Null
-"# Revisão cruzada (Antigravity revisando o chefe) — fase $Fase`n`n$r" | Set-Content $saida -Encoding utf8
-Write-Host "Revisão salva em $saida. Avise o chefe (Claude Code)."
+"# Revisão cruzada (executor revisando o chefe) — fase $Fase`n`n$r" | Set-Content $saida -Encoding utf8
+Write-Host "Revisão salva em $saida."

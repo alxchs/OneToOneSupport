@@ -1,71 +1,82 @@
+#!/usr/bin/env node
 /*
-  Auditor automático (QA desconfiado). Clona a branch em pasta temporária, roda tudo do zero e imprime um RESUMO CURTO.
-  Uso: node tools/auditar.cjs [branch]      (padrão: branch atual)
-  Existe para o chefe ler ~30 linhas em vez de dezenas de milhares de tokens de log. Exit 1 se algo reprovar.
+  Auditor automático (QA desconfiado), configurável por projeto. Clona a branch em pasta temporária, roda tudo do zero
+  e imprime um RESUMO CURTO. Uso: node tools/auditar.cjs [branch]   (padrão: branch atual). Exit 1 se algo reprovar.
+  Configuração: orquestrador.config.json (veja o README do kit). Sem config, usa padrões de projeto Node.
 */
 const { spawnSync } = require('child_process');
 const fs = require('fs'), path = require('path'), os = require('os');
 const root = path.resolve(__dirname, '..');
-const env = { ...process.env };
-delete env.NODE_ENV; // NODE_ENV=production faria o npm ci pular as devDependencies
-delete env.ELECTRON_RUN_AS_NODE;
-const run = (cmd, args, cwd) => {
-  const r = spawnSync(cmd, args, { cwd, encoding: 'utf8', shell: process.platform === 'win32', env, maxBuffer: 1 << 28 });
+let cfg = {}; try { cfg = JSON.parse(fs.readFileSync(path.join(root, 'orquestrador.config.json'), 'utf8')); } catch { /* sem config */ }
+const C = {
+  baseBranch: 'main', installCmd: 'npm ci', verifyCmd: 'npm run verify', unusedCmd: null,
+  testCountRegex: 'Tests\\s+(?:\\d+ failed \\| )?(\\d+) passed', probeRegex: '^(PASS|FAIL)\\s+(.+)$', requireProbe: false,
+  layerRules: [], handoff: 'docs/HANDOFF.md', selfAudit: 'docs/reviews/autoauditoria-{NN}.md', requireSelfAudit: true,
+  branchPrefix: 'fase', ...cfg,
+};
+const env = { ...process.env }; delete env.NODE_ENV; delete env.ELECTRON_RUN_AS_NODE; // NODE_ENV=production faria o npm ci pular devDependencies
+const run = (cmd, cwd) => {
+  const r = spawnSync(cmd, { cwd, encoding: 'utf8', shell: true, env, maxBuffer: 1 << 28 });
   return { code: r.status, out: ((r.stdout || '') + (r.stderr || '')).replace(/\x1b\[[0-9;]*m/g, '') };
 };
-const branch = process.argv[2] || run('git', ['rev-parse', '--abbrev-ref', 'HEAD'], root).out.trim();
-const nn = (branch.match(/fase\/(\d+)/) || [])[1];
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'o2o-audit-'));
-const rows = [];
-const add = (nome, ok, det = '') => rows.push({ nome, ok, det });
+const branch = process.argv.slice(2).find((a) => !a.startsWith('--')) || run('git rev-parse --abbrev-ref HEAD', root).out.trim();
+const nn = (branch.match(new RegExp(C.branchPrefix + '/(\\d+)')) || [])[1];
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'audit-'));
+const rows = []; const add = (nome, ok, det = '') => rows.push({ nome, ok, det });
+const q = (p) => `"${p}"`;
 
-const cl = run('git', ['clone', '-q', '--branch', branch, root, tmp], root);
+const cl = run(`git clone -q --branch ${q(branch)} ${q(root)} ${q(tmp)}`, root);
 add('clone limpo da branch', cl.code === 0, cl.code ? cl.out.slice(0, 200) : branch);
 if (cl.code === 0) {
-  const ci = run('npm', ['ci'], tmp);
-  add('npm ci', ci.code === 0, (ci.out.match(/(\d+) vulnerabilities[^\n]*/) || [''])[0]);
-  const v = run('npm', ['run', 'verify'], tmp);
-  const tests = v.out.match(/Tests\s+(?:\d+ failed \| )?(\d+) passed/);
-  const failed = v.out.match(/(\d+) failed/);
-  add('npm run verify (typecheck+testes+build+sonda)', v.code === 0,
-    `${tests ? tests[1] + ' testes ok' : 'sem contagem de testes'}${failed ? ', ' + failed[0] : ''}`);
-  const probe = [...v.out.matchAll(/^(PASS|FAIL)\s+(.+)$/gm)];
-  const pf = probe.filter((m) => m[1] === 'FAIL');
-  add('sonda de runtime', probe.length > 0 && pf.length === 0, `${probe.length - pf.length}/${probe.length} checagens` + (pf.length ? ' FALHOU: ' + pf.map((m) => m[2]).join('; ') : ''));
-
-  const unused = run('npx', ['tsc', '--noEmit', '--noUnusedLocals', '--noUnusedParameters'], tmp);
-  const nUnused = (unused.out.match(/error TS\d+/g) || []).length;
-  add('sem variavel/parametro nao usado (classe de bug da fase 01)', nUnused === 0, nUnused ? `${nUnused} ocorrencias: ` + unused.out.split('\n').filter((l) => /error TS/.test(l)).slice(0, 3).join(' | ') : '');
-
-  const walk = (d) => (fs.existsSync(d) ? fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)])) : []);
-  const srcFiles = walk(path.join(tmp, 'src')).filter((f) => /\.(ts|tsx|css|html)$/.test(f));
-  const grep = (re, files = srcFiles) => files.flatMap((f) => fs.readFileSync(f, 'utf8').split('\n').map((l, i) => (re.test(l) ? `${path.relative(tmp, f)}:${i + 1}` : null)).filter(Boolean));
-  const imp = grep(/from ['"](fs|path|better-sqlite3|electron)['"]|require\(['"](fs|electron|better-sqlite3)['"]\)/);
-  add('Renderer sem fs/electron/better-sqlite3', imp.length === 0, imp.slice(0, 3).join(', '));
-  const sql = grep(/\b(SELECT\s.+\sFROM|INSERT\s+INTO|UPDATE\s+\w+\s+SET|DELETE\s+FROM)\b/i);
-  add('Renderer sem SQL (regra de negocio no Main)', sql.length === 0, sql.slice(0, 3).join(', '));
-  const red = grep(/#(f00|ff0000|dc2626|ef4444|b91c1c|e11d48|991b1b|fca5a5|f87171)\b|\bred\b|rgb\(\s*2[0-5]\d\s*,\s*[0-5]?\d\s*,\s*[0-5]?\d\s*\)/i);
-  add('sem vermelho na UI (regra do Alexandre)', red.length === 0, red.slice(0, 3).join(', '));
-
+  const ci = run(C.installCmd, tmp);
+  add(`instalação (${C.installCmd})`, ci.code === 0, (ci.out.match(/(\d+) vulnerabilities[^\n]*/) || [''])[0]);
+  const v = run(C.verifyCmd, tmp);
+  const t = v.out.match(new RegExp(C.testCountRegex)), f = v.out.match(/(\d+) failed/);
+  add(`verificação (${C.verifyCmd})`, v.code === 0, `${t ? t[1] + ' testes ok' : 'sem contagem de testes'}${f ? ', ' + f[0] : ''}`);
+  const probe = [...v.out.matchAll(new RegExp(C.probeRegex, 'gm'))], pf = probe.filter((m) => m[1] === 'FAIL');
+  if (probe.length || C.requireProbe) add('sonda de runtime', probe.length > 0 && pf.length === 0, `${probe.length - pf.length}/${probe.length} checagens` + (pf.length ? ' FALHOU: ' + pf.map((m) => m[2]).join('; ') : ''));
+  if (C.unusedCmd) {
+    const u = run(C.unusedCmd, tmp), n = (u.out.match(/error TS\d+|error:/g) || []).length;
+    add('sem variável/parâmetro não usado', u.code === 0 && n === 0, n ? `${n} ocorrência(s): ` + u.out.split('\n').filter((l) => /error/.test(l)).slice(0, 3).join(' | ') : '');
+  }
+  // regras de camada/paleta definidas pelo projeto
+  const walk = (d) => (fs.existsSync(d) ? fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? (e.name === 'node_modules' ? [] : walk(path.join(d, e.name))) : [path.join(d, e.name)])) : []);
+  for (const r of C.layerRules) {
+    const re = new RegExp(r.regex, r.flags || ''), exts = new Set(r.exts || ['ts', 'tsx', 'js', 'jsx', 'css', 'html']);
+    const hits = (r.dirs || ['src']).flatMap((d) => walk(path.join(tmp, d))).filter((p) => exts.has(path.extname(p).slice(1)))
+      .flatMap((p) => fs.readFileSync(p, 'utf8').split('\n').map((l, i) => (re.test(l) ? `${path.relative(tmp, p).replace(/\\/g, '/')}:${i + 1}` : null)).filter(Boolean));
+    add(r.nome, hits.length === 0, hits.slice(0, 3).join(', '));
+  }
+  // sinais de risco e afirmações (rodam a partir DESTA pasta de ferramentas, sobre o clone)
+  const sr = run(`node ${q(path.join(__dirname, 'sinais-risco.cjs'))} --root ${q(tmp)} --json`, tmp);
+  try {
+    const j = JSON.parse(sr.out.trim().split('\n').pop());
+    const ex = j.items.filter((i) => i.sev === 'falha').concat(j.items.filter((i) => i.sev !== 'falha')).slice(0, 4).map((i) => `${i.id} ${i.file}:${i.line}`).join('; ');
+    add('sinais de risco (linhas novas)', j.fail === 0, `${j.fail} falha(s), ${j.warn} aviso(s)${ex ? ' -> ' + ex : ''}`);
+  } catch { add('sinais de risco (linhas novas)', false, 'não executou: ' + sr.out.slice(0, 160)); }
   if (nn) {
-    const auto = path.join(tmp, 'docs', 'reviews', `autoauditoria-${nn}.md`);
-    add(`autoauditoria-${nn}.md existe`, fs.existsSync(auto));
+    const auto = path.join(tmp, C.selfAudit.replace('{NN}', nn));
+    if (C.requireSelfAudit) add(`autoauditoria-${nn} existe`, fs.existsSync(auto));
     if (fs.existsSync(auto)) {
-      const t = fs.readFileSync(auto, 'utf8');
-      const nP = (t.match(/\bPASS\b/g) || []).length, nF = (t.match(/\bFAIL\b/g) || []).length;
-      add('autoauditoria lista o que NAO foi verificado', /n[aã]o (foi )?verificad/i.test(t));
+      const s = fs.readFileSync(auto, 'utf8'), nP = (s.match(/\bPASS\b/g) || []).length, nF = (s.match(/\bFAIL\b/g) || []).length;
+      add('autoauditoria lista o que NÃO foi verificado', /n[aã]o (foi )?verificad/i.test(s));
       add('autoauditoria sem FAIL aberto', nF === 0, `${nP} PASS / ${nF} FAIL`);
     }
-    const h = fs.readFileSync(path.join(tmp, 'docs', 'HANDOFF.md'), 'utf8');
-    add('HANDOFF atualizado para esta fase', new RegExp(`fase\\s*0?${Number(nn)}`, 'i').test(h));
+    const hp = path.join(tmp, C.handoff);
+    add('HANDOFF atualizado para esta fase', fs.existsSync(hp) && new RegExp(`(fase|phase|etapa)\\s*0?${Number(nn)}\\b`, 'i').test(fs.readFileSync(hp, 'utf8')));
   }
-  const diff = run('git', ['diff', '--shortstat', 'origin/main...HEAD'], tmp).out.trim();
-  const commits = run('git', ['rev-list', '--count', 'origin/main..HEAD'], tmp).out.trim();
-  add('commits novos desde main', Number(commits) > 0, `${commits} commits; ${diff}`);
+  const vc = run(`node ${q(path.join(__dirname, 'verificar-afirmacoes.cjs'))} --root ${q(tmp)} --branch ${q(branch)} --json`, tmp);
+  try {
+    const j = JSON.parse(vc.out.trim().split('\n').pop());
+    add('afirmações da documentação existem no código', j.missing.length === 0 || vc.code === 0, `${j.verificados} verificadas` + (j.missing.length ? `; ${j.missing.length} inexistente(s): ` + j.missing.slice(0, 4).map((m) => `${m.tipo} ${m.token}`).join('; ') : ''));
+  } catch { add('afirmações da documentação existem no código', false, 'não executou: ' + vc.out.slice(0, 160)); }
+  const commits = run(`git rev-list --count origin/${C.baseBranch}..HEAD`, tmp).out.trim();
+  const diff = run(`git diff --shortstat origin/${C.baseBranch}...HEAD`, tmp).out.trim();
+  add('commits novos desde a base', Number(commits) > 0, `${commits} commits; ${diff}`);
 }
-fs.rmSync(tmp, { recursive: true, force: true });
+try { fs.rmSync(tmp, { recursive: true, force: true }); } catch { /* Windows pode manter lock; a pasta é temporária */ }
 console.log(`\nAUDITORIA AUTOMATICA — ${branch}`);
 for (const r of rows) console.log(`${r.ok ? 'PASS' : 'FAIL'}  ${r.nome}${r.det ? '  -> ' + r.det : ''}`);
 const bad = rows.filter((r) => !r.ok).length;
-console.log(`\n${bad === 0 ? 'TUDO VERDE' : bad + ' REPROVACAO(OES)'} — este relatorio NAO substitui a abertura da tela e a leitura de amostra do diff.`);
+console.log(`\n${bad === 0 ? 'TUDO VERDE' : bad + ' REPROVACAO(OES)'} — este relatorio NAO substitui a abertura da tela, a leitura de amostra do diff e a decisão do chefe.`);
 process.exit(bad ? 1 : 0);
