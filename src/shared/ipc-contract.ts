@@ -35,6 +35,14 @@ export const IPC_CHANNELS = {
   DESKTOP_GET_SCALE_FACTOR: 'desktop:get-scale-factor',
   DESKTOP_GET_DISPLAY_METRICS: 'desktop:get-display-metrics',
   DESKTOP_GET_APP_VERSION: 'desktop:get-app-version',
+
+  // Servidor e Sessão Remota (Fase 04)
+  SERVER_START_SESSION: 'server:start-session',
+  SERVER_STOP_SESSION: 'server:stop-session',
+  SERVER_GET_STATUS: 'server:get-status',
+  SERVER_LIST_IPS: 'server:list-ips',
+  SERVER_SET_IP: 'server:set-ip',
+  SERVER_STATUS_CHANGED: 'server:status-changed',
 } as const;
 
 export type IPCChannelName = typeof IPC_CHANNELS[keyof typeof IPC_CHANNELS];
@@ -110,6 +118,43 @@ export interface SetConfigPayload {
   valor: string;
 }
 
+export type ServerConnectionStatus =
+  | 'idle'
+  | 'aguardando_guest'
+  | 'conectado'
+  | 'reconectando'
+  | 'encerrada';
+
+export interface ServerLanInterfaceDTO {
+  name: string;
+  ip: string;
+  isDefault: boolean;
+}
+
+export interface ServerSessionInfoDTO {
+  sessaoId: string;
+  atendidoId: string;
+  status: ServerConnectionStatus;
+  port: number;
+  selectedIp: string;
+  availableIps: ServerLanInterfaceDTO[];
+  inviteUrl: string;
+  qrDataUrl: string;
+  guestConnected: boolean;
+  screenLocked: boolean;
+  mediaUnlocked: boolean;
+}
+
+export interface StartServerSessionPayload {
+  sessaoId: string;
+  atendidoId: string;
+  preferredIp?: string;
+}
+
+export interface SetServerIpPayload {
+  ip: string;
+}
+
 export interface DisplayMetrics {
   width: number;
   height: number;
@@ -144,6 +189,15 @@ export interface DesktopAPI {
     get: (chave: string) => Promise<IPCResult<string | null>>;
     set: (chave: string, valor: string) => Promise<IPCResult<{ chave: string; valor: string }>>;
   };
+
+  serverSession: {
+    start: (payload: StartServerSessionPayload) => Promise<IPCResult<ServerSessionInfoDTO>>;
+    stop: () => Promise<IPCResult<{ stopped: boolean }>>;
+    getStatus: () => Promise<IPCResult<ServerSessionInfoDTO | null>>;
+    listIps: () => Promise<IPCResult<ServerLanInterfaceDTO[]>>;
+    setIp: (payload: SetServerIpPayload) => Promise<IPCResult<ServerSessionInfoDTO>>;
+    onStatusChange: (callback: (status: ServerSessionInfoDTO | null) => void) => () => void;
+  };
 }
 
 declare global {
@@ -151,3 +205,4 @@ declare global {
     desktopAPI?: DesktopAPI;
   }
 }
+

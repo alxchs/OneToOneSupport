@@ -522,3 +522,17 @@ export function isAuthEnvelope(msg: ProtocolMessage): msg is ProtocolEnvelope<'A
 export function isHandshakeInitEnvelope(msg: ProtocolMessage): msg is ProtocolEnvelope<'HANDSHAKE_INIT'> {
   return msg.type === 'HANDSHAKE_INIT';
 }
+
+/**
+ * Aliases convenientes para envelopes do protocolo
+ */
+export const createEnvelope = createProtocolEnvelope;
+
+export function validateEnvelope(input: unknown): ProtocolMessage {
+  const result = parseProtocolMessage(input);
+  if (!result.ok) {
+    throw new Error(`[ProtocolValidationError] ${result.code}: ${result.error}`);
+  }
+  return result.value;
+}
+

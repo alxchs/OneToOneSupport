@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useHostStore } from '../store/useHostStore';
 
 export const DetalheAtendidoPage: React.FC = () => {
@@ -7,6 +7,7 @@ export const DetalheAtendidoPage: React.FC = () => {
     sessoes,
     dicionario,
     carregando,
+    activeServerSession,
     setView,
     abrirFormularioEdicao,
     desativarAtendido,
@@ -14,11 +15,32 @@ export const DetalheAtendidoPage: React.FC = () => {
     purgarAtendido,
     criarSessao,
     encerrarSessao,
+    iniciarServidorSessao,
+    encerrarServidorSessao,
+    selecionarIpServidor,
+    carregarStatusServidor,
   } = useHostStore();
 
   const [mostrarFormSessao, setMostrarFormSessao] = useState(false);
   const [tituloSessao, setTituloSessao] = useState('');
   const [notasSessao, setNotasSessao] = useState('');
+  const [copiado, setCopiado] = useState(false);
+
+  useEffect(() => {
+    carregarStatusServidor();
+    if (window.desktopAPI?.serverSession?.onStatusChange) {
+      const unsub = window.desktopAPI.serverSession.onStatusChange((status) => {
+        useHostStore.setState({ activeServerSession: status });
+      });
+      return unsub;
+    }
+  }, [carregarStatusServidor]);
+
+  const copiarLink = (url: string) => {
+    navigator.clipboard.writeText(url);
+    setCopiado(true);
+    setTimeout(() => setCopiado(false), 2500);
+  };
 
   if (!selectedAtendido) {
     return (
@@ -430,22 +452,218 @@ export const DetalheAtendidoPage: React.FC = () => {
                   </div>
 
                   {ativa && (
-                    <button
-                      id={`btn-encerrar-sessao-${s.id}`}
-                      onClick={() => encerrarSessao(s.id)}
+                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                      {(!activeServerSession || activeServerSession.sessaoId !== s.id) && (
+                        <button
+                          id={`btn-iniciar-servidor-${s.id}`}
+                          onClick={() => iniciarServidorSessao(s.id, selectedAtendido.id)}
+                          style={{
+                            padding: '0.5rem 1rem',
+                            fontSize: '0.8125rem',
+                            fontWeight: 600,
+                            backgroundColor: '#0284c7',
+                            border: '1px solid #0369a1',
+                            color: '#ffffff',
+                            borderRadius: '0.375rem',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Abrir Sala (Servidor LAN)
+                        </button>
+                      )}
+                      <button
+                        id={`btn-encerrar-sessao-${s.id}`}
+                        onClick={() => encerrarSessao(s.id)}
+                        style={{
+                          padding: '0.5rem 1rem',
+                          fontSize: '0.8125rem',
+                          fontWeight: 600,
+                          backgroundColor: '#451a03',
+                          border: '1px solid #b45309',
+                          color: '#fef3c7',
+                          borderRadius: '0.375rem',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Encerrar {rotuloSessao}
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Painel da Sala de Atendimento / Servidor Ativo */}
+                  {ativa && activeServerSession && activeServerSession.sessaoId === s.id && (
+                    <div
+                      id="painel-sala-servidor"
                       style={{
-                        padding: '0.5rem 1rem',
-                        fontSize: '0.8125rem',
-                        fontWeight: 600,
-                        backgroundColor: '#451a03',
-                        border: '1px solid #b45309',
-                        color: '#fef3c7',
-                        borderRadius: '0.375rem',
-                        cursor: 'pointer',
+                        width: '100%',
+                        marginTop: '1rem',
+                        padding: '1.25rem',
+                        backgroundColor: '#111c44',
+                        border: '1px solid #0284c7',
+                        borderRadius: '0.5rem',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '1rem',
                       }}
                     >
-                      Encerrar {rotuloSessao}
-                    </button>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          <span style={{ fontSize: '0.875rem', fontWeight: 600, color: '#f8fafc' }}>
+                            Sala de Atendimento 1:1
+                          </span>
+                          <span
+                            id="badge-status-conexao"
+                            style={{
+                              padding: '0.2rem 0.6rem',
+                              borderRadius: '9999px',
+                              fontSize: '0.75rem',
+                              fontWeight: 600,
+                              backgroundColor:
+                                activeServerSession.status === 'conectado'
+                                  ? '#064e3b'
+                                  : activeServerSession.status === 'reconectando'
+                                  ? '#451a03'
+                                  : '#0c4a6e',
+                              color:
+                                activeServerSession.status === 'conectado'
+                                  ? '#34d399'
+                                  : activeServerSession.status === 'reconectando'
+                                  ? '#fef3c7'
+                                  : '#38bdf8',
+                            }}
+                          >
+                            {activeServerSession.status === 'conectado'
+                              ? 'Convidado Conectado (E2EE Ativo)'
+                              : activeServerSession.status === 'reconectando'
+                              ? 'Reconectando Convidado...'
+                              : 'Aguardando Convidado...'}
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                          <span style={{ fontSize: '0.8125rem', color: '#64748b' }}>
+                            Porta Local: {activeServerSession.port}
+                          </span>
+                          <button
+                            id="btn-fechar-sala-servidor"
+                            type="button"
+                            onClick={() => encerrarServidorSessao()}
+                            style={{
+                              padding: '0.25rem 0.625rem',
+                              fontSize: '0.75rem',
+                              backgroundColor: '#1e293b',
+                              border: '1px solid #334155',
+                              color: '#cbd5e1',
+                              borderRadius: '0.375rem',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            Fechar Sala LAN
+                          </button>
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1.5rem', alignItems: 'center' }}>
+                        {/* Imagem do QR Code */}
+                        {activeServerSession.qrDataUrl && (
+                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.25rem' }}>
+                            <img
+                              id="img-qrcode-sessao"
+                              src={activeServerSession.qrDataUrl}
+                              alt="QR Code do Convite"
+                              style={{
+                                width: '130px',
+                                height: '130px',
+                                backgroundColor: '#ffffff',
+                                padding: '6px',
+                                borderRadius: '0.375rem',
+                                border: '1px solid #334155',
+                              }}
+                            />
+                            <span style={{ fontSize: '0.6875rem', color: '#94a3b8' }}>Escanear no celular</span>
+                          </div>
+                        )}
+
+                        {/* Dados de Conexão: Link e Seletor de IP */}
+                        <div style={{ flex: '1 1 18rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                          <div>
+                            <label
+                              htmlFor="input-url-convite"
+                              style={{ display: 'block', fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.25rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}
+                            >
+                              Link de Convite para o {rotuloGuest}
+                            </label>
+                            <div style={{ display: 'flex', gap: '0.5rem' }}>
+                              <input
+                                id="input-url-convite"
+                                type="text"
+                                readOnly
+                                value={activeServerSession.inviteUrl}
+                                style={{
+                                  flex: 1,
+                                  padding: '0.5rem 0.75rem',
+                                  fontSize: '0.8125rem',
+                                  backgroundColor: '#0c1322',
+                                  border: '1px solid #334155',
+                                  borderRadius: '0.375rem',
+                                  color: '#38bdf8',
+                                  fontFamily: 'monospace',
+                                }}
+                              />
+                              <button
+                                id="btn-copiar-link-convite"
+                                type="button"
+                                onClick={() => copiarLink(activeServerSession.inviteUrl)}
+                                style={{
+                                  padding: '0.5rem 1rem',
+                                  fontSize: '0.8125rem',
+                                  fontWeight: 600,
+                                  backgroundColor: copiado ? '#064e3b' : '#1e293b',
+                                  border: '1px solid #334155',
+                                  color: copiado ? '#34d399' : '#f8fafc',
+                                  borderRadius: '0.375rem',
+                                  cursor: 'pointer',
+                                  whiteSpace: 'nowrap',
+                                }}
+                              >
+                                {copiado ? 'Copiado!' : 'Copiar Link'}
+                              </button>
+                            </div>
+                          </div>
+
+                          <div>
+                            <label
+                              htmlFor="select-ip-lan"
+                              style={{ display: 'block', fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.25rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}
+                            >
+                              Interface de Rede (IP LAN)
+                            </label>
+                            <select
+                              id="select-ip-lan"
+                              value={activeServerSession.selectedIp}
+                              onChange={(e) => selecionarIpServidor(e.target.value)}
+                              style={{
+                                width: '100%',
+                                padding: '0.5rem 0.75rem',
+                                fontSize: '0.8125rem',
+                                backgroundColor: '#0c1322',
+                                border: '1px solid #334155',
+                                borderRadius: '0.375rem',
+                                color: '#f8fafc',
+                              }}
+                            >
+                              {activeServerSession.availableIps.map((iface) => (
+                                <option key={iface.ip} value={iface.ip}>
+                                  {iface.name} ({iface.ip}){iface.isDefault ? ' - Padrão' : ''}
+                                </option>
+                              ))}
+                              {activeServerSession.availableIps.length === 0 && (
+                                <option value="127.0.0.1">Loopback (127.0.0.1)</option>
+                              )}
+                            </select>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
                   )}
                 </div>
               );

@@ -12,6 +12,9 @@ Método: a partir da fase 02, o executor entrega junto o `docs/reviews/autoaudit
 | Fase | D_chefe | D_auto | Falsos PASS | Custo do chefe | Observações |
 | --- | --- | --- | --- | --- | --- |
 | 01 (baseline, sem autoauditoria) | 2 (CSP em file://, `info.changes` ignorado) | n/a | n/a | alto: leitura de código + clone limpo + sonda manual | HANDOFF afirmava "CSP ajustada"; era falso em produção |
+| 02 | 0 achados (auditoria por amostra) | autoauditoria verde, 13/13 sonda | 0 | baixo: auditor automático + leitura de trechos | dev CSP tratada como pedido |
+| 03 | 3 (HANDOFF cita eventos inexistentes; "Opus" inventado; branch/divergência erradas) | autoauditoria só após 1ª reprovação do auditor | 1 (HANDOFF/autoauditoria afirmam algo que o código não tem) | baixo | executor **inventa escopo** e omite passos; auditor pega omissões, não invenções |
+| 04 | 3 ressalvas de segurança/teste (timingSafeEqual, token queimado antes do handshake, rate limit sem teste) + 1 invenção repetida | 28 PASS / 0 FAIL, mas nenhuma das 3 ressalvas | 1 (evento inexistente citado de novo) | baixo: 4 leituras de trechos | testes de ataque presentes e coerentes; faltou atacar a própria lógica de token |
 
 ## Critério de decisão
 Se por 2 fases seguidas `D_chefe == 0` e `Falsos PASS == 0`, o chefe reduz a auditoria a: reexecutar `npm run verify` em clone limpo, conferir `autoauditoria-NN.md` por amostragem e abrir a tela. Caso contrário, mantém a auditoria completa e endurece o `AGENTS.md`.
@@ -54,9 +57,12 @@ Consequência: a principal alavanca é **uma sessão limpa por fase** guiada por
 
 | Fase | Semana % antes | Semana % depois | Delta | Sessão limpa? |
 | --- | --- | --- | --- | --- |
-| 02 | 24% | _preencher_ | _preencher_ | _sim/não_ |
+| 02 a 04 (lote 1) | 24% (antes do despacho) | 26% (depois da auditoria do chefe, 2026-09-20) | +2 pontos | não (mesma sessão longa, contexto > 150k) |
+| (parcial) | 24% | 25% (com fases 02 e 03 já entregues, antes da auditoria) | +1 ponto | não |
 
 ## Registro do lote 1 (2026-09-20, 1ª execução)
 - Fase 02: verde na 1ª tentativa (50 testes, sonda 13/13, 10 commits). Ainda sem auditoria independente do chefe.
 - Fase 03: implementação entregue (105 testes, sonda 13/13), mas **omitiu `autoauditoria-03.md`** (o auditor automático pegou). Falha de processo do executor: pulou o passo que o AGENTS.md exigia.
 - **Falha repetida (3ª vez):** o `agy` roda comando longo (`npm run verify`) em segundo plano, escreve "aguardando" e o modo `--print` encerra sem commit. Causa raiz tratada: (a) regra crítica no cabeçalho do despacho (não terminar turno esperando; fazer polling), (b) a correção automática agora passa a evidência do auditor e **proíbe** repetir comandos longos, (c) `rodar-lote` audita antes de redespachar fase já entregue.
+
+Leitura do lote 1: 3 fases (~10 mil linhas novas, 121 testes, servidor E2EE, UI com QR) por +2 pontos da semana, incluindo despacho, correções de ferramenta e a auditoria do chefe. Ressalvas: percentuais inteiros (erro de até ~1 ponto), a semana soma outros usos, e a sessão foi longa (contexto grande, o pior caso de custo). Próximo teste: lote 2 em sessão limpa via docs/CHEFE.md, para medir o efeito da sessão curta.

@@ -158,6 +158,36 @@ async function main() {
     return document.body.innerText.includes('Desativado');
   });
 
+  // Reativa para testar início de sessão e servidor LAN da Fase 04
+  await page.click('#btn-status-detalhe');
+  await new Promise((r) => setTimeout(r, 600));
+
+  // 7. UI: Iniciar Sessão, gerar QR e verificar servidor LAN (Fase 04)
+  await page.waitForSelector('#btn-abrir-nova-sessao', { timeout: 5000 });
+  await page.click('#btn-abrir-nova-sessao');
+  await page.waitForSelector('#input-titulo-sessao', { timeout: 5000 });
+  await page.type('#input-titulo-sessao', 'Sessao Probe Fase 04');
+  await page.click('#btn-confirmar-sessao');
+  await page.waitForSelector('#painel-sala-servidor', { timeout: 8000 });
+  await page.waitForSelector('#img-qrcode-sessao', { timeout: 5000 });
+  await page.waitForSelector('#input-url-convite', { timeout: 5000 });
+
+  const servidorUiOk = await page.evaluate(() => {
+    const qrImg = document.getElementById('img-qrcode-sessao');
+    const inputUrl = document.getElementById('input-url-convite');
+    const badge = document.getElementById('badge-status-conexao');
+    const qrValido = qrImg && qrImg.src && qrImg.src.startsWith('data:image/png;base64,');
+    const urlValida = inputUrl && inputUrl.value && inputUrl.value.includes('/join/') && inputUrl.value.includes('#');
+    const badgeValido = badge && badge.innerText.includes('Aguardando');
+    return Boolean(qrValido && urlValida && badgeValido);
+  });
+
+  // Fecha o servidor LAN e desativa novamente para manter integridade
+  await page.click('#btn-fechar-sala-servidor');
+  await new Promise((r) => setTimeout(r, 600));
+  await page.click('#btn-status-detalhe');
+  await new Promise((r) => setTimeout(r, 600));
+
   await page.click('#btn-voltar-lista');
   await page.waitForSelector('#input-busca-atendido', { timeout: 5000 });
 
@@ -242,6 +272,7 @@ async function main() {
       editadoOk,
       desativadoOk,
       rotuloAtualizadoOk,
+      servidorUiOk,
     },
     bancoSemDuplicados: dbCheck.semDuplicados && bancoDirectCheck,
     totalAtendidos: dbCheck.total,
@@ -264,6 +295,7 @@ main()
       'UI: detectar duplicado com mensagem clara (Regra #1)': res.ui.duplicadoOk,
       'UI: editar atendido': res.ui.editadoOk,
       'UI: desativar atendido (soft delete)': res.ui.desativadoOk,
+      'UI: iniciar sessao, gerar QR e abrir sala do servidor LAN': res.ui.servidorUiOk,
       'UI: alterar rotulo no dicionario': res.ui.rotuloAtualizadoOk,
       'Banco: sem dados duplicados no SQLite': res.bancoSemDuplicados,
     };
