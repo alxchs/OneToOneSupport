@@ -32,3 +32,13 @@ Fase 05 pode andar em paralelo com 03/04 (só depende de 02), mas **nunca duas I
 - **ADR-005 CSP do Guest:** `default-src 'self'` sozinho é insuficiente para WS; declarar `connect-src 'self' ws: wss:` e `img-src 'self' blob: data:`, `media-src 'self' blob:`.
 - **Erro da spec corrigido:** `INSERT ... WHERE NOT EXISTS` sem `SELECT` é SQL inválido. O correto é `INSERT INTO ... SELECT ?,?,... WHERE NOT EXISTS (...)`.
   Colunas anuláveis comparam com `IS` (com `=`, `NULL = NULL` é falso e o duplicado passaria).
+
+## Lotes (menos pausas para o Alexandre)
+Em vez de uma pausa por fase, o Alexandre dispara **um comando por lote**; as fases do lote rodam em sequência, cada uma na sua branch (empilhadas), com auditor automático entre elas e correção automática (até 2 tentativas) se reprovar.
+| Lote | Fases | Comando (um só) |
+| --- | --- | --- |
+| 1 | 02, 03, 04 (Host+IPC, E2EE, servidor/sessão) | `pwsh -NoProfile -File tools\rodar-lote.ps1 -Fases 02,03,04` |
+| 2 | 05, 06, 07 (event sourcing, canvas HiDPI, Guest mobile) | `pwsh -NoProfile -File tools\rodar-lote.ps1 -Fases 05,06,07` |
+| 3 | 08, 09, 10 (mídia/assets, PDF, empacotamento/aceite) | `pwsh -NoProfile -File tools\rodar-lote.ps1 -Fases 08,09,10` |
+Ao fim de cada lote: o chefe (sessão limpa, `docs/CHEFE.md`) lê os resumos, abre a tela e escreve o veredito de cada fase; o Alexandre autoriza UMA vez o merge `--no-ff` das branches em ordem e o push.
+Compromisso: lotes maiores = menos checagem humana entre fases. O gate automático (`auditar.cjs` + sonda) é o que segura a qualidade; o regime "QA desconfiado" (docs/EXPERIMENTO.md) decide quando aumentar o lote.

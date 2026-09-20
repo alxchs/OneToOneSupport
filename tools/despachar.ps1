@@ -7,6 +7,7 @@ param(
   [Parameter(Mandatory)][string]$Fase,
   [string]$Modelo,
   [ValidateSet('low','medium','high')][string]$Esforco = 'high',
+  [string]$Extra,     # texto de correção (reprovações do auditor) anexado à ordem
   [switch]$Autonomo   # o agy aprova todas as ações sozinho; só com autorização explícita do Alexandre (dada em 2026-09-19)
 )
 $ErrorActionPreference = 'Stop'
@@ -33,6 +34,7 @@ Leia AGENTS.md e execute integralmente a ordem de serviço abaixo, incluindo a a
 
 "@
 $texto = $cabecalho + (Get-Content $prompt.FullName -Raw)
+if ($Extra) { $texto += "`n`n## CORREÇÃO OBRIGATÓRIA: o auditor automático REPROVOU a sua entrega. Corrija exatamente isto, rode `npm run verify` e commite:`n$Extra`n" }
 $head0 = (git rev-parse HEAD).Trim()
 $env:ELECTRON_RUN_AS_NODE = $null
 $argumentos = @('--print', $texto, '--effort', $Esforco, '--add-dir', $raiz)

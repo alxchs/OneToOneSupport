@@ -15,7 +15,7 @@ Você é o chefe técnico (Claude Code) do OneToOneSupport. O executor é o Anti
 ## Ciclo da fase (o que só o chefe faz)
 1. Ordem em `docs/prompts/fase-NN-*.md` já existe; refinar só se a revisão cruzada (`docs/reviews/revisao-cruzada-NN.md`) apontar lacuna.
 2. Alexandre dispara: `pwsh -NoProfile -File tools\despachar.ps1 -Fase NN -Autonomo` (o Claude Code bloqueia o chefe de fazer isso). Revisão cruzada opcional: `tools\revisao-cruzada.ps1 -Fase NN`.
-3. Ao terminar: `node tools/auditar.cjs`; abrir a tela e tentar quebrar 2-3 regras; comparar com `autoauditoria-NN.md`; escrever `docs/reviews/fase-NN.md` e a linha em `docs/EXPERIMENTO.md` (defeitos que o chefe achou, falsos PASS).
+3. Ao fim do lote: ler `docs/execucoes/lote-*.log` e `auditoria-fase-NN.log` (curtos); por fase, abrir a tela e tentar quebrar 2-3 regras; comparar com `autoauditoria-NN.md`; escrever `docs/reviews/fase-NN.md` e a linha em `docs/EXPERIMENTO.md` (defeitos que o chefe achou, falsos PASS).
 4. Merge `--no-ff` em `main` e `git push` só com ordem explícita do Alexandre, naquele momento. Nunca `git add -A` em `main`.
 
 ## Fatos que custaram caro
