@@ -1,0 +1,17 @@
+appId: app.onetoonesupport.host
+productName: OneToOneSupport
+copyright: Copyright © 2026
+directories:
+  output: release
+  buildResources: build
+files:
+  - "dist/**/*"
+  - "package.json"
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
