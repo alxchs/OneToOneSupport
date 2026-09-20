@@ -12,7 +12,9 @@
     "build": "tsc -p tsconfig.electron.json && vite build",
     "typecheck": "tsc --noEmit",
     "test": "node scripts/test-runner.mjs",
-    "rebuild": "electron-rebuild"
+    "rebuild": "electron-rebuild",
+    "probe": "node tools/probe-runtime.cjs",
+    "verify": "npm run typecheck && npm test && npm run build && npm run probe"
   },
   "dependencies": {
     "better-sqlite3": "11.8.1",

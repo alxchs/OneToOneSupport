@@ -24,3 +24,18 @@ Antes de qualquer trabalho leia os três, mais `docs/HANDOFF.md` (estado atual) 
 - Uma fase = uma branch `fase/NN-slug`, criada a partir de `main` (já com a fase anterior mergeada).
 - Commits pequenos, mensagem em português no imperativo. Não commitar em `main` durante uma fase.
 - Ao terminar: atualizar `docs/HANDOFF.md` (formato da seção 17 do Mestre), commitar, parar. Quem faz o merge é o Alexandre.
+
+## Autoauditoria obrigatória (executor) — antes de declarar a fase pronta
+Você é auditado por outra IA que **reexecuta tudo**. Antecipe-se. Nenhum item abaixo é opcional:
+1. **Clone limpo:** `git clone --branch <sua-branch> . ../verificacao-limpa` (fora da pasta do projeto), depois `npm ci && npm run verify` lá. Cole a saída real.
+2. **Gate único:** `npm run verify` (typecheck + testes + build + sonda de runtime `tools/probe-runtime.cjs`). Se a fase muda a UI, **estenda a sonda** para exercitar a tela nova (clicar, digitar, ler o resultado). Sonda com FAIL = fase não pronta.
+3. **Ataque a própria entrega:** para cada regra da ordem de serviço, escreva pelo menos um teste que tente **violá-la** (payload inválido, valor nulo, repetição, caminho malicioso). Teste que só cobre o caminho feliz não conta.
+4. **Cheque as premissas do ambiente:** o que vale em `http://localhost` (dev) pode não valer em `file://` (build). Teste o build empacotado, não só o dev server.
+5. **Revise seu próprio diff** (`git diff main...HEAD`) procurando: variável calculada e nunca usada, retorno que ignora falha, regra só documentada e não testada, afirmação no HANDOFF que você não executou.
+6. Escreva `docs/reviews/autoauditoria-NN.md`: cada critério de aceite → comando executado → saída real → PASS/FAIL. Liste o que **não** foi verificado. Falta de evidência = FAIL, nunca "provavelmente ok".
+7. Só então atualize o HANDOFF, commite e pare.
+
+### Lições já pagas (não repita)
+- Fase 01: a CSP por header (`onHeadersReceived`) **não vale em `file://`**; o app empacotado ficou sem CSP e ninguém percebeu porque só o teste de `typeof require` foi feito. Regra geral: validar cada garantia de segurança **no artefato final**, com um teste que tenta quebrá-la.
+- Fase 01: função que calcula `info.changes` e não usa; retornar sucesso sem checar o efeito.
+- O VS Code define `ELECTRON_RUN_AS_NODE`; ao lançar Electron por script, apague essa variável do ambiente.
