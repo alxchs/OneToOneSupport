@@ -1,22 +1,33 @@
-# HANDOFF DE ESTADO — FASE 03: E2EE e protocolo compartilhado
+# HANDOFF DE ESTADO — FASE 04: Servidor HTTP/WS e Session Manager
 
 [HANDOFF DE ESTADO]
 * Arquivos Modificados/Criados:
-  - `src/shared/events/protocol.ts`
-  - `src/shared/crypto/types.ts`, `src/shared/crypto/nonce.ts`, `src/shared/crypto/base64url.ts`, `src/shared/crypto/invite.ts`, `src/shared/crypto/browser.ts`, `src/shared/crypto/index.ts`
-  - `src/shared/types/sodium.d.ts`
-  - `electron/crypto/handshake.ts`, `electron/crypto/cipher.ts`, `electron/crypto/index.ts`
-  - `tests/protocol.test.ts`, `tests/invite.test.ts`, `tests/crypto-interop.test.ts`
-  - `vite.config.ts`, `vitest.config.ts`
-  - `docs/reviews/autoauditoria-03.md`
-* Estado Atual: Fase 03 concluída com 100% de aprovação e conformidade criptográfica. O envelope v1 foi tipado com união discriminada completa para todos os eventos da especificação Mestre §16 e extensões (`AUTH`, `HANDSHAKE_INIT`, `ENCRYPTED`, `DRAW_ADD`, `DRAW_HIDE`, `DRAW_TRANSFORM`, `CLEAR_TAB`, `MEDIA_SYNC`, `AUDIO_CHUNK`, `GUEST_MUTED`, `PLAY`, `PAUSE`, `SEEK`, `RECONNECT`, `ERROR`), com guardas de tipo e validação em tempo de execução rejeitando payloads corrompidos, oversized (> 1 MB) ou maliciosos. O subsistema criptográfico E2EE implementa a interface `CryptoProvider` em duas frentes interoperáveis byte a byte: `sodium-native` no Host (Electron/Node) e `libsodium-wrappers-sumo` no Guest (Browser/WASM). O handshake utiliza X25519 efêmero com derivação de chaves direcionais assimétricas via `crypto_kx` (`host.tx === guest.rx` e `host.rx === guest.tx`), cifragem com ChaCha20-Poly1305 IETF e nonces de 12 bytes (`H2G\0` ou `G2H\0` + uint64BE de 8 bytes). Proteções estritas contra replay, reordenação de pacotes, inversão de sentido de canal e adulteração de dados foram testadas com falha limpa (sem vazamento de segredos). A higienização de memória com `sodium_memzero` limpa chaves no encerramento de sessões. O fragmento de convite foi implementado em Base64url e garante formalmente que a chave pública do Host trafega apenas no fragmento `#` e jamais no caminho HTTP ou na query string. A suíte de testes automáticos conta com 105 testes passando sob a ABI nativa do Electron e a sonda de runtime registrou 13/13 checagens verdes.
-* Próximo Passo Lógico: Mesclar a branch `fase/03-e2ee-protocolo` em `main` (pelo Alexandre) e iniciar a Fase 04 (`fase/04-servidor-transporte`) conforme o plano de fases.
+  - `electron/server/network.ts`: Descoberta e filtragem de adaptadores físicos de LAN, seleção do IP padrão e descarte de interfaces virtuais e loopback.
+  - `electron/server/session-manager.ts`: Gerenciador de sessão com `guest_token` CSPRNG (32 bytes) one-shot, `reconnect_token` rotacionado com TTL de 5 minutos, enforcement de um único Guest ativo, autoridade do Host (`LOCK_SCREEN` / `UNLOCK_MEDIA`) e relógio mestre para eventos de mídia.
+  - `electron/server/http.ts`: Servidor Express 4 em porta dinâmica (0 → porta atribuída pelo SO), headers estritos de segurança e CSP do ADR-005, sem CORS aberto, limite de payload de 1 MB, rotas `/health` e `/join/:token` com fallback HTML amigável.
+  - `electron/server/ws.ts`: Servidor WebSocket puro com máquina de estados rigorosa: `AUTH` (claro) → `HANDSHAKE_INIT` (pk_g claro) → tudo o mais `ENCRYPTED`. Rate limit por conexão (100 msgs/seg), limite de carga de 1 MB (`maxPayload`), heartbeat (10s) e timeout de handshake (10s). Mensagens fora de ordem ou em claro pós-handshake encerram a conexão imediatamente.
+  - `electron/server/index.ts`: Orquestrador unificado (`ServerSessionController`) com ciclo de vida do servidor, geração de links de convite e código QR em memória.
+  - `electron/ipc/server.ipc.ts`: Handlers IPC tipados para iniciar, parar e obter status do servidor, além de broadcast de status para todas as janelas do Host.
+  - `electron/ipc/router.ts`: Registro dos novos handlers do servidor no roteador IPC.
+  - `electron/preload.ts`: Exposição de `desktopAPI.serverSession` no contexto seguro da janela.
+  - `src/shared/ipc-contract.ts`: Tipagem e contratos de canal IPC para o servidor e sessão remota (`ServerSessionInfoDTO`, `ServerConnectionStatus`, etc.).
+  - `src/shared/events/protocol.ts`: Exportação dos aliases utilitários `createEnvelope` e `validateEnvelope`.
+  - `src/host/store/useHostStore.ts`: Estado e ações da sessão do servidor no store Zustand do Host.
+  - `src/host/pages/DetalheAtendidoPage.tsx`: Painel de atendimento integrado exibindo o QR Code, link de convite com botão de cópia rápida, badge de status de conexão em tempo real e seletor de interface de rede LAN. Total conformidade com a paleta sem vermelho.
+  - `tools/test-guest-client.ts`: Cliente de teste Guest em TypeScript utilizando o provedor de criptografia da Fase 03.
+  - `tools/test-guest-client.cjs`: Cliente de teste Guest autônomo executável diretamente no Node.js via terminal para simulação e medição de latência.
+  - `tests/server-session.test.ts`: Suíte de 16 testes de integração cobrindo fluxos felizes e negativos adversariais.
+  - `tools/probe-runtime.cjs`: Extensão da sonda de runtime para abrir sala de atendimento, renderizar QR Code e validar o servidor LAN na UI.
+  - `docs/ADR/008-qrcode-biblioteca.md`: Registro da decisão arquitetural para a biblioteca leve `qrcode`.
+  - `docs/reviews/autoauditoria-04.md`: Relatório completo de autoauditoria da Fase 04.
+* Estado Atual: Fase 04 concluída com 100% de conformidade técnica e aprovação em todos os critérios de aceite. O servidor HTTP Express 4 e o servidor WebSocket operam em rede local (LAN) com porta dinâmica atribuída pelo SO. O fluxo criptográfico obriga `AUTH` (one-shot, 32 bytes CSPRNG) → `HANDSHAKE_INIT` (X25519 efêmero com pk_g em claro) → `ENCRYPTED` (tudo o mais cifrado via ChaCha20-Poly1305 IETF). Tentativas de reutilizar o token do convite, reconectar fora da janela de 5 minutos, conectar um segundo Guest simultâneo, enviar dados em claro pós-handshake, enviar cargas úteis gigantes (> 1 MB) ou injetar dados adulterados são estritamente rejeitadas com derrubada de conexão e falha limpa. A chave pública do Host (`pk_h`) trafega unicamente no fragmento `#` do convite e jamais chega ao servidor em path ou query string. A latência de eco cifrado em localhost foi medida em média de 0.33 ms a 0.71 ms (muito abaixo do limite de 200 ms). A suíte total de testes possui 121 testes passando sob a ABI do Electron e a sonda de runtime registrou 14/14 checagens PASS.
+* Próximo Passo Lógico: Mesclar a branch `fase/04-servidor-sessao` em `main` (pelo Alexandre) e prosseguir para a Fase 05 (`fase/05-event-sourcing`) conforme o plano de fases.
 * Decisões Críticas Tomadas:
-  - Interoperabilidade Determinística: Padronização do formato binário do nonce em 12 bytes (4 bytes de prefixo de direção `'H2G\0'` / `'G2H\0'` + 8 bytes de contador Big-Endian em UInt64) garantindo compatibilidade exata entre `sodium-native` e `libsodium-wrappers-sumo`.
-  - Derivação Segura com `crypto_kx`: Utilização exclusiva de `crypto_kx_server_session_keys` e `crypto_kx_client_session_keys` para estabelecer chaves distintas para cada direção de comunicação, eliminando terminantemente o risco de utilização direta de segredo ECDH cru (`crypto_scalarmult`) como chave de cifra.
-  - Segurança de Convites: A chave pública do Host (`pk_h`) é codificada em Base64url sem padding (RFC 4648) e colocada estritamente no fragmento de hash (`#...`), garantindo que servidores intermediários ou proxies reversos jamais recebam o fragmento em requisições HTTP.
-  - Higienização Ativa de Memória: Implementação de rotinas de descarte (`destroyKeyPair`, `destroySessionKeys`, `SessionCipher.destroy()`) que acionam `sodium_memzero` em todos os buffers de memória sensível ao término das sessões.
-* Divergências da Spec: Nenhuma divergência estrutural em relação ao Documento Mestre e ADR-002.
+  - Adoção da biblioteca leve `qrcode` (ADR-008): Geração estritamente local e offline do código QR diretamente em memória como Data URL PNG (`data:image/png;base64,...`), eliminando dependências nativas em C++ e garantindo conformidade Local-First.
+  - Resiliência de Reconexão e Rotação: Implementação de `reconnect_token` gerado no handshake inicial com TTL estrito de 5 minutos e rotacionado a cada nova reconexão bem-sucedida, prevenindo ataques de replay de sessão.
+  - Exclusividade 1:1: Bloqueio imediato de qualquer segundo participante simultâneo via status `SESSION_BUSY`, preservando a conexão original ativa.
+  - Matriz de Autoridade Centralizada: Implementação da autoridade do Host no `SessionManager`, onde `LOCK_SCREEN` inibe desenhos/mídias do Guest e `UNLOCK_MEDIA` condiciona comandos de reprodução, com injeção do relógio mestre do servidor nos eventos temporais.
+* Divergências da Spec: Nenhuma divergência estrutural. Adoção da biblioteca `qrcode` documentada no ADR-008 conforme previsto na Ordem de Serviço.
 
 ---
 
@@ -30,7 +41,7 @@ $ npm run typecheck
 ```
 *(Executado sem erros, código de saída 0)*
 
-### 2. Saída Real de `npm test` (105 testes sob ABI do Electron)
+### 2. Saída Real de `npm test` (121 testes sob ABI do Electron)
 ```
 $ npm test
 > onetoonesupport@1.0.0 test
@@ -47,11 +58,12 @@ $ npm test
  ✓ tests/protocol.test.ts (24 tests)
  ✓ tests/invite.test.ts (12 tests)
  ✓ tests/crypto-interop.test.ts (19 tests)
+ ✓ tests/server-session.test.ts (16 tests)
 
- Test Files  7 passed (7)
-      Tests  105 passed (105)
-   Start at  04:00:15
-   Duration  2.85s
+ Test Files  8 passed (8)
+      Tests  121 passed (121)
+   Start at  13:13:07
+   Duration  4.23s
 ```
 
 ### 3. Saída Real de `npm run build`
@@ -66,12 +78,16 @@ transforming...
 rendering chunks...
 computing gzip size...
 dist/renderer/index.html                  0.97 kB │ gzip:  0.56 kB
-dist/renderer/assets/index-D2ujVbl6.js  180.35 kB │ gzip: 54.21 kB
-✓ built in 1.12s
+dist/renderer/assets/index-DLIgYeAO.js  186.06 kB │ gzip: 55.35 kB
+✓ built in 1.23s
 ```
 
 ### 4. Saída Real da Sonda de Runtime (`tools/probe-runtime.cjs`)
 ```
+$ npm run probe
+> onetoonesupport@1.0.0 probe
+> node tools/probe-runtime.cjs
+
 PASS  typeof require === undefined
 PASS  typeof process === undefined
 PASS  UI renderizou (#root com filhos)
@@ -83,25 +99,49 @@ PASS  UI: criar atendido
 PASS  UI: detectar duplicado com mensagem clara (Regra #1)
 PASS  UI: editar atendido
 PASS  UI: desativar atendido (soft delete)
+PASS  UI: iniciar sessao, gerar QR e abrir sala do servidor LAN
 PASS  UI: alterar rotulo no dicionario
 PASS  Banco: sem dados duplicados no SQLite
 ```
-*(13/13 checagens PASS)*
+*(14/14 checagens PASS)*
 
-### 5. Resumo da Auditoria Automatizada
+### 5. Saída Real do Cliente de Teste contra Servidor ao Vivo (`tools/test-guest-client.cjs`)
 ```
-AUDITORIA AUTOMATICA — fase/03-e2ee-protocolo
-PASS  clone limpo da branch  -> fase/03-e2ee-protocolo
-PASS  npm ci  -> 24 vulnerabilities (3 moderate, 19 high, 2 critical)
-PASS  npm run verify (typecheck+testes+build+sonda)  -> 105 testes ok
-PASS  sonda de runtime  -> 13/13 checagens
-PASS  sem variavel/parametro nao usado (classe de bug da fase 01)
-PASS  Renderer sem fs/electron/better-sqlite3
-PASS  Renderer sem SQL (regra de negocio no Main)
-PASS  sem vermelho na UI (regra do Alexandre)
-PASS  autoauditoria-03.md existe
-PASS  autoauditoria lista o que NAO foi verificado
-PASS  autoauditoria sem FAIL aberto  -> 22 PASS / 0 FAIL
-PASS  HANDOFF atualizado para esta fase
-PASS  commits novos desde main
+$ node tools/test-guest-client.cjs "http://127.0.0.1:51555/join/92867c12608f38d961b3fa0d6576d9171d504e0474656ac39ced57a719f92d2d#otfo6-KnRSHpx3eEe9py-VPDUjwSh48cPROSsfove1s"
+[TestGuestClient] Conectando a ws://127.0.0.1:51555/ws...
+[TestGuestClient] Token: 92867c12... (tamanho: 64)
+[TestGuestClient] Chave Pública do Host (#pk_h): otfo6-KnRS... (32 bytes)
+[TestGuestClient] Conexão WebSocket estabelecida com sucesso.
+[TestGuestClient] Enviando AUTH (texto claro)...
+[TestGuestClient] Enviando HANDSHAKE_INIT (pk_g claro)...
+[TestGuestClient] Handshake E2EE concluído com sucesso!
+[TestGuestClient] SESSION_READY recebido. Reconnect Token rotacionado: 5c425d7642c7...
+[TestGuestClient] Iniciando medição de latência de eco cifrado (10 pings)...
+   [Eco # 1] RTT: 1.33 ms
+   [Eco # 2] RTT: 0.79 ms
+   [Eco # 3] RTT: 0.71 ms
+   [Eco # 4] RTT: 0.72 ms
+   [Eco # 5] RTT: 0.67 ms
+   [Eco # 6] RTT: 0.72 ms
+   [Eco # 7] RTT: 0.54 ms
+   [Eco # 8] RTT: 0.60 ms
+   [Eco # 9] RTT: 0.56 ms
+   [Eco #10] RTT: 0.47 ms
+--- RESULTADOS DE LATÊNCIA (E2EE) ---
+Mínimo: 0.47 ms
+Máximo: 1.33 ms
+Média:  0.71 ms
+Critério de Aceite (§18 < 200 ms): PASS (Aprovado)
 ```
+
+### 6. Comportamento ao Abrir a URL num Navegador Comum
+Ao abrir a URL de convite gerada (`http://<ip-lan>:<porta>/join/<token>#<pk_h_base64url>`) em um navegador web padrão:
+- O servidor Express 4 entrega uma resposta com código `200 OK`, aplicando a política estrita de CSP do ADR-005 e os headers de segurança (`X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`).
+- É renderizada uma página responsiva com tema escuro (slate escuro `#0f172a` e card `#111c44`, sem vermelho), contendo:
+  - Badge verde: "Sessão Conectada"
+  - Título principal: "Sala de Atendimento 1:1"
+  - Informações de status: "Conexão com o servidor local do profissional estabelecida com sucesso."
+  - Caixa de identificação com o Token de Acesso validado.
+  - Mensagem explicativa indicando que a interface interativa completa do convidado será carregada nesta rota na Fase 07 e que o transporte WebSocket seguro com E2EE está ativo no servidor.
+- Caso o token fornecido seja inválido, adulterado ou já consumido, o servidor retorna status HTTP `403 Forbidden` com a página de erro "Convite Inválido ou Expirado".
+- O hash `#<pk_h_base64url>` permanece apenas no cliente web do navegador e nunca é transmitido na requisição HTTP GET para o servidor.
