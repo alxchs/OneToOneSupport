@@ -4,6 +4,9 @@ import type {
   UpdateAtendidoPayload,
   ListAtendidosPayload,
   CreateSessaoPayload,
+  StartServerSessionPayload,
+  SetServerIpPayload,
+  ServerSessionInfoDTO,
   DisplayMetrics,
   DesktopAPI,
 } from '../src/shared/ipc-contract';
@@ -31,6 +34,13 @@ const IPC_CHANNELS = {
   DESKTOP_GET_SCALE_FACTOR: 'desktop:get-scale-factor',
   DESKTOP_GET_DISPLAY_METRICS: 'desktop:get-display-metrics',
   DESKTOP_GET_APP_VERSION: 'desktop:get-app-version',
+
+  SERVER_START_SESSION: 'server:start-session',
+  SERVER_STOP_SESSION: 'server:stop-session',
+  SERVER_GET_STATUS: 'server:get-status',
+  SERVER_LIST_IPS: 'server:list-ips',
+  SERVER_SET_IP: 'server:set-ip',
+  SERVER_STATUS_CHANGED: 'server:status-changed',
 } as const;
 
 export type { DisplayMetrics, DesktopAPI };
@@ -77,6 +87,28 @@ const desktopAPI: DesktopAPI = {
       ipcRenderer.invoke(IPC_CHANNELS.CONFIG_GET, { chave }),
     set: (chave: string, valor: string) =>
       ipcRenderer.invoke(IPC_CHANNELS.CONFIG_SET, { chave, valor }),
+  },
+
+  serverSession: {
+    start: (payload: StartServerSessionPayload) =>
+      ipcRenderer.invoke(IPC_CHANNELS.SERVER_START_SESSION, payload),
+    stop: () => ipcRenderer.invoke(IPC_CHANNELS.SERVER_STOP_SESSION),
+    getStatus: () => ipcRenderer.invoke(IPC_CHANNELS.SERVER_GET_STATUS),
+    listIps: () => ipcRenderer.invoke(IPC_CHANNELS.SERVER_LIST_IPS),
+    setIp: (payload: SetServerIpPayload) =>
+      ipcRenderer.invoke(IPC_CHANNELS.SERVER_SET_IP, payload),
+    onStatusChange: (callback: (status: ServerSessionInfoDTO | null) => void) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        status: ServerSessionInfoDTO | null
+      ) => {
+        callback(status);
+      };
+      ipcRenderer.on(IPC_CHANNELS.SERVER_STATUS_CHANGED, listener);
+      return () => {
+        ipcRenderer.removeListener(IPC_CHANNELS.SERVER_STATUS_CHANGED, listener);
+      };
+    },
   },
 };
 

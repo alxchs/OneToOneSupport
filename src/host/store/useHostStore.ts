@@ -3,6 +3,7 @@ import type {
   AtendidoDTO,
   SessaoDTO,
   CreateAtendidoPayload,
+  ServerSessionInfoDTO,
 } from '../../shared/ipc-contract';
 
 export type HostView = 'lista' | 'form' | 'detalhes' | 'configuracoes';
@@ -19,6 +20,7 @@ interface HostState {
   carregando: boolean;
   mensagemAlerta: { tipo: 'alerta' | 'sucesso'; texto: string } | null;
   erroDuplicado: string | null;
+  activeServerSession: ServerSessionInfoDTO | null;
 
   // Ações puras de UI e invocação de IPC
   setView: (view: HostView) => void;
@@ -38,6 +40,10 @@ interface HostState {
   carregarSessoes: (atendidoId: string) => Promise<void>;
   criarSessao: (dados: { atendido_id: string; titulo?: string | null; notas_host?: string | null }) => Promise<boolean>;
   encerrarSessao: (id: string, notasHost?: string | null) => Promise<boolean>;
+  iniciarServidorSessao: (sessaoId: string, atendidoId: string, preferredIp?: string) => Promise<boolean>;
+  encerrarServidorSessao: () => Promise<boolean>;
+  selecionarIpServidor: (ip: string) => Promise<boolean>;
+  carregarStatusServidor: () => Promise<void>;
 }
 
 export const useHostStore = create<HostState>((set, get) => ({
@@ -56,6 +62,7 @@ export const useHostStore = create<HostState>((set, get) => ({
   carregando: false,
   mensagemAlerta: null,
   erroDuplicado: null,
+  activeServerSession: null,
 
   setView: (view) => set({ view, mensagemAlerta: null, erroDuplicado: null }),
 
@@ -272,6 +279,9 @@ export const useHostStore = create<HostState>((set, get) => ({
     }
     set({ mensagemAlerta: { tipo: 'sucesso', texto: 'Sessão iniciada com sucesso.' } });
     await get().carregarSessoes(dados.atendido_id);
+
+    // Inicia automaticamente o servidor HTTP/WS e gera o convite com QR Code
+    await get().iniciarServidorSessao(res.data.id, dados.atendido_id);
     return true;
   },
 
@@ -285,10 +295,63 @@ export const useHostStore = create<HostState>((set, get) => ({
       return false;
     }
     set({ mensagemAlerta: { tipo: 'sucesso', texto: 'Sessão encerrada com sucesso.' } });
+
+    // Encerra também o servidor se estiver atendendo esta sessão
+    const currentServer = get().activeServerSession;
+    if (currentServer && currentServer.sessaoId === id) {
+      await get().encerrarServidorSessao();
+    }
+
     const { selectedAtendido } = get();
     if (selectedAtendido) {
       await get().carregarSessoes(selectedAtendido.id);
     }
     return true;
+  },
+
+  iniciarServidorSessao: async (sessaoId: string, atendidoId: string, preferredIp?: string) => {
+    if (!window.desktopAPI?.serverSession) return false;
+    set({ carregando: true });
+    const res = await window.desktopAPI.serverSession.start({
+      sessaoId,
+      atendidoId,
+      preferredIp,
+    });
+    set({ carregando: false });
+    if (res.success) {
+      set({ activeServerSession: res.data });
+      return true;
+    } else {
+      set({ mensagemAlerta: { tipo: 'alerta', texto: res.message } });
+      return false;
+    }
+  },
+
+  encerrarServidorSessao: async () => {
+    if (!window.desktopAPI?.serverSession) return false;
+    const res = await window.desktopAPI.serverSession.stop();
+    if (res.success) {
+      set({ activeServerSession: null });
+      return true;
+    }
+    return false;
+  },
+
+  selecionarIpServidor: async (ip: string) => {
+    if (!window.desktopAPI?.serverSession) return false;
+    const res = await window.desktopAPI.serverSession.setIp({ ip });
+    if (res.success) {
+      set({ activeServerSession: res.data });
+      return true;
+    }
+    return false;
+  },
+
+  carregarStatusServidor: async () => {
+    if (!window.desktopAPI?.serverSession) return;
+    const res = await window.desktopAPI.serverSession.getStatus();
+    if (res.success) {
+      set({ activeServerSession: res.data });
+    }
   },
 }));
