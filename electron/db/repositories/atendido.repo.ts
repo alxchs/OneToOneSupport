@@ -196,3 +196,86 @@ export function getAtendidoById(
     | undefined;
   return row || null;
 }
+
+/**
+ * Lista atendidos com suporte a busca textual e filtro de ativos/inativos.
+ */
+export function listAtendidos(
+  filter?: { busca?: string; apenasAtivos?: boolean },
+  dbInstance?: DatabaseType
+): AtendidoRecord[] {
+  const db = dbInstance || getDb();
+  let sql = 'SELECT * FROM Atendidos WHERE 1=1';
+  const params: unknown[] = [];
+
+  if (filter?.apenasAtivos !== false) {
+    sql += ' AND ativo = 1';
+  }
+
+  if (filter?.busca && filter.busca.trim().length > 0) {
+    const term = `%${filter.busca.trim()}%`;
+    sql += ' AND (nome LIKE ? OR contato LIKE ? OR email LIKE ?)';
+    params.push(term, term, term);
+  }
+
+  sql += ' ORDER BY nome COLLATE NOCASE ASC';
+  return db.prepare(sql).all(...params) as AtendidoRecord[];
+}
+
+/**
+ * Marca um atendido como desativado (soft delete).
+ */
+export function softDeleteAtendido(
+  id: string,
+  now = Date.now(),
+  dbInstance?: DatabaseType
+): boolean {
+  const db = dbInstance || getDb();
+  const info = db
+    .prepare(
+      `UPDATE Atendidos
+       SET ativo = 0, deletado_em = ?, atualizado_em = ?
+       WHERE id = ? AND ativo = 1`
+    )
+    .run(now, now, id);
+  return info.changes > 0;
+}
+
+/**
+ * Reativa um atendido previamente desativado.
+ */
+export function reactivateAtendido(
+  id: string,
+  now = Date.now(),
+  dbInstance?: DatabaseType
+): boolean {
+  const db = dbInstance || getDb();
+  const info = db
+    .prepare(
+      `UPDATE Atendidos
+       SET ativo = 1, deletado_em = NULL, atualizado_em = ?
+       WHERE id = ? AND ativo = 0`
+    )
+    .run(now, id);
+  return info.changes > 0;
+}
+
+/**
+ * Exclusão física definitiva de um atendido e seus vínculos.
+ */
+export function purgeAtendido(
+  id: string,
+  dbInstance?: DatabaseType
+): boolean {
+  const db = dbInstance || getDb();
+  const deleteTx = db.transaction(() => {
+    db.prepare('DELETE FROM Eventos WHERE sessao_id IN (SELECT id FROM Sessoes WHERE atendido_id = ?)').run(id);
+    db.prepare('DELETE FROM Abas WHERE sessao_id IN (SELECT id FROM Sessoes WHERE atendido_id = ?)').run(id);
+    db.prepare('DELETE FROM Sessoes_Revisoes WHERE sessao_id IN (SELECT id FROM Sessoes WHERE atendido_id = ?)').run(id);
+    db.prepare('DELETE FROM Assets WHERE sessao_id IN (SELECT id FROM Sessoes WHERE atendido_id = ?)').run(id);
+    db.prepare('DELETE FROM Sessoes WHERE atendido_id = ?').run(id);
+    const info = db.prepare('DELETE FROM Atendidos WHERE id = ?').run(id);
+    return info.changes > 0;
+  });
+  return deleteTx();
+}

@@ -88,3 +88,32 @@ export function getConfig(
     .get(chave) as { valor: string } | undefined;
   return row ? row.valor : null;
 }
+
+/**
+ * Retorna todas as configurações como um mapa chave -> valor.
+ */
+export function getAllConfigs(
+  dbInstance?: DatabaseType
+): Record<string, string> {
+  const db = dbInstance || getDb();
+  const rows = db
+    .prepare('SELECT chave, valor FROM ConfiguracaoGlobal')
+    .all() as { chave: string; valor: string }[];
+  const result: Record<string, string> = {};
+  for (const row of rows) {
+    result[row.chave] = row.valor;
+  }
+  return result;
+}
+
+/**
+ * Remove uma configuração (útil para testes).
+ */
+export function deleteConfig(
+  chave: string,
+  dbInstance?: DatabaseType
+): boolean {
+  const db = dbInstance || getDb();
+  const info = db.prepare('DELETE FROM ConfiguracaoGlobal WHERE chave = ?').run(chave);
+  return info.changes > 0;
+}
