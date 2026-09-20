@@ -217,7 +217,6 @@ async function main() {
     const guestBrowser = await puppeteer.launch({
       executablePath: chromiumExe,
       headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
     });
 
     try {

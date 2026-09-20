@@ -135,13 +135,13 @@ export const GuestRoom: React.FC<GuestRoomProps> = ({
       setConnState(s);
     };
 
-    (wsClient as any).onStateChange = handleState;
-    (wsClient as any).onMessage = handleHostMessage;
+    wsClient.onStateChange = handleState;
+    wsClient.onMessage = handleHostMessage;
 
     return () => {
       // Limpeza dos callbacks ao desmontar
-      (wsClient as any).onStateChange = undefined;
-      (wsClient as any).onMessage = undefined;
+      wsClient.onStateChange = undefined;
+      wsClient.onMessage = undefined;
     };
   }, [wsClient, handleHostMessage]);
 

@@ -52,9 +52,9 @@ export class GuestWsClient {
   private reconnectAttempts: number = 0;
   private readonly maxReconnectAttempts: number = 30; // ~1-2 min com backoff
 
-  private onStateChange?: (state: GuestConnectionState) => void;
-  private onMessage?: (message: any) => void;
-  private onError?: (err: Error) => void;
+  public onStateChange?: (state: GuestConnectionState) => void;
+  public onMessage?: (message: any) => void;
+  public onError?: (err: Error) => void;
 
   constructor(options: GuestWsClientOptions) {
     this.wsUrl = options.wsUrl;
