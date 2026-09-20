@@ -3,8 +3,6 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { initDb } from './db/connection';
 
-let mainWindow: BrowserWindow | null = null;
-
 function createWindow(): BrowserWindow {
   const primaryDisplay = screen.getPrimaryDisplay();
   const { width: screenWidth, height: screenHeight } = primaryDisplay.bounds;
@@ -128,11 +126,11 @@ app.whenReady().then(() => {
     console.error('[Main] Falha ao inicializar o banco de dados:', err);
   }
 
-  mainWindow = createWindow();
+  createWindow();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      mainWindow = createWindow();
+      createWindow();
     }
   });
 });
