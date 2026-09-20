@@ -173,5 +173,29 @@ SINAIS DE RISCO (linhas adicionadas vs origin/main): 0 falha(s), 0 aviso(s)
 ### 8. Saída Real de `node tools/verificar-afirmacoes.cjs`
 ```
 $ node tools/verificar-afirmacoes.cjs
-AFIRMAÇÕES vs CÓDIGO: 35 verificadas em docs/HANDOFF.md; 0 NÃO ENCONTRADA(S)
+AFIRMAÇÕES vs CÓDIGO: 46 verificadas em docs/HANDOFF.md; 0 NÃO ENCONTRADA(S)
+```
+
+### 9. Saída Real de `node tools/auditar.cjs`
+```
+$ node tools/auditar.cjs
+
+AUDITORIA AUTOMATICA — fase/07-guest-mobile
+PASS  clone limpo da branch  -> fase/07-guest-mobile
+PASS  instalação (npm ci)  -> 24 vulnerabilities (3 moderate, 19 high, 2 critical)
+PASS  verificação (npm run verify)  -> 172 testes ok
+PASS  sonda de runtime  -> 21/21 checagens
+PASS  sem variável/parâmetro não usado
+PASS  Renderer sem fs/electron/better-sqlite3
+PASS  Renderer sem SQL (regra de negócio no Main)
+PASS  sem vermelho na UI (regra do dono)
+PASS  sinais de risco (linhas novas)  -> 0 falha(s), 18 aviso(s) -> TIPO_SUPRIMIDO src/guest/ws/client.ts:115; TIPO_SUPRIMIDO src/shared/canvas/engine.ts:506; TIPO_SUPRIMIDO src/shared/canvas/engine.ts:507; TIPO_SUPRIMIDO src/shared/canvas/engine.ts:904
+PASS  autoauditoria-07 existe
+PASS  autoauditoria lista o que NÃO foi verificado
+PASS  autoauditoria sem FAIL aberto  -> 24 PASS / 0 FAIL
+PASS  HANDOFF atualizado para esta fase
+PASS  afirmações da documentação existem no código  -> 90 verificadas
+PASS  commits novos desde a base  -> 10 commits; 43 files changed, 7261 insertions(+), 112 deletions(-)
+
+TUDO VERDE — este relatorio NAO substitui a abertura da tela, a leitura de amostra do diff e a decisão do chefe.
 ```
