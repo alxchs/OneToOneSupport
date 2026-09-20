@@ -199,3 +199,127 @@ PASS  commits novos desde a base  -> 10 commits; 43 files changed, 7261 insertio
 
 TUDO VERDE — este relatorio NAO substitui a abertura da tela, a leitura de amostra do diff e a decisão do chefe.
 ```
+
+---
+
+## CORREÇÕES DO LOTE 2 (FASES 05, 06 E 07 — C1 A C5)
+
+Revisão técnica do chefe apontou 5 correções obrigatórias (C1 a C5), todas corrigidas, testadas com suíte adversarial dedicada e verificadas em runtime real:
+
+1. **C1 (bloqueante) — Path Traversal em Snapshot por `abaId` / `sessaoId` (`electron/services/evento.service.ts`):**
+   - Implementado validador estrito `isValidId` contra `ID_REGEX` (`/^[A-Za-z0-9_-]{1,64}$/`).
+   - Defesa em profundidade: `salvarSnapshotEmDisco`, `obterUltimoSnapshot`, `apagarTodosSnapshots`, `gerarSnapshotAba`, `reconstruirEstadoAba`, `consolidarAoEncerrar`, `salvarRevisao` e `carregarRevisao` garantem que caminhos resolvidos com `path.resolve` estão estritamente contidos dentro do diretório base de snapshots, lançando `PATH_TRAVERSAL_DETECTED` caso contrário.
+   - Validação de borda no servidor (`electron/server/index.ts`: `handleGuestEvent`) e no IPC (`electron/ipc/evento.ipc.ts`: `handleEventoGravar` e `handleEventoObterEstado`). Eventos do Guest com `abaId` inválido são sumariamente descartados.
+   - 12 vetores de ataque maliciosos testados (`"../x"`, `"x/../../../y"`, `"..\\..\\y"`, `"C:\\x"`, `"/etc/x"`, byte nulo, 10.000 caracteres, string vazia, `null`, `undefined`, não-strings), comprovando que nenhum arquivo é gravado fora da pasta de snapshots.
+
+2. **C2 (bloqueante) — Autoridade Falha Aberta (`electron/services/evento.service.ts`):**
+   - Implementada lista de PERMISSÃO rigorosa: `autor` deve ser estritamente `'host'` ou `'guest'`.
+   - Decisão de arquitetura registrada: sem trim silencioso que altere a semântica da identidade. Qualquer outro valor (`"convidado"`, `""`, `"guest "`, `"GuestX"`, `null`, etc.) é rejeitado com `AUTOR_INVALIDO`.
+   - Lista de tipos conhecidos `TIPOS_EVENTO_CONHECIDOS`: tipos desconhecidos são rejeitados com `TIPO_INVALIDO`.
+   - Incluído `'SCREEN_LOCKED'` entre as ações exclusivas do Host (proibidas ao Guest com `FORBIDDEN_ACTION_GUEST`), ao lado de `CLEAR_TAB`, `LOCK_SCREEN`, `UNLOCK_MEDIA` e `TAB_SWITCH`.
+   - Mesma regra aplicada no IPC `electron/ipc/evento.ipc.ts`.
+
+3. **C3 — Retorno de gravarEvento ignorado (`electron/server/index.ts`):**
+   - Em `handleGuestEvent`, o retorno de `gravarEvento` é verificado. Se devolver `sucesso: false` ou lançar exceção, o evento é descartado e NÃO repassado ao Host (`notifyGuestEvent`).
+   - Teste adversarial comprova que tentativas do Guest de emitir ações não autorizadas não acionam os listeners do Host.
+
+4. **C4 — Barra de ferramentas do Guest mobile (`src/guest/GuestRoom.tsx`, `src/guest/guest.css`):**
+   - Barra organizada em dois grupos lógicos `.guest-toolbar-group` dentro de `.guest-toolbar-container`, eliminando o corte na borda direita em 412x915 mantendo todos os alvos de toque ≥ 48px.
+   - Sonda `tools/probe-runtime.cjs` estendida para verificar que todos os 10 botões estão totalmente contidos na largura da viewport (`r.left >= 0 && r.right <= vw + 1`), gerando nova captura em `docs/guest-mobile-emulation.png`.
+
+5. **C5 — Registro de divergência e fonte única da CSP:**
+   - Criado `docs/ADR/010-drawhide-elementid.md` formalizando a aceitação retrocompatível de `elementId` no evento `DRAW_HIDE` do reducer.
+   - Criada a fonte única de verdade `src/shared/csp.ts` exportando `GUEST_CSP` com `'wasm-unsafe-eval'`.
+   - `vite.config.guest.ts` e `electron/server/http.ts` consomem a mesma constante `GUEST_CSP`.
+   - Teste comprova a coincidência caractere a caractere entre o cabeçalho HTTP e a meta tag HTML.
+
+---
+
+### Saída Real dos Testes Adversariais das Correções (`tests/adversarial/correcoes-lote2.test.ts`)
+```
+$ npm test -- tests/adversarial/correcoes-lote2.test.ts
+> onetoonesupport@1.0.0 test
+> node scripts/test-runner.mjs tests/adversarial/correcoes-lote2.test.ts
+
+[Test-Runner] Executando vitest sob ABI do Electron com ELECTRON_RUN_AS_NODE=1...
+
+ RUN  v2.1.9 C:/desenv/utils/OneToOneSupport
+
+ ✓ tests/adversarial/correcoes-lote2.test.ts (16 tests) 144ms
+   ✓ Correções do Lote 2 - C1, C2 e C3 (Adversarial e Regras de Segurança) > C1: Defesa contra Path Traversal em Snapshot por abaId / sessaoId > validador de identificadores aceita apenas [A-Za-z0-9_-]{1,64}
+   ✓ Correções do Lote 2 - C1, C2 e C3 (Adversarial e Regras de Segurança) > C1: Defesa contra Path Traversal em Snapshot por abaId / sessaoId > rejeita gravação de snapshot e NÃO cria arquivos fora da pasta de snapshots para todos os vetores de ataque
+   ✓ Correções do Lote 2 - C1, C2 e C3 (Adversarial e Regras de Segurança) > C1: Defesa contra Path Traversal em Snapshot por abaId / sessaoId > obterUltimoSnapshot, gerarSnapshotAba e reconstruirEstadoAba rejeitam vetores de path traversal
+   ✓ Correções do Lote 2 - C1, C2 e C3 (Adversarial e Regras de Segurança) > C1: Defesa contra Path Traversal em Snapshot por abaId / sessaoId > gravarEvento rejeita sessao_id e aba_id inválidos com erro tipado e sem persistir
+   ✓ Correções do Lote 2 - C1, C2 e C3 (Adversarial e Regras de Segurança) > C1: Defesa contra Path Traversal em Snapshot por abaId / sessaoId > IPC handleEventoGravar e handleEventoObterEstado rejeitam sessao_id e aba_id maliciosos
+   ✓ Correções do Lote 2 - C1, C2 e C3 (Adversarial e Regras de Segurança) > C2: Autoridade Estrita (Lista de Permissão) e Bloqueio de Ações > rejeita qualquer autor que não seja exatamente "host" ou "guest" com AUTOR_INVALIDO para todas as ações
+   ✓ Correções do Lote 2 - C1, C2 e C3 (Adversarial e Regras de Segurança) > C2: Autoridade Estrita (Lista de Permissão) e Bloqueio de Ações > rejeita tipo de evento desconhecido com TIPO_INVALIDO para Host e Guest
+   ✓ Correções do Lote 2 - C1, C2 e C3 (Adversarial e Regras de Segurança) > C2: Autoridade Estrita (Lista de Permissão) e Bloqueio de Ações > Guest é estritamente proibido de executar ações exclusivas (CLEAR_TAB, LOCK_SCREEN, UNLOCK_MEDIA, TAB_SWITCH, SCREEN_LOCKED)
+   ✓ Correções do Lote 2 - C1, C2 e C3 (Adversarial e Regras de Segurança) > C2: Autoridade Estrita (Lista de Permissão) e Bloqueio de Ações > Guest com tela bloqueada (screenLocked === true) é rejeitado com SCREEN_LOCKED para qualquer evento
+   ✓ Correções do Lote 2 - C1, C2 e C3 (Adversarial e Regras de Segurança) > C2: Autoridade Estrita (Lista de Permissão) e Bloqueio de Ações > IPC handleEventoGravar rejeita autores fora da lista de permissão
+   ✓ Correções do Lote 2 - C1, C2 e C3 (Adversarial e Regras de Segurança) > C3: Descarte de Evento Rejeitado pelo Servidor (handleGuestEvent) > descarta evento do Guest com abaId malicioso e NÃO repassa ao Host
+   ✓ Correções do Lote 2 - C1, C2 e C3 (Adversarial e Regras de Segurança) > C3: Descarte de Evento Rejeitado pelo Servidor (handleGuestEvent) > descarta evento do Guest rejeitado por gravarEvento (ex.: CLEAR_TAB) e NÃO repassa ao Host
+   ✓ Correções do Lote 2 - C1, C2 e C3 (Adversarial e Regras de Segurança) > C3: Descarte de Evento Rejeitado pelo Servidor (handleGuestEvent) > repassa evento com sucesso ao Host se for válido e aprovado
+   ✓ Correções do Lote 2 - C1, C2 e C3 (Adversarial e Regras de Segurança) > C4: Barra de Ferramentas Mobile (Alvos de Toque >= 48px e Viewport 412px) > garante que a estrutura da barra de ferramentas suporta todos os 10 botões com alvos >= 48px
+   ✓ Correções do Lote 2 - C1, C2 e C3 (Adversarial e Regras de Segurança) > C5: Registro de Divergência (ADR-010) e Fonte Única da CSP do Guest > DRAW_HIDE aceita elementId, targetId e id de forma retrocompatível no reducer
+   ✓ Correções do Lote 2 - C1, C2 e C3 (Adversarial e Regras de Segurança) > C5: Registro de Divergência (ADR-010) e Fonte Única da CSP do Guest > fonte única GUEST_CSP coincide exatamente entre cabeçalho HTTP e HTML final
+
+ Test Files  1 passed (1)
+      Tests  16 passed (16)
+   Duration  2.57s
+```
+
+### Saída Real de `npm run verify` Completo Pós-Correções (188 Testes + Sonda 22/22)
+```
+$ npm run verify
+> onetoonesupport@1.0.0 verify
+> npm run typecheck && npm run build && npm test && npm run probe
+
+> onetoonesupport@1.0.0 typecheck
+> tsc --noEmit
+
+> onetoonesupport@1.0.0 build
+> tsc -p tsconfig.electron.json && vite build && vite build --config vite.config.guest.ts
+
+dist/renderer/index.html                  0.97 kB │ gzip:   0.56 kB
+dist/renderer/assets/index-mo4-uC1u.js  508.97 kB │ gzip: 150.98 kB
+✓ built in 2.62s
+dist/guest/guest.html                     0.96 kB │ gzip:   0.51 kB
+dist/guest/assets/index-CD_7vfq9.css      3.37 kB │ gzip:   1.16 kB
+dist/guest/assets/index-B62w5tDu.js   1,479.51 kB │ gzip: 465.16 kB
+✓ built in 17.55s
+
+> onetoonesupport@1.0.0 test
+> node scripts/test-runner.mjs
+
+ Test Files  12 passed (12)
+      Tests  188 passed (188)
+   Duration  13.89s
+
+> onetoonesupport@1.0.0 probe
+> node tools/probe-runtime.cjs
+
+PASS  typeof require === undefined
+PASS  typeof process === undefined
+PASS  UI renderizou (#root com filhos)
+PASS  CSP: script inline NAO executa
+PASS  CSP: eval bloqueado
+PASS  sem erro de pagina
+PASS  IPC: validacao de payload rejeita dado invalido com erro tipado
+PASS  UI: criar atendido
+PASS  UI: detectar duplicado com mensagem clara (Regra #1)
+PASS  UI: editar atendido
+PASS  UI: desativar atendido (soft delete)
+PASS  UI: iniciar sessao, gerar QR e abrir sala do servidor LAN
+PASS  Guest Mobile: carregou bundle do Guest e removeu hash da URL
+PASS  Guest Mobile: CSP sem violacoes no console
+PASS  Guest Mobile: desenhou com touch e sincronizou com o Host
+PASS  Guest Mobile: LOCK_SCREEN exibiu overlay e desbloqueou
+PASS  Guest Mobile: mute local emitiu GUEST_MUTED
+PASS  Guest Mobile: barra de ferramentas totalmente visivel na viewport
+PASS  UI: abrir quadro branco HiDPI e verificar DPR 1.5
+PASS  UI: desenhar traço, retângulo, texto, desfazer/refazer e borracha
+PASS  UI: alterar rotulo no dicionario
+PASS  Banco: sem dados duplicados no SQLite
+```
+*(22/22 checagens PASS)*
+
