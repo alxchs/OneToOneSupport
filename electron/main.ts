@@ -2,6 +2,8 @@ import { app, BrowserWindow, screen, ipcMain, session } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import { initDb } from './db/connection';
+import { registerIpcHandlers } from './ipc/router';
+import { IPC_CHANNELS } from '../src/shared/ipc-contract';
 
 function createWindow(): BrowserWindow {
   const primaryDisplay = screen.getPrimaryDisplay();
@@ -19,14 +21,17 @@ function createWindow(): BrowserWindow {
   const initialWidth = Math.max(960, Math.round(workWidth * 0.85));
   const initialHeight = Math.max(640, Math.round(workHeight * 0.85));
 
-  // Aplicar CSP estrita via header HTTP
+  // Aplicar CSP via header HTTP (relaxada para Fast Refresh no dev com VITE_DEV_SERVER_URL; estrita no build)
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    const isDev = Boolean(process.env.VITE_DEV_SERVER_URL);
+    const csp = isDev
+      ? "default-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:* ws://localhost:*; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws: wss: http://localhost:*;"
+      : "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws: wss:;";
+
     callback({
       responseHeaders: {
         ...details.responseHeaders,
-        'Content-Security-Policy': [
-          "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws: wss:;"
-        ],
+        'Content-Security-Policy': [csp],
       },
     });
   });
@@ -99,12 +104,12 @@ function createWindow(): BrowserWindow {
 }
 
 // Configurar handlers de IPC do Preload
-ipcMain.handle('desktop:get-scale-factor', () => {
+ipcMain.handle(IPC_CHANNELS.DESKTOP_GET_SCALE_FACTOR, () => {
   const primary = screen.getPrimaryDisplay();
   return primary.scaleFactor;
 });
 
-ipcMain.handle('desktop:get-display-metrics', () => {
+ipcMain.handle(IPC_CHANNELS.DESKTOP_GET_DISPLAY_METRICS, () => {
   const primary = screen.getPrimaryDisplay();
   return {
     width: primary.bounds.width,
@@ -113,7 +118,7 @@ ipcMain.handle('desktop:get-display-metrics', () => {
   };
 });
 
-ipcMain.handle('desktop:get-app-version', () => {
+ipcMain.handle(IPC_CHANNELS.DESKTOP_GET_APP_VERSION, () => {
   return app.getVersion();
 });
 
@@ -125,6 +130,9 @@ app.whenReady().then(() => {
   } catch (err) {
     console.error('[Main] Falha ao inicializar o banco de dados:', err);
   }
+
+  // Registrar rotas de IPC de domínio
+  registerIpcHandlers();
 
   createWindow();
 
