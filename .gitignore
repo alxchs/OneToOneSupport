@@ -76,3 +76,7 @@ ehthumbs.db
 coverage/
 .vitest/
 node_modules
+
+# logs das execuções do orquestrador
+docs/execucoes/
+

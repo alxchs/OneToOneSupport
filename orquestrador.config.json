@@ -1,0 +1,18 @@
+{
+  "_comentario": "Exemplo real (OneToOneSupport: Electron + React + SQLite). Regras de camada e paleta do projeto.",
+  "baseBranch": "main",
+  "branchPrefix": "fase",
+  "installCmd": "npm ci",
+  "verifyCmd": "npm run verify",
+  "unusedCmd": "npx tsc --noEmit --noUnusedLocals --noUnusedParameters",
+  "requireProbe": true,
+  "layerRules": [
+    { "nome": "Renderer sem fs/electron/better-sqlite3", "dirs": ["src"], "exts": ["ts", "tsx"], "regex": "from ['\"](fs|path|better-sqlite3|electron)['\"]|require\\(['\"](fs|electron|better-sqlite3)['\"]\\)" },
+    { "nome": "Renderer sem SQL (regra de negócio no Main)", "dirs": ["src"], "exts": ["ts", "tsx"], "regex": "\\b(SELECT\\s.+\\sFROM|INSERT\\s+INTO|UPDATE\\s+\\w+\\s+SET|DELETE\\s+FROM)\\b", "flags": "i" },
+    { "nome": "sem vermelho na UI (regra do dono)", "dirs": ["src"], "exts": ["ts", "tsx", "css", "html"], "regex": "#(f00|ff0000|dc2626|ef4444|b91c1c|e11d48|991b1b|fca5a5|f87171)\\b|\\bred\\b", "flags": "i" }
+  ],
+  "riskSignals": { "ignore": [], "failOn": [], "extra": [], "excludePaths": [] },
+  "claims": { "ignore": [], "warnOnly": false },
+  "redTeam": { "enabled": true, "testDir": "tests/adversarial", "allowedPaths": ["tests/adversarial/", "docs/reviews/redteam-"], "testCmd": "npm test" },
+  "agy": { "path": "%USERPROFILE%\\.gemini\\bin\\agy.exe", "effort": "high" }
+}

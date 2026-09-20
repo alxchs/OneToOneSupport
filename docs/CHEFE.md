@@ -24,3 +24,11 @@ Você é o chefe técnico (Claude Code) do OneToOneSupport. O executor é o Anti
 - `NODE_ENV=production` faz `npm ci` pular devDependencies.
 - Em `file://`, CSP por header não vale; usar `<meta>` no build. No Git Bash, `branch:path` precisa de `MSYS_NO_PATHCONV=1`.
 - Regras do Alexandre: nunca vermelho (nem vermelho+amarelo) em UI/arte; nunca `push` sem confirmação.
+
+## Ferramentas do kit (instalado; fonte: C:/desenv/utils/ai-orchestrator-kit)
+- `node tools/auditar.cjs [branch]`: resumo curto; agora inclui **sinais de risco** (regras fixas nas linhas novas) e **verificador de afirmações** (nomes citados no HANDOFF que não existem no código). Configuração em `orquestrador.config.json`.
+- `tools/red-team.ps1`: o executor como atacante; só escreve testes em `tests/adversarial/` e `docs/reviews/redteam-NN.md`. O `rodar-lote.ps1` já o roda depois do auditor verde.
+- Sinal de risco justificado: comentário `risco-aceito: ID` na própria linha.
+
+## Quando avisar o dono para trocar o modelo (Sonnet -> Opus)
+Fique no Sonnet no dia a dia. **Peça a troca ANTES** (motivo + duração) para: auditoria final de fase crítica (cripto, autenticação, dados sensíveis); decisão de arquitetura difícil de reverter; o mesmo defeito voltando 2 vezes após correção; revisão de release/empacotamento (fase 10). Formato: "Recomendo trocar para Opus (`/model`) para <motivo>. Depois volte ao Sonnet."
