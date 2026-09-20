@@ -57,9 +57,12 @@ Consequência: a principal alavanca é **uma sessão limpa por fase** guiada por
 
 | Fase | Semana % antes | Semana % depois | Delta | Sessão limpa? |
 | --- | --- | --- | --- | --- |
-| 02 | 24% | _preencher_ | _preencher_ | _sim/não_ |
+| 02 a 04 (lote 1) | 24% (antes do despacho) | 26% (depois da auditoria do chefe, 2026-09-20) | +2 pontos | não (mesma sessão longa, contexto > 150k) |
+| (parcial) | 24% | 25% (com fases 02 e 03 já entregues, antes da auditoria) | +1 ponto | não |
 
 ## Registro do lote 1 (2026-09-20, 1ª execução)
 - Fase 02: verde na 1ª tentativa (50 testes, sonda 13/13, 10 commits). Ainda sem auditoria independente do chefe.
 - Fase 03: implementação entregue (105 testes, sonda 13/13), mas **omitiu `autoauditoria-03.md`** (o auditor automático pegou). Falha de processo do executor: pulou o passo que o AGENTS.md exigia.
 - **Falha repetida (3ª vez):** o `agy` roda comando longo (`npm run verify`) em segundo plano, escreve "aguardando" e o modo `--print` encerra sem commit. Causa raiz tratada: (a) regra crítica no cabeçalho do despacho (não terminar turno esperando; fazer polling), (b) a correção automática agora passa a evidência do auditor e **proíbe** repetir comandos longos, (c) `rodar-lote` audita antes de redespachar fase já entregue.
+
+Leitura do lote 1: 3 fases (~10 mil linhas novas, 121 testes, servidor E2EE, UI com QR) por +2 pontos da semana, incluindo despacho, correções de ferramenta e a auditoria do chefe. Ressalvas: percentuais inteiros (erro de até ~1 ponto), a semana soma outros usos, e a sessão foi longa (contexto grande, o pior caso de custo). Próximo teste: lote 2 em sessão limpa via docs/CHEFE.md, para medir o efeito da sessão curta.
