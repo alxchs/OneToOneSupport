@@ -15,7 +15,7 @@
 
 3. **Ambiente de Exibição do Guest (Mobile):** O frontend do Guest acessa via navegador. Todo o CSS, Tailwind e touch events devem rodar perfeitamente em dispositivos premium modernos, com alvo exato de homologação mental um **Motorola Edge 70 Pro rodando Android 16**, com menus de sistema nativamente em inglês.
 
-4. **Controle de Versão Local:** **Git Bash 2.52** com prompts de timestamp customizados; remotos no **AWS CodeCommit**. Os `.gitignore` devem ser exaustivos e preparados para Node, React, Electron e builds C++ nativos (`better-sqlite3`, `sodium-native`), evitando travar commits no AWS.
+4. **Controle de Versão Local:** **Git Bash 2.52** com prompts de timestamp customizados; remotos no **GitHub** (decisão do Alexandre, ver docs/ADR/007; substitui o AWS CodeCommit do texto original). Os `.gitignore` devem ser exaustivos e preparados para Node, React, Electron e builds C++ nativos (`better-sqlite3`, `sodium-native`), evitando travar commits no remoto.
 
 ## 1. PROPÓSITO
 Referência mestra do projeto. **Regra de divergência:** quando uma implementação precisar divergir desta especificação, registrar em um ADR e justificar no bloco `[HANDOFF DE ESTADO]`. Nunca alterar a stack sem justificativa estrutural.

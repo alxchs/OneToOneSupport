@@ -8,7 +8,7 @@ Antes de qualquer trabalho leia os três, mais `docs/HANDOFF.md` (estado atual) 
    comparando TODAS as colunas de negócio (exceto PK e timestamps). Colunas anuláveis comparam com `IS`, nunca `=`.
 2. **Host 3840x2160 @150%:** canvas/Fabric.js sempre leem `window.devicePixelRatio`.
 3. **Guest:** homologação mental = Motorola Edge 70 Pro, Android 16, sistema em inglês. Mobile-first, touch events.
-4. **Git:** Git Bash 2.52, remoto AWS CodeCommit. **Nunca `git push` sem confirmação explícita do Alexandre naquele momento.**
+4. **Git:** Git Bash 2.52, remoto GitHub (ADR-007; o Mestre dizia AWS CodeCommit). **Nunca `git push` sem confirmação explícita do Alexandre naquele momento.**
 5. **Sem regra de negócio no Renderer.** Lógica no Main (Domain Services).
 6. **Stack fixa.** Divergir só com ADR em `docs/ADR/` + justificativa no HANDOFF.
 7. **Arte/ícones/logos: nunca vermelho, nunca vermelho+amarelo.** Perguntar por paleta alternativa.

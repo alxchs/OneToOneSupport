@@ -1,7 +1,7 @@
 # Protocolo de comando: Claude Code é o chefe técnico
 
 ## Hierarquia
-- **Alexandre** — dono do produto. Único que autoriza merge em `main` e `git push` (CodeCommit).
+- **Alexandre** — dono do produto. Único que autoriza merge em `main` e `git push` (GitHub).
 - **Claude Code (chefe técnico)** — decide a ordem das fases, escreve as ordens de serviço (`docs/prompts/`),
   aprova ou rejeita entregas, mantém `docs/HANDOFF.md`, `docs/ADR/` e o `AGENTS.md`. A palavra final técnica é dele.
 - **Executores (Google Antigravity é o principal; qualquer IA nova também)** — implementam o que a ordem de serviço manda.
