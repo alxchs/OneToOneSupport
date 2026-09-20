@@ -11,12 +11,14 @@ connect-src 'self' ws: wss:;
 img-src 'self' blob: data:;
 media-src 'self' blob:;
 style-src 'self' 'unsafe-inline';
-script-src 'self';
+script-src 'self' 'wasm-unsafe-eval';
 object-src 'none';
 base-uri 'self';
 ```
+A inclusão de `'wasm-unsafe-eval'` é a diretiva padrão da W3C específica para permitir instanciação e compilação do binário WebAssembly do libsodium (`libsodium-wrappers`), mantendo avaliação de strings JavaScript (`eval()`, `new Function()`) estritamente bloqueada.
+
 Para o Host no Electron, a CSP é aplicada via cabeçalhos HTTP em `session.defaultSession.webRequest.onHeadersReceived` de forma igualmente estrita, proibindo scripts remotos e inline desnecessários.
 
 ## Consequências
-- Conexões WebSocket e renderização de mídia funcionam sem advertências ou bloqueios do navegador.
+- Conexões WebSocket, instanciação de WebAssembly para o E2EE e renderização de mídia funcionam sem advertências ou bloqueios do navegador.
 - Bloqueio estrito de injeção de scripts externos, mantendo a superfície de ataque mínima.

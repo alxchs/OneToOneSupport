@@ -182,12 +182,134 @@ async function main() {
     return Boolean(qrValido && urlValida && badgeValido);
   });
 
+  const inviteUrlRaw = await page.$eval('#input-url-convite', (el) => el.value);
+
   // 7.1 UI: Abrir Quadro Branco HiDPI (Fase 06)
   await page.waitForSelector('#btn-abrir-quadro-servidor', { timeout: 5000 });
   await page.click('#btn-abrir-quadro-servidor');
   await page.waitForSelector('#pagina-quadro-branco', { timeout: 8000 });
   await page.waitForSelector('#canvas-quadro-branco', { timeout: 8000 });
   await new Promise((r) => setTimeout(r, 600));
+
+  // 7.1.1 Guest Mobile: Emulação Motorola Edge 70 Pro / Android 16 (Fase 07)
+  const guestMobile = {
+    carregouBundleERemoveuHash: false,
+    cspSemViolacoes: false,
+    desenhouESincronizou: false,
+    lockScreenOk: false,
+    guestMutedOk: false,
+  };
+
+  const parsedGuestUrl = new URL(inviteUrlRaw);
+  parsedGuestUrl.hostname = '127.0.0.1';
+  const guestProbeUrl = parsedGuestUrl.toString();
+
+  const browserCandidates = [
+    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+    'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+    'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+    'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
+    path.join(process.env.LOCALAPPDATA || '', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+  ];
+  const chromiumExe = browserCandidates.find((p) => p && fs.existsSync(p));
+
+  if (chromiumExe) {
+    const guestBrowser = await puppeteer.launch({
+      executablePath: chromiumExe,
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-web-security'],
+    });
+
+    try {
+      const guestPage = await guestBrowser.newPage();
+      await guestPage.setViewport({
+        width: 412,
+        height: 915,
+        devicePixelRatio: 2.625,
+        isMobile: true,
+        hasTouch: true,
+      });
+      await guestPage.setUserAgent(
+        'Mozilla/5.0 (Linux; Android 16; Motorola Edge 70 Pro Build/AP2A.240805.005) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36'
+      );
+
+      await guestPage.evaluateOnNewDocument(() => {
+        document.addEventListener('securitypolicyviolation', (e) => {
+          window.__guestViolations = window.__guestViolations || [];
+          window.__guestViolations.push(e.violatedDirective);
+        });
+      });
+
+      await guestPage.goto(guestProbeUrl, { waitUntil: 'networkidle0', timeout: 15000 });
+      await guestPage.waitForSelector('#guest-room-container', { timeout: 15000 });
+
+      // Validação 1: Removeu fragmento #pk_h e sem violações CSP
+      const hashAposJoin = await guestPage.evaluate(() => window.location.hash);
+      const guestViolations = await guestPage.evaluate(() => window.__guestViolations || []);
+
+      guestMobile.carregouBundleERemoveuHash = hashAposJoin === '';
+      guestMobile.cspSemViolacoes = guestViolations.length === 0;
+
+      // Validação 2: Desenho com touch no Guest e sincronização com o Host
+      await guestPage.waitForSelector('#tool-guest-pencil', { timeout: 5000 });
+      await guestPage.tap('#tool-guest-pencil');
+
+      const guestCanvasArea = await guestPage.$eval('#guest-whiteboard-area', (el) => {
+        const r = el.getBoundingClientRect();
+        return { left: r.left, top: r.top, width: r.width, height: r.height };
+      });
+
+      // Simulação de traço com touch
+      const touchStartX = Math.round(guestCanvasArea.left + 100);
+      const touchStartY = Math.round(guestCanvasArea.top + 120);
+
+      const cdpClient = await guestPage.target().createCDPSession();
+      await cdpClient.send('Input.dispatchTouchEvent', {
+        type: 'touchStart',
+        touchPoints: [{ x: touchStartX, y: touchStartY }],
+      });
+      await cdpClient.send('Input.dispatchTouchEvent', {
+        type: 'touchMove',
+        touchPoints: [{ x: touchStartX + 50, y: touchStartY + 40 }],
+      });
+      await cdpClient.send('Input.dispatchTouchEvent', {
+        type: 'touchEnd',
+        touchPoints: [],
+      });
+
+      // Aguarda persistência e envio via WebSocket
+      await new Promise((r) => setTimeout(r, 1200));
+
+      // Verifica se o Host recebeu o elemento desenhado pelo Guest
+      const hostElementosAposGuest = await page.$eval('#badge-elementos', (el) => el.innerText);
+      guestMobile.desenhouESincronizou = !hostElementosAposGuest.includes('0');
+
+      // Validação 3: LOCK_SCREEN
+      await page.waitForSelector('#btn-lock-guest-screen', { timeout: 5000 });
+      await page.click('#btn-lock-guest-screen');
+      await guestPage.waitForSelector('#guest-lock-overlay', { timeout: 6000 });
+      const lockVisivel = await guestPage.evaluate(() => Boolean(document.getElementById('guest-lock-overlay')));
+
+      // Desbloqueia tela no Host
+      await page.click('#btn-lock-guest-screen');
+      await new Promise((r) => setTimeout(r, 800));
+      const lockRemovido = await guestPage.evaluate(() => !document.getElementById('guest-lock-overlay'));
+      guestMobile.lockScreenOk = lockVisivel && lockRemovido;
+
+      // Validação 4: Mute local no Guest emite GUEST_MUTED
+      await guestPage.waitForSelector('#btn-guest-mute', { timeout: 5000 });
+      await guestPage.tap('#btn-guest-mute');
+      await page.waitForSelector('#badge-guest-muted', { timeout: 6000 });
+      const hostViuMute = await page.$eval('#badge-guest-muted', (el) => el.innerText.includes('Mutado'));
+      guestMobile.guestMutedOk = hostViuMute;
+
+      // Screenshot da emulação do Guest mobile (Android 16 / Motorola Edge 70 Pro)
+      const guestShotPath = path.join(root, 'docs', 'guest-mobile-emulation.png');
+      await guestPage.screenshot({ path: guestShotPath });
+    } finally {
+      await guestBrowser.close();
+    }
+  }
 
   // 7.2 Leitura do DPR real e verificação dos controles do Quadro Branco
   const quadroCheck = await page.evaluate(async () => {
@@ -412,6 +534,7 @@ async function main() {
     bancoSemDuplicados: dbCheck.semDuplicados && bancoDirectCheck,
     totalAtendidos: dbCheck.total,
     pageErrors,
+    guestMobile,
   };
 }
 
@@ -431,6 +554,16 @@ main()
       'UI: editar atendido': res.ui.editadoOk,
       'UI: desativar atendido (soft delete)': res.ui.desativadoOk,
       'UI: iniciar sessao, gerar QR e abrir sala do servidor LAN': res.ui.servidorUiOk,
+      'Guest Mobile: carregou bundle do Guest e removeu hash da URL':
+        res.guestMobile.carregouBundleERemoveuHash,
+      'Guest Mobile: CSP sem violacoes no console':
+        res.guestMobile.cspSemViolacoes,
+      'Guest Mobile: desenhou com touch e sincronizou com o Host':
+        res.guestMobile.desenhouESincronizou,
+      'Guest Mobile: LOCK_SCREEN exibiu overlay e desbloqueou':
+        res.guestMobile.lockScreenOk,
+      'Guest Mobile: mute local emitiu GUEST_MUTED':
+        res.guestMobile.guestMutedOk,
       'UI: abrir quadro branco HiDPI e verificar DPR 1.5':
         res.ui.quadroDprOk && res.ui.quadroControlesOk,
       'UI: desenhar traço, retângulo, texto, desfazer/refazer e borracha':

@@ -6,6 +6,7 @@ import { DetalheAtendidoPage } from './pages/DetalheAtendidoPage';
 import { ConfiguracoesPage } from './pages/ConfiguracoesPage';
 import { QuadroBrancoPage } from './pages/QuadroBrancoPage';
 import { useHostStore } from './store/useHostStore';
+import { reduceEvent, WhiteboardEvent } from '../shared/events/reducer';
 
 export const HostApp: React.FC = () => {
   const { view, mensagemAlerta, limparMensagens, carregarDicionario } = useHostStore();
@@ -17,6 +18,47 @@ export const HostApp: React.FC = () => {
     if (window.desktopAPI) {
       window.desktopAPI.getScaleFactor().then(setScaleFactor).catch(console.error);
       window.desktopAPI.getAppVersion().then(setAppVersion).catch(console.error);
+    }
+
+    // Escuta eventos em tempo real enviados pelo Guest
+    if (window.desktopAPI?.serverSession) {
+      const unsubGuest = window.desktopAPI.serverSession.onGuestEvent((event: any) => {
+        if (!event || !event.type) return;
+
+        if (event.type === 'GUEST_MUTED') {
+          const rawPayload = event.payload;
+          const parsedPayload =
+            typeof rawPayload === 'string' ? JSON.parse(rawPayload) : rawPayload;
+          const isMuted = Boolean(parsedPayload?.muted ?? event.muted);
+          useHostStore.setState({ guestMuted: isMuted });
+          return;
+        }
+
+        if (
+          event.type === 'DRAW_ADD' ||
+          event.type === 'DRAW_HIDE' ||
+          event.type === 'CLEAR_TAB'
+        ) {
+          const rawPayload = event.payload;
+          const parsedPayload =
+            typeof rawPayload === 'string' ? JSON.parse(rawPayload) : rawPayload;
+          const ev: WhiteboardEvent = {
+            id: event.id || (window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : `ev-${Date.now()}`),
+            sessao_id: useHostStore.getState().activeSessaoId || undefined,
+            aba_id: event.abaId || 'default',
+            tipo: event.type,
+            payload: parsedPayload,
+            autor: 'guest',
+            criado_em: event.ts || Date.now(),
+          };
+          const nextState = reduceEvent(useHostStore.getState().tabState, ev);
+          useHostStore.setState({ tabState: nextState });
+        }
+      });
+
+      return () => {
+        unsubGuest();
+      };
     }
   }, [carregarDicionario]);
 

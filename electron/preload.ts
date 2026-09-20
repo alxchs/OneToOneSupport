@@ -41,6 +41,10 @@ const IPC_CHANNELS = {
   SERVER_LIST_IPS: 'server:list-ips',
   SERVER_SET_IP: 'server:set-ip',
   SERVER_STATUS_CHANGED: 'server:status-changed',
+  SERVER_LOCK_SCREEN: 'server:lock-screen',
+  SERVER_UNLOCK_MEDIA: 'server:unlock-media',
+  SERVER_SWITCH_TAB: 'server:switch-tab',
+  SERVER_GUEST_EVENT_RECEIVED: 'server:guest-event-received',
 
   EVENTO_GRAVAR: 'evento:gravar',
   EVENTO_OBTER_ESTADO: 'evento:obter-estado',
@@ -100,6 +104,12 @@ const desktopAPI: DesktopAPI = {
     listIps: () => ipcRenderer.invoke(IPC_CHANNELS.SERVER_LIST_IPS),
     setIp: (payload: SetServerIpPayload) =>
       ipcRenderer.invoke(IPC_CHANNELS.SERVER_SET_IP, payload),
+    lockScreen: (locked: boolean) =>
+      ipcRenderer.invoke(IPC_CHANNELS.SERVER_LOCK_SCREEN, { locked }),
+    unlockMedia: (unlocked: boolean) =>
+      ipcRenderer.invoke(IPC_CHANNELS.SERVER_UNLOCK_MEDIA, { unlocked }),
+    switchTab: (abaId: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.SERVER_SWITCH_TAB, { abaId }),
     onStatusChange: (callback: (status: ServerSessionInfoDTO | null) => void) => {
       const listener = (
         _event: Electron.IpcRendererEvent,
@@ -110,6 +120,15 @@ const desktopAPI: DesktopAPI = {
       ipcRenderer.on(IPC_CHANNELS.SERVER_STATUS_CHANGED, listener);
       return () => {
         ipcRenderer.removeListener(IPC_CHANNELS.SERVER_STATUS_CHANGED, listener);
+      };
+    },
+    onGuestEvent: (callback: (event: any) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, event: any) => {
+        callback(event);
+      };
+      ipcRenderer.on(IPC_CHANNELS.SERVER_GUEST_EVENT_RECEIVED, listener);
+      return () => {
+        ipcRenderer.removeListener(IPC_CHANNELS.SERVER_GUEST_EVENT_RECEIVED, listener);
       };
     },
   },

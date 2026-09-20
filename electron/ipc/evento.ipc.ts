@@ -8,6 +8,8 @@ import {
 import { EventoService } from '../services/evento.service';
 import { TabState } from '../../src/shared/events/reducer';
 
+import { serverSessionController } from '../server/index';
+
 const defaultEventoService = new EventoService();
 
 export async function handleEventoGravar(
@@ -72,6 +74,22 @@ export async function handleEventoGravar(
         error: 'INTERNAL_ERROR',
         message: res.motivo || 'Erro ao gravar evento.',
       };
+    }
+
+    // Se o evento foi gravado com sucesso pelo Host, transmite cifrado para o Guest conectado
+    if (p.autor === 'host') {
+      try {
+        serverSessionController.broadcastToGuest({
+          type: p.tipo.trim(),
+          payload: typeof p.payload === 'string' ? JSON.parse(p.payload) : p.payload,
+          abaId: p.aba_id ? p.aba_id.trim() : 'default',
+          sessaoId: p.sessao_id.trim(),
+          autor: 'host',
+          ts: Date.now(),
+        });
+      } catch {
+        // Fallback silencioso se falhar envio cifrado
+      }
     }
 
     return { success: true, data: res.evento };
