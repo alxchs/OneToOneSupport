@@ -6,7 +6,14 @@ import type {
   ServerSessionInfoDTO,
 } from '../../shared/ipc-contract';
 
-export type HostView = 'lista' | 'form' | 'detalhes' | 'configuracoes';
+import {
+  TabState,
+  createInitialTabState,
+  reduceEvent,
+  WhiteboardEvent,
+} from '../../shared/events/reducer';
+
+export type HostView = 'lista' | 'form' | 'detalhes' | 'configuracoes' | 'quadro';
 
 interface HostState {
   view: HostView;
@@ -44,6 +51,16 @@ interface HostState {
   encerrarServidorSessao: () => Promise<boolean>;
   selecionarIpServidor: (ip: string) => Promise<boolean>;
   carregarStatusServidor: () => Promise<void>;
+
+  // Quadro Branco HiDPI (Fase 06)
+  activeSessaoId: string | null;
+  activeAbaId: string;
+  tabState: TabState;
+  abrirQuadroSessao: (sessaoId: string) => Promise<void>;
+  aplicarEventoQuadro: (evento: WhiteboardEvent) => Promise<void>;
+  desfazerQuadro: () => Promise<void>;
+  refazerQuadro: () => Promise<void>;
+  limparQuadro: () => Promise<void>;
 }
 
 export const useHostStore = create<HostState>((set, get) => ({
@@ -63,6 +80,9 @@ export const useHostStore = create<HostState>((set, get) => ({
   mensagemAlerta: null,
   erroDuplicado: null,
   activeServerSession: null,
+  activeSessaoId: null,
+  activeAbaId: 'default',
+  tabState: createInitialTabState('default'),
 
   setView: (view) => set({ view, mensagemAlerta: null, erroDuplicado: null }),
 
@@ -353,5 +373,83 @@ export const useHostStore = create<HostState>((set, get) => ({
     if (res.success) {
       set({ activeServerSession: res.data });
     }
+  },
+
+  abrirQuadroSessao: async (sessaoId: string) => {
+    set({ activeSessaoId: sessaoId, activeAbaId: 'default', carregando: true });
+    let state = createInitialTabState('default');
+    if (window.desktopAPI?.eventos) {
+      try {
+        const res = await window.desktopAPI.eventos.obterEstadoAba(sessaoId, 'default');
+        if (res.success && res.data) {
+          state = res.data;
+        }
+      } catch (err) {
+        console.error('[HostStore] Erro ao carregar estado da aba via IPC:', err);
+      }
+    }
+    set({ tabState: state, view: 'quadro', carregando: false });
+  },
+
+  aplicarEventoQuadro: async (evento: WhiteboardEvent) => {
+    const { tabState, activeSessaoId, activeAbaId } = get();
+    const proximoEstado = reduceEvent(tabState, evento);
+    set({ tabState: proximoEstado });
+
+    if (window.desktopAPI?.eventos && activeSessaoId) {
+      try {
+        await window.desktopAPI.eventos.gravar({
+          sessao_id: activeSessaoId,
+          aba_id: activeAbaId,
+          tipo: evento.tipo,
+          payload: evento.payload,
+          autor: evento.autor,
+        });
+      } catch (err) {
+        console.error('[HostStore] Erro ao persistir evento no SQLite:', err);
+      }
+    }
+  },
+
+  desfazerQuadro: async () => {
+    const { aplicarEventoQuadro, activeSessaoId, activeAbaId } = get();
+    const ev: WhiteboardEvent = {
+      id: crypto.randomUUID(),
+      sessao_id: activeSessaoId || undefined,
+      aba_id: activeAbaId,
+      tipo: 'UNDO',
+      autor: 'host',
+      payload: {},
+      criado_em: Date.now(),
+    };
+    await aplicarEventoQuadro(ev);
+  },
+
+  refazerQuadro: async () => {
+    const { aplicarEventoQuadro, activeSessaoId, activeAbaId } = get();
+    const ev: WhiteboardEvent = {
+      id: crypto.randomUUID(),
+      sessao_id: activeSessaoId || undefined,
+      aba_id: activeAbaId,
+      tipo: 'REDO',
+      autor: 'host',
+      payload: {},
+      criado_em: Date.now(),
+    };
+    await aplicarEventoQuadro(ev);
+  },
+
+  limparQuadro: async () => {
+    const { aplicarEventoQuadro, activeSessaoId, activeAbaId } = get();
+    const ev: WhiteboardEvent = {
+      id: crypto.randomUUID(),
+      sessao_id: activeSessaoId || undefined,
+      aba_id: activeAbaId,
+      tipo: 'CLEAR_TAB',
+      autor: 'host',
+      payload: { tabId: activeAbaId },
+      criado_em: Date.now(),
+    };
+    await aplicarEventoQuadro(ev);
   },
 }));

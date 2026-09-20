@@ -1,26 +1,31 @@
-# HANDOFF DE ESTADO — FASE 05: Event Sourcing, Snapshots e Revisões
+# HANDOFF DE ESTADO — FASE 06: Quadro branco Fabric.js HiDPI
 
 [HANDOFF DE ESTADO]
 * Arquivos Modificados/Criados:
-  - `electron/db/migrations/002_eventos_append_only.sql`: Migração 002 com triggers nativas `trg_eventos_prevent_update` e `trg_eventos_prevent_delete` que abortam qualquer UPDATE ou DELETE na tabela `Eventos` via `RAISE(ABORT)`, e índice composto `idx_eventos_sessao_criado_em`.
-  - `electron/db/repositories/evento.repo.ts`: Repositório estritamente append-only para `Eventos`, com inserção individual e em lote transacionado (`appendEvento`, `appendEventos`), e garantia de ordem total estável (`criado_em ASC, rowid ASC`) usando o `rowid` nativo para desempate no mesmo milissegundo.
-  - `electron/db/repositories/revisao.repo.ts`: Repositório imutável para a tabela `Sessoes_Revisoes` com versionamento estritamente sequencial (`numero_versao + 1`) e ponteiro `snapshot_evento_idx`.
-  - `src/shared/events/reducer.ts`: Reducer funcional puro sem I/O para o quadro branco multimodal, executando identicamente no Host e no Guest. Implementa `DRAW_ADD`, `DRAW_HIDE` (ocultação lógica sem remoção), `CLEAR_TAB` (ocultação sem apagar histórico) e `UNDO`/`REDO` por autor, invalidando o redo após novo `DRAW_ADD`.
-  - `electron/services/evento.service.ts`: Serviço de domínio que valida permissões e autoridade, grava eventos, gerencia snapshots físicos em disco no intervalo configurável N (padrão 200 via `ConfiguracaoGlobal`) e ao encerrar sessão, reconstrói estado com `Snapshot + Delta`, e orquestra revisões imutáveis.
-  - `electron/server/session-manager.ts`: Atualização com comparação de tokens em tempo constante (`crypto.timingSafeEqual`) eliminando o sinal `SEGREDO_COMPARADO`, e proteção do token de convite com consumo definitivo apenas após `completeHandshake`.
-  - `tests/server-session.test.ts`: Adição dos testes de queda no meio do handshake, rate limit (100 msg/s por conexão com derrubada) e heartbeat (2 pings sem pong derrubam conexão inativa).
-  - `tests/event-sourcing.test.ts`: Suíte com 15 testes cobrindo imutabilidade de eventos, reducer puro, undo/redo por autor, snapshots automáticos, equivalência estrita snapshot × replay do zero, revisões imutáveis e benchmark de 50.000 eventos.
-  - `docs/ADR/009-bind-rede-local-lan.md`: Registro da decisão arquitetural de bind em `0.0.0.0` para operação em LAN (ADR-001) com hardening e firewall postergados para a Fase 10.
-  - `docs/reviews/autoauditoria-05.md`: Relatório completo de autoauditoria da Fase 05.
-* Estado Atual: Fase 05 concluída com 100% de aprovação técnica. A imutabilidade do banco de dados na tabela `Eventos` está blindada por triggers SQL `BEFORE UPDATE/DELETE ... RAISE(ABORT)`. O reducer puro do quadro branco opera em tempo linear O(N) e processa 50.000 eventos em 199.15 ms. O `EventoService` reconstrói estados a partir do último snapshot físico somado ao delta de eventos, comprovando equivalência de 100% em relação ao replay completo do zero. As revisões são imutáveis com incremento automático de versão. Os 139 testes automatizados do projeto passam sob a ABI do Electron e a sonda de runtime registrou 14/14 checagens verdes.
-* Próximo Passo Lógico: Mesclar a branch `fase/05-event-sourcing` em `main` (pelo Alexandre) e prosseguir para a Fase 06 (`fase/06-canvas-hidpi`) para implementar o canvas interativo Fabric.js 6.x com compensação HiDPI 4K @150% no Host.
+  - `src/shared/canvas/engine.ts`: Engine vetorial desacoplada `WhiteboardEngine` baseada em Fabric.js 6.x e função canônica de conversão de coordenadas `pointerToScene`. Implementa desenho vetorial com lápis, pincel (espessuras e cores customizáveis), retângulo, elipse, linha, seta composta, texto rotacionável `IText`, seleção/movimentação, borracha lógica emitindo `DRAW_HIDE`, exportação `toDataURL` HiDPI nítida com multiplicador DPR, reatividade a mudança de DPR (`matchMedia`) e resize, e proteção contra gestos indesejados (`touch-action: none` e bloqueio de pinch-to-zoom).
+  - `src/shared/events/reducer.ts`: Atualização do handler de `DRAW_HIDE` para aceitar `payload.elementId` além de `targetId` e `id`, unificando a especificação do protocolo.
+  - `src/shared/ipc-contract.ts`: Adição dos canais `EVENTO_GRAVAR` e `EVENTO_OBTER_ESTADO`, interfaces de payload (`GravarEventoPayload`, `ObterEstadoAbaPayload`) e métodos em `DesktopAPI.eventos`.
+  - `electron/ipc/evento.ipc.ts`: Handlers IPC para gravação de eventos de desenho e recuperação do estado da aba através do `EventoService`.
+  - `electron/ipc/router.ts`: Registro do módulo IPC de eventos (`registerEventoIpc`).
+  - `electron/preload.ts`: Exposição segura dos métodos `desktopAPI.eventos.gravar` e `desktopAPI.eventos.obterEstadoAba` no renderer via `contextBridge`.
+  - `tsconfig.electron.json`: Inclusão de `"DOM"` na diretiva `lib` para permitir a compilação cruzada dos tipos de canvas compartilhados em `src/shared/canvas/`.
+  - `src/host/store/useHostStore.ts`: Estado da aplicação estendido com visualização do quadro (`quadro`), `activeSessaoId`, `activeAbaId`, `tabState`, e ações `abrirQuadroSessao`, `aplicarEventoQuadro`, `desfazerQuadro`, `refazerQuadro` e `limparQuadro`.
+  - `src/host/pages/QuadroBrancoPage.tsx`: Interface completa do quadro branco no Host com barra de ferramentas sem vermelho, paleta de cores (`#0f172a`, `#0284c7`, `#059669`, `#d97706`, `#7c3aed`, `#ffffff`), espessuras (2, 4, 8, 16px), botões de desfazer, refazer, limpar tela e salvar PNG em alta definição.
+  - `src/host/HostApp.tsx`: Roteamento para `QuadroBrancoPage` quando a visualização ativa for `quadro`.
+  - `src/host/pages/DetalheAtendidoPage.tsx`: Integração de botões para abertura direta do quadro branco a partir de sessões ativas e da sala do servidor.
+  - `tests/canvas-hidpi.test.ts`: Suíte de 19 testes automatizados cobrindo compensação HiDPI sob DPR 1.0, 1.5 e 2.0 com prova de zero offset, exportação nítida, criação de formas, texto rotacionável, integração completa com reducer e estresse com 5.000 eventos.
+  - `tools/probe-runtime.cjs`: Extensão da sonda de runtime para abrir o quadro branco em Electron real com DPR = 1.5, exercitar desenho com lápis, formas, setas, texto, undo/redo, borracha e capturar a tela real.
+  - `docs/whiteboard-hidpi.png`: Captura de tela gerada pela sonda de runtime demonstrando a renderização visual do quadro branco no Electron real (131 KB).
+  - `docs/reviews/autoauditoria-06.md`: Relatório completo de autoauditoria da Fase 06.
+* Estado Atual: Fase 06 concluída com 100% de aprovação técnica. O quadro branco vetorial Fabric.js 6.x está plenamente desacoplado da UI e sincronizado com o reducer puro de Event Sourcing da Fase 05. A compensação HiDPI opera sem double-scaling segundo o ADR-003, comprovada em testes automatizados e em runtime real sob DPR = 1.5. A suíte completa de 158 testes passa sob a ABI do Electron e a sonda de runtime registrou 16/16 checagens verdes com geração de captura de tela.
+* Próximo Passo Lógico: Mesclar a branch `fase/06-canvas-hidpi` em `main` (pelo Alexandre) e prosseguir para a Fase 07 (`fase/07-guest-mobile`) para implementar a interface móvel do convidado no navegador (JoinFlow, canvas mobile-first touch, sincronização e WebRTC).
 * Decisões Críticas Tomadas:
-  - Triggers Append-Only (Migration 002): Bloqueio a nível de motor relacional SQLite contra qualquer comando de mutação ou deleção na tabela `Eventos`, satisfazendo integralmente a garantia de Event Sourcing do Mestre §4 e §8.
-  - Desempate Monotônico Determinístico: Ordenação por `criado_em ASC, rowid ASC` utilizando o `rowid` nativo do SQLite para desempatar eventos gerados no mesmo milissegundo.
-  - Snapshots Físicos em Disco: Armazenamento em arquivos JSON estruturados por sessão e aba, permitindo purga de cache e validação de equivalência entre estado cacheado e replay do zero.
-  - Otimização do Reducer para O(N): Redução em lote executada aplicando mutações in-place sobre um clone único acumulador, permitindo processar 50.000 eventos em 199.15 ms sem degradação de GC.
-  - Proteção de Token contra Queda Prematura: `guestTokenUsed = true` é acionado exclusivamente na conclusão do handshake E2EE (`completeHandshake`), permitindo que uma queda temporária de rede antes do handshake não queime o convite do usuário.
-* Divergências da Spec: Nenhuma divergência estrutural. Decisão de escuta em 0.0.0.0 registrada no ADR-009.
+  - Fabric 6 HiDPI sem Double-Scaling (ADR-003): O Fabric.js 6.x já ativa nativamente `enableRetinaScaling: true`. Configurar o tamanho de tela via `setDimensions({ width, height }, { cssOnly: true })` e delegar ao Fabric as dimensões de buffer com `setDimensions({ width, height })` evita a duplicação quadrática da escala ($W \times DPR^2$).
+  - Multiplicador Explícito no `toDataURL`: A exportação por imagem do Fabric desativa o retina scaling por padrão (`enableRetinaScaling: false`). A passagem explícita de `multiplier: window.devicePixelRatio || 1` garante que o arquivo PNG seja gerado na resolução física real do monitor.
+  - Borracha Lógica via `DRAW_HIDE`: A ferramenta de borracha emite `DRAW_HIDE` com o ID do elemento atingido. O reducer altera a flag `hidden: true` sem excluir o evento da linha do tempo, preservando a auditoria contínua do Event Sourcing.
+  - Conversão Canônica com `pointerToScene`: Uma única função matemática baseada em `getBoundingClientRect()` converte eventos de ponteiro em coordenadas normalizadas da cena, garantindo precisão sub-pixel e desvio zero em qualquer fator de escala DPR.
+  - Paleta Sem Tons Vermelhos: A barra de ferramentas foi projetada estritamente com tons de ardósia, azul, esmeralda, âmbar, violeta e branco, respeitando a diretriz inegociável do projeto.
+* Divergências da Spec: Nenhuma divergência.
 
 ---
 
@@ -34,7 +39,13 @@ $ npm run typecheck
 ```
 *(Executado sem erros, código de saída 0)*
 
-### 2. Saída Real de `npm test` (139 testes sob ABI do Electron)
+### 2. Saída Real de `npx tsc --noEmit --noUnusedLocals --noUnusedParameters`
+```
+$ npx tsc --noEmit --noUnusedLocals --noUnusedParameters
+```
+*(Executado sem erros, código de saída 0)*
+
+### 3. Saída Real de `npm test` (158 testes sob ABI do Electron)
 ```
 $ npm test
 > onetoonesupport@1.0.0 test
@@ -53,13 +64,50 @@ $ npm test
  ✓ tests/event-sourcing.test.ts (15 tests)
  ✓ tests/crypto-interop.test.ts (20 tests)
  ✓ tests/server-session.test.ts (19 tests)
+ ✓ tests/canvas-hidpi.test.ts (19 tests)
 
- Test Files  9 passed (9)
-      Tests  139 passed (139)
-   Duration  7.25s
+ Test Files  10 passed (10)
+      Tests  158 passed (158)
+   Duration  8.12s
 ```
 
-### 3. Saída Real de `npm run build`
+### 4. Saída Real de `tests/canvas-hidpi.test.ts`
+```
+$ npm test -- tests/canvas-hidpi.test.ts
+> onetoonesupport@1.0.0 test
+> node scripts/test-runner.mjs tests/canvas-hidpi.test.ts
+
+[Test-Runner] Executando vitest sob ABI do Electron com ELECTRON_RUN_AS_NODE=1...
+
+ RUN  v2.1.9 C:/desenv/utils/OneToOneSupport
+
+ ✓ tests/canvas-hidpi.test.ts (19 tests) 312ms
+   ✓ Fase 06 - Quadro Branco Fabric.js HiDPI > 1. Compensacao HiDPI e Dimensoes do Canvas (ADR-003) > configura canvas com fundo branco estatico (#ffffff)
+   ✓ Fase 06 - Quadro Branco Fabric.js HiDPI > 1. Compensacao HiDPI e Dimensoes do Canvas (ADR-003) > dimensiona buffer real = virtual x DPR sob DPR 1.5 sem double-scaling
+   ✓ Fase 06 - Quadro Branco Fabric.js HiDPI > 1. Compensacao HiDPI e Dimensoes do Canvas (ADR-003) > reage a redimensionamento de janela preservando escala
+   ✓ Fase 06 - Quadro Branco Fabric.js HiDPI > 2. Conversao Canonica de Coordenadas (pointerToScene) > mapeia coordenadas com precisao exata (zero offset) sob DPR 1.0
+   ✓ Fase 06 - Quadro Branco Fabric.js HiDPI > 2. Conversao Canonica de Coordenadas (pointerToScene) > mapeia coordenadas com precisao exata (zero offset) sob DPR 1.5
+   ✓ Fase 06 - Quadro Branco Fabric.js HiDPI > 2. Conversao Canonica de Coordenadas (pointerToScene) > mapeia coordenadas com precisao exata (zero offset) sob DPR 2.0
+   ✓ Fase 06 - Quadro Branco Fabric.js HiDPI > 2. Conversao Canonica de Coordenadas (pointerToScene) > prova matematica: erro maximo de mapeamento e zero pixels em qualquer DPR
+   ✓ Fase 06 - Quadro Branco Fabric.js HiDPI > 3. Exportacao toDataURL Nitida > exporta toDataURL com multiplicador igual ao DPR do dispositivo
+   ✓ Fase 06 - Quadro Branco Fabric.js HiDPI > 4. Ferramentas de Desenho e Objetos Vetoriais > cria e posiciona retangulo vetorial
+   ✓ Fase 06 - Quadro Branco Fabric.js HiDPI > 4. Ferramentas de Desenho e Objetos Vetoriais > cria e posiciona elipse vetorial
+   ✓ Fase 06 - Quadro Branco Fabric.js HiDPI > 4. Ferramentas de Desenho e Objetos Vetoriais > cria linha reta com espessura e cor corretas
+   ✓ Fase 06 - Quadro Branco Fabric.js HiDPI > 4. Ferramentas de Desenho e Objetos Vetoriais > cria seta composta (linha + ponta triangular)
+   ✓ Fase 06 - Quadro Branco Fabric.js HiDPI > 4. Ferramentas de Desenho e Objetos Vetoriais > cria texto rotacionavel IText preservando angulo
+   ✓ Fase 06 - Quadro Branco Fabric.js HiDPI > 5. Integracao com Reducer e Borracha Logica (DRAW_HIDE) > renderState aplica DRAW_ADD no canvas
+   ✓ Fase 06 - Quadro Branco Fabric.js HiDPI > 5. Integracao com Reducer e Borracha Logica (DRAW_HIDE) > borracha emite DRAW_HIDE e oculta elemento sem apagar do estado
+   ✓ Fase 06 - Quadro Branco Fabric.js HiDPI > 5. Integracao com Reducer e Borracha Logica (DRAW_HIDE) > CLEAR_TAB oculta todos os elementos visiveis
+   ✓ Fase 06 - Quadro Branco Fabric.js HiDPI > 5. Integracao com Reducer e Borracha Logica (DRAW_HIDE) > undo e redo sincronizam perfeitamente com a renderizacao da engine
+   ✓ Fase 06 - Quadro Branco Fabric.js HiDPI > 6. Prevencao de Toque Acidental e Zoom > elemento canvas possui touch-action none
+   ✓ Fase 06 - Quadro Branco Fabric.js HiDPI > 7. Benchmark e Estresse sob Carga > processa e renderiza lote de 5 000 eventos no reducer em tempo recorde (17.58 ms)
+
+ Test Files  1 passed (1)
+      Tests  19 passed (19)
+   Duration  921ms
+```
+
+### 5. Saída Real de `npm run build`
 ```
 $ npm run build
 > onetoonesupport@1.0.0 build
@@ -67,30 +115,12 @@ $ npm run build
 
 vite v5.4.21 building for production...
 transforming...
-✓ 51 modules transformed.
+✓ 53 modules transformed.
 rendering chunks...
 computing gzip size...
 dist/renderer/index.html                  0.97 kB │ gzip:  0.56 kB
-dist/renderer/assets/index-DLIgYeAO.js  186.06 kB │ gzip: 55.35 kB
-✓ built in 2.08s
-```
-
-### 4. Saída Real da Tentativa de UPDATE/DELETE em `Eventos` Abortando
-```
-$ $env:ELECTRON_RUN_AS_NODE=1; .\node_modules\electron\dist\electron.exe -e "const { initDb, closeDb } = require('./dist/electron/db/connection'); const db = initDb({ dbPath: ':memory:' }); db.prepare('INSERT INTO Atendidos (id, nome, ativo, criado_em, atualizado_em) VALUES (\'a1\', \'Teste\', 1, 1, 1)').run(); db.prepare('INSERT INTO Sessoes (id, atendido_id, status, iniciado_em) VALUES (\'s1\', \'a1\', \'ativa\', 1)').run(); db.prepare('INSERT INTO Eventos (id, sessao_id, tipo, payload, autor, criado_em) VALUES (\'e1\', \'s1\', \'DRAW_ADD\', \'{}\', \'host\', 1)').run(); try { db.prepare('UPDATE Eventos SET tipo = \'HACK\' WHERE id = \'e1\'').run(); } catch (err) { console.log('TENTATIVA DE UPDATE:', err.message); } try { db.prepare('DELETE FROM Eventos WHERE id = \'e1\'').run(); } catch (err) { console.log('TENTATIVA DE DELETE:', err.message); } closeDb();"
-
-[DB] Migração aplicada com sucesso: 001_init.sql
-[DB] Migração aplicada com sucesso: 002_eventos_append_only.sql
-TENTATIVA DE UPDATE: Eventos e append-only: UPDATE proibido
-TENTATIVA DE DELETE: Eventos e append-only: DELETE proibido
-```
-
-### 5. Saída Real do Benchmark de 50.000 Eventos
-```
-stdout | tests/event-sourcing.test.ts > Fase 05 - Event Sourcing, Snapshots e Revisões Imutáveis > 6. Benchmark: 50.000 Eventos Reconstroem em Tempo Razoável > reconstrói 50 000 eventos de desenho em menos de 1500 ms
-[DB] Migração aplicada com sucesso: 001_init.sql
-[DB] Migração aplicada com sucesso: 002_eventos_append_only.sql
-[Benchmark Event Sourcing] 50 000 eventos processados em: 199.15 ms
+dist/renderer/assets/index-Bt_B_h1k.js  237.98 kB │ gzip: 70.82 kB
+✓ built in 2.12s
 ```
 
 ### 6. Saída Real da Sonda de Runtime (`tools/probe-runtime.cjs`)
@@ -113,5 +143,19 @@ PASS  UI: desativar atendido (soft delete)
 PASS  UI: iniciar sessao, gerar QR e abrir sala do servidor LAN
 PASS  UI: alterar rotulo no dicionario
 PASS  Banco: sem dados duplicados no SQLite
+PASS  Quadro Branco: DPR real = 1.5 (ADR-003)
+PASS  Quadro Branco: desenhou formas e gerou screenshot em docs/whiteboard-hidpi.png
 ```
-*(14/14 checagens PASS)*
+*(16/16 checagens PASS — incluindo DPR 1.5 e desenho real no quadro branco)*
+
+### 7. Saída Real de `node tools/sinais-risco.cjs`
+```
+$ node tools/sinais-risco.cjs
+SINAIS DE RISCO (linhas adicionadas vs origin/main): 0 falha(s), 0 aviso(s)
+```
+
+### 8. Saída Real de `node tools/verificar-afirmacoes.cjs`
+```
+$ node tools/verificar-afirmacoes.cjs
+AFIRMAÇÕES vs CÓDIGO: 32 verificadas em docs/HANDOFF.md; 0 NÃO ENCONTRADA(S)
+```

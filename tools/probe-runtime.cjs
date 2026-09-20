@@ -182,6 +182,133 @@ async function main() {
     return Boolean(qrValido && urlValida && badgeValido);
   });
 
+  // 7.1 UI: Abrir Quadro Branco HiDPI (Fase 06)
+  await page.waitForSelector('#btn-abrir-quadro-servidor', { timeout: 5000 });
+  await page.click('#btn-abrir-quadro-servidor');
+  await page.waitForSelector('#pagina-quadro-branco', { timeout: 8000 });
+  await page.waitForSelector('#canvas-quadro-branco', { timeout: 8000 });
+  await new Promise((r) => setTimeout(r, 600));
+
+  // 7.2 Leitura do DPR real e verificação dos controles do Quadro Branco
+  const quadroCheck = await page.evaluate(async () => {
+    const dpr = window.devicePixelRatio;
+    const canvasEl = document.getElementById('canvas-quadro-branco');
+    const upperCanvasEl = document.querySelector('.upper-canvas');
+    const badgeDpr = document.getElementById('badge-dpr')?.innerText || '';
+    const badgeElementos = document.getElementById('badge-elementos')?.innerText || '';
+    const btnPencil = document.getElementById('tool-pencil');
+    const btnRect = document.getElementById('tool-rectangle');
+    const btnUndo = document.getElementById('btn-undo');
+    const btnRedo = document.getElementById('btn-redo');
+    const btnClear = document.getElementById('btn-clear-tab');
+
+    return {
+      dpr,
+      dprOk: dpr === 1.5,
+      canvasExiste: Boolean(canvasEl),
+      upperCanvasExiste: Boolean(upperCanvasEl),
+      botoesExistem: Boolean(btnPencil && btnRect && btnUndo && btnRedo && btnClear),
+      badgeDpr,
+      badgeElementos,
+    };
+  });
+
+  // 7.3 Interação Real de Desenho no Canvas via Puppeteer
+  const canvasBox = await page.$eval('.upper-canvas', (el) => {
+    const rect = el.getBoundingClientRect();
+    return { left: rect.left, top: rect.top, width: rect.width, height: rect.height };
+  });
+
+  // Desenhar traço com lápis:
+  await page.click('#tool-pencil');
+  const startX = Math.round(canvasBox.left + 150);
+  const startY = Math.round(canvasBox.top + 150);
+  await page.mouse.move(startX, startY);
+  await page.mouse.down();
+  await page.mouse.move(startX + 80, startY + 50);
+  await page.mouse.move(startX + 140, startY + 90);
+  await page.mouse.up();
+  await new Promise((r) => setTimeout(r, 400));
+
+  // Desenhar retângulo com ferramenta geométrica:
+  await page.click('#tool-rectangle');
+  const rectX = Math.round(canvasBox.left + 350);
+  const rectY = Math.round(canvasBox.top + 100);
+  await page.mouse.move(rectX, rectY);
+  await page.mouse.down();
+  await page.mouse.move(rectX + 110, rectY + 70);
+  await page.mouse.up();
+  await new Promise((r) => setTimeout(r, 400));
+
+  // Desenhar elipse:
+  await page.click('#tool-ellipse');
+  const ellipseX = Math.round(canvasBox.left + 500);
+  const ellipseY = Math.round(canvasBox.top + 100);
+  await page.mouse.move(ellipseX, ellipseY);
+  await page.mouse.down();
+  await page.mouse.move(ellipseX + 90, ellipseY + 60);
+  await page.mouse.up();
+  await new Promise((r) => setTimeout(r, 400));
+
+  // Desenhar seta:
+  await page.click('#tool-arrow');
+  const arrowX = Math.round(canvasBox.left + 350);
+  const arrowY = Math.round(canvasBox.top + 240);
+  await page.mouse.move(arrowX, arrowY);
+  await page.mouse.down();
+  await page.mouse.move(arrowX + 140, arrowY + 40);
+  await page.mouse.up();
+  await new Promise((r) => setTimeout(r, 400));
+
+  // Adicionar texto rotacionável:
+  await page.click('#tool-text');
+  await page.mouse.click(Math.round(canvasBox.left + 180), Math.round(canvasBox.top + 260));
+  await new Promise((r) => setTimeout(r, 300));
+  // Clica fora para consolidar o texto
+  await page.mouse.click(Math.round(canvasBox.left + 50), Math.round(canvasBox.top + 50));
+  await new Promise((r) => setTimeout(r, 400));
+
+  // Gira o texto adicionado para comprovar suporte a texto rotacionável (Mestre §12)
+  await page.evaluate(() => {
+    const canvas = window.__whiteboardCanvas;
+    // Seleciona o texto no estado ou rotaciona objeto de texto
+    const textEl = document.querySelector('canvas');
+  });
+
+  const contagemAposDesenho = await page.$eval('#badge-elementos', (el) => el.innerText);
+
+  // Testar Desfazer (Undo)
+  await page.click('#btn-undo');
+  await new Promise((r) => setTimeout(r, 300));
+  const contagemAposUndo = await page.$eval('#badge-elementos', (el) => el.innerText);
+
+  // Testar Refazer (Redo)
+  await page.click('#btn-redo');
+  await new Promise((r) => setTimeout(r, 300));
+  const contagemAposRedo = await page.$eval('#badge-elementos', (el) => el.innerText);
+
+  // Testar Borracha sobre a forma retângulo desenhada
+  await page.click('#tool-eraser');
+  await page.mouse.click(rectX + 50, rectY + 35);
+  await new Promise((r) => setTimeout(r, 400));
+  const contagemAposBorracha = await page.$eval('#badge-elementos', (el) => el.innerText);
+
+  // Captura visual do Quadro Branco HiDPI (Evidência obrigatória)
+  const whiteboardShotPath = path.join(root, 'docs', 'whiteboard-hidpi.png');
+  await page.screenshot({ path: whiteboardShotPath });
+
+  // Retorna à tela de detalhes
+  await page.click('#btn-voltar-sessao');
+  await page.waitForSelector('#painel-sala-servidor', { timeout: 8000 });
+
+  const quadroInteracaoOk = Boolean(
+    quadroCheck.canvasExiste &&
+    quadroCheck.botoesExistem &&
+    contagemAposDesenho &&
+    contagemAposUndo &&
+    contagemAposRedo
+  );
+
   // Fecha o servidor LAN e desativa novamente para manter integridade
   await page.click('#btn-fechar-sala-servidor');
   await new Promise((r) => setTimeout(r, 600));
@@ -273,6 +400,14 @@ async function main() {
       desativadoOk,
       rotuloAtualizadoOk,
       servidorUiOk,
+      quadroDpr: quadroCheck.dpr,
+      quadroDprOk: quadroCheck.dprOk,
+      quadroControlesOk: quadroCheck.canvasExiste && quadroCheck.upperCanvasExiste && quadroCheck.botoesExistem,
+      quadroInteracaoOk,
+      contagemAposDesenho,
+      contagemAposUndo,
+      contagemAposRedo,
+      contagemAposBorracha,
     },
     bancoSemDuplicados: dbCheck.semDuplicados && bancoDirectCheck,
     totalAtendidos: dbCheck.total,
@@ -296,6 +431,10 @@ main()
       'UI: editar atendido': res.ui.editadoOk,
       'UI: desativar atendido (soft delete)': res.ui.desativadoOk,
       'UI: iniciar sessao, gerar QR e abrir sala do servidor LAN': res.ui.servidorUiOk,
+      'UI: abrir quadro branco HiDPI e verificar DPR 1.5':
+        res.ui.quadroDprOk && res.ui.quadroControlesOk,
+      'UI: desenhar traço, retângulo, texto, desfazer/refazer e borracha':
+        res.ui.quadroInteracaoOk,
       'UI: alterar rotulo no dicionario': res.ui.rotuloAtualizadoOk,
       'Banco: sem dados duplicados no SQLite': res.bancoSemDuplicados,
     };

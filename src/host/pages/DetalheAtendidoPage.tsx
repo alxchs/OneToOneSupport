@@ -19,6 +19,7 @@ export const DetalheAtendidoPage: React.FC = () => {
     encerrarServidorSessao,
     selecionarIpServidor,
     carregarStatusServidor,
+    abrirQuadroSessao,
   } = useHostStore();
 
   const [mostrarFormSessao, setMostrarFormSessao] = useState(false);
@@ -453,6 +454,22 @@ export const DetalheAtendidoPage: React.FC = () => {
 
                   {ativa && (
                     <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                      <button
+                        id={`btn-abrir-quadro-${s.id}`}
+                        onClick={() => abrirQuadroSessao(s.id)}
+                        style={{
+                          padding: '0.5rem 1rem',
+                          fontSize: '0.8125rem',
+                          fontWeight: 600,
+                          backgroundColor: '#059669',
+                          border: '1px solid #10b981',
+                          color: '#ffffff',
+                          borderRadius: '0.375rem',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Abrir Quadro Branco
+                      </button>
                       {(!activeServerSession || activeServerSession.sessaoId !== s.id) && (
                         <button
                           id={`btn-iniciar-servidor-${s.id}`}
@@ -543,6 +560,23 @@ export const DetalheAtendidoPage: React.FC = () => {
                           <span style={{ fontSize: '0.8125rem', color: '#64748b' }}>
                             Porta Local: {activeServerSession.port}
                           </span>
+                          <button
+                            id="btn-abrir-quadro-servidor"
+                            type="button"
+                            onClick={() => abrirQuadroSessao(s.id)}
+                            style={{
+                              padding: '0.25rem 0.625rem',
+                              fontSize: '0.75rem',
+                              fontWeight: 600,
+                              backgroundColor: '#059669',
+                              border: '1px solid #10b981',
+                              color: '#ffffff',
+                              borderRadius: '0.375rem',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            Abrir Quadro Branco
+                          </button>
                           <button
                             id="btn-fechar-sala-servidor"
                             type="button"

@@ -41,6 +41,9 @@ const IPC_CHANNELS = {
   SERVER_LIST_IPS: 'server:list-ips',
   SERVER_SET_IP: 'server:set-ip',
   SERVER_STATUS_CHANGED: 'server:status-changed',
+
+  EVENTO_GRAVAR: 'evento:gravar',
+  EVENTO_OBTER_ESTADO: 'evento:obter-estado',
 } as const;
 
 export type { DisplayMetrics, DesktopAPI };
@@ -109,6 +112,12 @@ const desktopAPI: DesktopAPI = {
         ipcRenderer.removeListener(IPC_CHANNELS.SERVER_STATUS_CHANGED, listener);
       };
     },
+  },
+
+  eventos: {
+    gravar: (payload) => ipcRenderer.invoke(IPC_CHANNELS.EVENTO_GRAVAR, payload),
+    obterEstadoAba: (sessao_id, aba_id) =>
+      ipcRenderer.invoke(IPC_CHANNELS.EVENTO_OBTER_ESTADO, { sessao_id, aba_id }),
   },
 };
 
