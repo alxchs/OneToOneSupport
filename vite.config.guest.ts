@@ -2,10 +2,7 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 import fs from 'fs';
-
-// Política estrita CSP do ADR-005 para o Guest
-const GUEST_CSP =
-  "default-src 'self'; connect-src 'self' ws: wss:; img-src 'self' blob: data:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; object-src 'none'; base-uri 'self';";
+import { GUEST_CSP } from './src/shared/csp';
 
 export default defineConfig({
   plugins: [
@@ -16,14 +13,15 @@ export default defineConfig({
       transformIndexHtml: {
         order: 'post',
         handler: (html: string) => {
-          // Garante a presença da meta tag de CSP no index.html final
-          if (!html.includes('http-equiv="Content-Security-Policy"')) {
+          const cspMeta = `<meta http-equiv="Content-Security-Policy" content="${GUEST_CSP}" />`;
+          // Garante a presença e exata sincronia da meta tag de CSP no HTML final
+          if (html.includes('http-equiv="Content-Security-Policy"')) {
             return html.replace(
-              '<head>',
-              `<head>\n    <meta http-equiv="Content-Security-Policy" content="${GUEST_CSP}" />`
+              /<meta\s+http-equiv="Content-Security-Policy"\s+content="[^"]*"\s*\/?>/i,
+              cspMeta
             );
           }
-          return html;
+          return html.replace('<head>', `<head>\n    ${cspMeta}`);
         },
       },
     },

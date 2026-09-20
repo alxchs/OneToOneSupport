@@ -9,8 +9,6 @@ import { createSessao } from '../../electron/db/repositories/sessao.repo';
 import {
   EventoService,
   isValidId,
-  ID_REGEX,
-  TIPOS_EVENTO_CONHECIDOS,
 } from '../../electron/services/evento.service';
 import { handleEventoGravar, handleEventoObterEstado } from '../../electron/ipc/evento.ipc';
 import { ServerSessionController } from '../../electron/server/index';
@@ -180,7 +178,9 @@ describe('Correções do Lote 2 - C1, C2 e C3 (Adversarial e Regras de Seguranç
           eventoService
         );
         expect(resIpcSessao.success).toBe(false);
-        expect(resIpcSessao.error).toBe('VALIDATION');
+        if (!resIpcSessao.success) {
+          expect(resIpcSessao.error).toBe('VALIDATION');
+        }
 
         const resIpcObterSessao = await handleEventoObterEstado(
           {
@@ -190,7 +190,9 @@ describe('Correções do Lote 2 - C1, C2 e C3 (Adversarial e Regras de Seguranç
           eventoService
         );
         expect(resIpcObterSessao.success).toBe(false);
-        expect(resIpcObterSessao.error).toBe('VALIDATION');
+        if (!resIpcObterSessao.success) {
+          expect(resIpcObterSessao.error).toBe('VALIDATION');
+        }
       }
 
       // 2. aba_id malicioso
@@ -207,7 +209,9 @@ describe('Correções do Lote 2 - C1, C2 e C3 (Adversarial e Regras de Seguranç
           eventoService
         );
         expect(resIpcGravarAba.success).toBe(false);
-        expect(resIpcGravarAba.error).toBe('VALIDATION');
+        if (!resIpcGravarAba.success) {
+          expect(resIpcGravarAba.error).toBe('VALIDATION');
+        }
 
         const resIpcObter = await handleEventoObterEstado(
           {
@@ -217,7 +221,9 @@ describe('Correções do Lote 2 - C1, C2 e C3 (Adversarial e Regras de Seguranç
           eventoService
         );
         expect(resIpcObter.success).toBe(false);
-        expect(resIpcObter.error).toBe('VALIDATION');
+        if (!resIpcObter.success) {
+          expect(resIpcObter.error).toBe('VALIDATION');
+        }
       }
     });
   });
@@ -344,7 +350,9 @@ describe('Correções do Lote 2 - C1, C2 e C3 (Adversarial e Regras de Seguranç
           eventoService
         );
         expect(res.success).toBe(false);
-        expect(res.error).toBe('VALIDATION');
+        if (!res.success) {
+          expect(res.error).toBe('VALIDATION');
+        }
       }
     });
   });
@@ -422,6 +430,149 @@ describe('Correções do Lote 2 - C1, C2 e C3 (Adversarial e Regras de Seguranç
           type: 'DRAW_ADD',
         })
       );
+    });
+  });
+
+  describe('C4: Barra de Ferramentas Mobile (Alvos de Toque >= 48px e Viewport 412px)', () => {
+    it('garante que a estrutura da barra de ferramentas suporta todos os 10 botões com alvos >= 48px', () => {
+      const guestCssPath = path.resolve(__dirname, '../../src/guest/guest.css');
+      const cssContent = fs.readFileSync(guestCssPath, 'utf8');
+
+      // Verifica classes mobile-first no CSS
+      expect(cssContent).toContain('.touch-btn');
+      expect(cssContent).toContain('min-width: 48px');
+      expect(cssContent).toContain('min-height: 48px');
+      expect(cssContent).toContain('.guest-toolbar-container');
+      expect(cssContent).toContain('flex-wrap: wrap');
+      expect(cssContent).toContain('.guest-toolbar-group');
+
+      const guestRoomPath = path.resolve(__dirname, '../../src/guest/GuestRoom.tsx');
+      const roomContent = fs.readFileSync(guestRoomPath, 'utf8');
+
+      const expectedButtonIds = [
+        'tool-guest-pencil',
+        'tool-guest-brush',
+        'tool-guest-rect',
+        'tool-guest-ellipse',
+        'tool-guest-arrow',
+        'tool-guest-text',
+        'tool-guest-eraser',
+        'btn-guest-undo',
+        'btn-guest-toggle-drawer',
+        'btn-guest-media-play',
+      ];
+
+      for (const btnId of expectedButtonIds) {
+        expect(roomContent).toContain(`id="${btnId}"`);
+      }
+    });
+  });
+
+  describe('C5: Registro de Divergência (ADR-010) e Fonte Única da CSP do Guest', () => {
+    it('DRAW_HIDE aceita elementId, targetId e id de forma retrocompatível no reducer', async () => {
+      const { reduceEvent } = await import('../../src/shared/events/reducer');
+
+      let state = createInitialTabState('aba-divergencia');
+      state = reduceEvent(state, {
+        id: 'add-1',
+        tipo: 'DRAW_ADD',
+        payload: { id: 'elem-alvo-1', data: {} },
+        autor: 'host',
+        criado_em: 1,
+      });
+      state = reduceEvent(state, {
+        id: 'add-2',
+        tipo: 'DRAW_ADD',
+        payload: { id: 'elem-alvo-2', data: {} },
+        autor: 'host',
+        criado_em: 2,
+      });
+
+      expect(state.elements['elem-alvo-1'].hidden).toBe(false);
+      expect(state.elements['elem-alvo-2'].hidden).toBe(false);
+
+      // 1. DRAW_HIDE usando targetId (canônico Fase 05)
+      state = reduceEvent(state, {
+        id: 'hide-1',
+        tipo: 'DRAW_HIDE',
+        payload: { targetId: 'elem-alvo-1' },
+        autor: 'host',
+        criado_em: 3,
+      });
+      expect(state.elements['elem-alvo-1'].hidden).toBe(true);
+
+      // 2. DRAW_HIDE usando elementId (divergência documentada no ADR-010)
+      state = reduceEvent(state, {
+        id: 'hide-2',
+        tipo: 'DRAW_HIDE',
+        payload: { elementId: 'elem-alvo-2' },
+        autor: 'guest',
+        criado_em: 4,
+      });
+      expect(state.elements['elem-alvo-2'].hidden).toBe(true);
+
+      // 3. ADR-010 existe no repositório
+      const adr10Path = path.resolve(__dirname, '../../docs/ADR/010-drawhide-elementid.md');
+      expect(fs.existsSync(adr10Path)).toBe(true);
+      const adrContent = fs.readFileSync(adr10Path, 'utf8');
+      expect(adrContent).toContain('ADR-010');
+      expect(adrContent).toContain('DRAW_HIDE');
+      expect(adrContent).toContain('elementId');
+    });
+
+    it('fonte única GUEST_CSP coincide exatamente entre cabeçalho HTTP e HTML final', async () => {
+      const { GUEST_CSP } = await import('../../src/shared/csp');
+      const { createExpressApp } = await import('../../electron/server/http');
+      const { SessionManager } = await import('../../electron/server/session-manager');
+
+      // 1. Verifica que a constante GUEST_CSP contém wasm-unsafe-eval e diretivas estritas
+      expect(GUEST_CSP).toContain("script-src 'self' 'wasm-unsafe-eval'");
+      expect(GUEST_CSP).toContain("object-src 'none'");
+      expect(GUEST_CSP).toContain("default-src 'self'");
+
+      // 2. Verifica o cabeçalho HTTP do Express
+      const sessionManager = new SessionManager({ sessaoId, atendidoId });
+      const app = createExpressApp(sessionManager);
+
+      let expressCspHeader = '';
+      const req = {} as any;
+      const res = {
+        setHeader: (name: string, value: string) => {
+          if (name.toLowerCase() === 'content-security-policy') {
+            expressCspHeader = value;
+          }
+        },
+        status: () => ({ json: () => {} }),
+      } as any;
+      const next = vi.fn();
+
+      // Executa o middleware de segurança do Express
+      const middlewares = (app as any)._router.stack.filter((layer: any) => layer.name === '<anonymous>');
+      for (const m of middlewares) {
+        m.handle(req, res, next);
+      }
+
+      expect(expressCspHeader).toBe(GUEST_CSP);
+
+      // 3. Verifica o HTML de origem (guest.html)
+      const guestHtmlPath = path.resolve(__dirname, '../../guest.html');
+      expect(fs.existsSync(guestHtmlPath)).toBe(true);
+      const guestHtmlContent = fs.readFileSync(guestHtmlPath, 'utf8');
+      const metaMatch = guestHtmlContent.match(/<meta\s+http-equiv="Content-Security-Policy"\s+content="([^"]*)"/i);
+      expect(metaMatch).not.toBeNull();
+      const metaCsp = metaMatch ? metaMatch[1] : '';
+      expect(metaCsp).toBe(GUEST_CSP);
+
+      // 4. Se existir o build em dist/guest/guest.html, verifica a coincidência exata
+      const distGuestPath = path.resolve(__dirname, '../../dist/guest/guest.html');
+      if (fs.existsSync(distGuestPath)) {
+        const distHtml = fs.readFileSync(distGuestPath, 'utf8');
+        const distMetaMatch = distHtml.match(/<meta\s+http-equiv="Content-Security-Policy"\s+content="([^"]*)"/i);
+        expect(distMetaMatch).not.toBeNull();
+        const distMetaCsp = distMetaMatch ? distMetaMatch[1] : '';
+        expect(distMetaCsp).toBe(GUEST_CSP);
+        expect(expressCspHeader).toBe(distMetaCsp);
+      }
     });
   });
 });

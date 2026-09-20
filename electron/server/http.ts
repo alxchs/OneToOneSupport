@@ -3,6 +3,7 @@ import * as http from 'http';
 import * as path from 'path';
 import * as fs from 'fs';
 import { SessionManager } from './session-manager';
+import { GUEST_CSP } from '../../src/shared/csp';
 
 export interface HttpServerHandle {
   app: express.Express;
@@ -10,18 +11,6 @@ export interface HttpServerHandle {
   port: number;
   close: () => Promise<void>;
 }
-
-// Política CSP estrita para o Guest conforme ADR-005
-const GUEST_CSP_HEADER = [
-  "default-src 'self'",
-  "connect-src 'self' ws: wss:",
-  "img-src 'self' blob: data:",
-  "media-src 'self' blob:",
-  "style-src 'self' 'unsafe-inline'",
-  "script-src 'self' 'wasm-unsafe-eval'",
-  "object-src 'none'",
-  "base-uri 'self'",
-].join('; ');
 
 /**
  * Cria a aplicação Express 4 configurada para servir o Guest e arquivos estáticos,
@@ -36,7 +25,7 @@ export function createExpressApp(sessionManager: SessionManager): express.Expres
 
   // 2. Cabeçalhos de segurança e CSP do ADR-005 em todas as respostas
   app.use((_req: Request, res: Response, next: NextFunction) => {
-    res.setHeader('Content-Security-Policy', GUEST_CSP_HEADER);
+    res.setHeader('Content-Security-Policy', GUEST_CSP);
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Referrer-Policy', 'no-referrer');

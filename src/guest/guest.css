@@ -65,7 +65,9 @@ html, body {
 .touch-btn {
   min-width: 48px;
   min-height: 48px;
-  padding: 0.5rem 0.75rem;
+  width: 48px;
+  height: 48px;
+  padding: 0;
   border-radius: 0.625rem;
   border: 1px solid var(--color-border);
   background-color: var(--color-bg-surface);
@@ -77,8 +79,29 @@ html, body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.5rem;
+  flex-shrink: 0;
+  box-sizing: border-box;
   transition: background-color 0.15s ease, transform 0.1s ease;
+}
+
+/* Barra de Ferramentas Inferior Mobile (Mobile-First 412x915) */
+.guest-toolbar-container {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  padding: 0.25rem 0.5rem;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.guest-toolbar-group {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  flex-wrap: nowrap;
 }
 
 .touch-btn:active:not(:disabled) {

@@ -574,166 +574,166 @@ export const GuestRoom: React.FC<GuestRoomProps> = ({
           </div>
         )}
 
-        {/* Linha Principal de Botões de Ferramentas (Alvos >= 48px) */}
+        {/* Linha Principal de Botões de Ferramentas (Alvos >= 48px, dividida em dois grupos para caber em 412px) */}
         <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-around',
-            gap: '0.25rem',
-            overflowX: 'auto',
-            padding: '0 0.25rem',
-          }}
+          id="guest-toolbar"
+          className="guest-toolbar-container"
         >
-          {/* Lápis */}
-          <button
-            id="tool-guest-pencil"
-            onClick={() => mudarFerramenta('pencil')}
-            disabled={screenLocked}
-            className={`touch-btn ${ferramenta === 'pencil' ? 'touch-btn-active' : ''}`}
-            aria-label="Lápis"
-            title="Lápis"
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path>
-            </svg>
-          </button>
+          {/* Grupo 1: Ferramentas de Desenho Vetorial */}
+          <div className="guest-toolbar-group">
+            {/* Lápis */}
+            <button
+              id="tool-guest-pencil"
+              onClick={() => mudarFerramenta('pencil')}
+              disabled={screenLocked}
+              className={`touch-btn ${ferramenta === 'pencil' ? 'touch-btn-active' : ''}`}
+              aria-label="Lápis"
+              title="Lápis"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path>
+              </svg>
+            </button>
 
-          {/* Pincel */}
-          <button
-            id="tool-guest-brush"
-            onClick={() => mudarFerramenta('brush')}
-            disabled={screenLocked}
-            className={`touch-btn ${ferramenta === 'brush' ? 'touch-btn-active' : ''}`}
-            aria-label="Pincel"
-            title="Pincel"
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M18.37 2.63 14 7l-1.59-1.59a2 2 0 0 0-2.82 0L8 6.99l9.02 9.02 1.58-1.58a2 2 0 0 0 0-2.82L17 10l4.37-4.37a2.12 2.12 0 1 0-3-3Z"></path>
-              <path d="M9 8c-2 3-4 3.5-7 4l8 8c.5-3 1-5 4-7"></path>
-              <path d="M14.5 17.5 4.5 15"></path>
-            </svg>
-          </button>
+            {/* Pincel */}
+            <button
+              id="tool-guest-brush"
+              onClick={() => mudarFerramenta('brush')}
+              disabled={screenLocked}
+              className={`touch-btn ${ferramenta === 'brush' ? 'touch-btn-active' : ''}`}
+              aria-label="Pincel"
+              title="Pincel"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M18.37 2.63 14 7l-1.59-1.59a2 2 0 0 0-2.82 0L8 6.99l9.02 9.02 1.58-1.58a2 2 0 0 0 0-2.82L17 10l4.37-4.37a2.12 2.12 0 1 0-3-3Z"></path>
+                <path d="M9 8c-2 3-4 3.5-7 4l8 8c.5-3 1-5 4-7"></path>
+                <path d="M14.5 17.5 4.5 15"></path>
+              </svg>
+            </button>
 
-          {/* Formas Geométricas */}
-          <button
-            id="tool-guest-rect"
-            onClick={() => mudarFerramenta('rectangle')}
-            disabled={screenLocked}
-            className={`touch-btn ${ferramenta === 'rectangle' ? 'touch-btn-active' : ''}`}
-            aria-label="Retângulo"
-            title="Retângulo"
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-            </svg>
-          </button>
+            {/* Retângulo */}
+            <button
+              id="tool-guest-rect"
+              onClick={() => mudarFerramenta('rectangle')}
+              disabled={screenLocked}
+              className={`touch-btn ${ferramenta === 'rectangle' ? 'touch-btn-active' : ''}`}
+              aria-label="Retângulo"
+              title="Retângulo"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+              </svg>
+            </button>
 
-          {/* Elipse */}
-          <button
-            id="tool-guest-ellipse"
-            onClick={() => mudarFerramenta('ellipse')}
-            disabled={screenLocked}
-            className={`touch-btn ${ferramenta === 'ellipse' ? 'touch-btn-active' : ''}`}
-            aria-label="Elipse"
-            title="Elipse"
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="12" cy="12" r="10"></circle>
-            </svg>
-          </button>
+            {/* Elipse */}
+            <button
+              id="tool-guest-ellipse"
+              onClick={() => mudarFerramenta('ellipse')}
+              disabled={screenLocked}
+              className={`touch-btn ${ferramenta === 'ellipse' ? 'touch-btn-active' : ''}`}
+              aria-label="Elipse"
+              title="Elipse"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="10"></circle>
+              </svg>
+            </button>
 
-          {/* Linha / Seta */}
-          <button
-            id="tool-guest-arrow"
-            onClick={() => mudarFerramenta('arrow')}
-            disabled={screenLocked}
-            className={`touch-btn ${ferramenta === 'arrow' ? 'touch-btn-active' : ''}`}
-            aria-label="Seta"
-            title="Seta"
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <line x1="5" y1="12" x2="19" y2="12"></line>
-              <polyline points="12 5 19 12 12 19"></polyline>
-            </svg>
-          </button>
+            {/* Linha / Seta */}
+            <button
+              id="tool-guest-arrow"
+              onClick={() => mudarFerramenta('arrow')}
+              disabled={screenLocked}
+              className={`touch-btn ${ferramenta === 'arrow' ? 'touch-btn-active' : ''}`}
+              aria-label="Seta"
+              title="Seta"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+                <polyline points="12 5 19 12 12 19"></polyline>
+              </svg>
+            </button>
 
-          {/* Texto */}
-          <button
-            id="tool-guest-text"
-            onClick={() => mudarFerramenta('text')}
-            disabled={screenLocked}
-            className={`touch-btn ${ferramenta === 'text' ? 'touch-btn-active' : ''}`}
-            aria-label="Texto"
-            title="Texto"
-          >
-            <span style={{ fontSize: '1rem', fontWeight: 700 }}>T</span>
-          </button>
+            {/* Texto */}
+            <button
+              id="tool-guest-text"
+              onClick={() => mudarFerramenta('text')}
+              disabled={screenLocked}
+              className={`touch-btn ${ferramenta === 'text' ? 'touch-btn-active' : ''}`}
+              aria-label="Texto"
+              title="Texto"
+            >
+              <span style={{ fontSize: '1rem', fontWeight: 700 }}>T</span>
+            </button>
+          </div>
 
-          {/* Borracha Lógica (DRAW_HIDE) */}
-          <button
-            id="tool-guest-eraser"
-            onClick={() => mudarFerramenta('eraser')}
-            disabled={screenLocked}
-            className={`touch-btn ${ferramenta === 'eraser' ? 'touch-btn-active' : ''}`}
-            aria-label="Borracha"
-            title="Borracha"
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"></path>
-              <path d="M22 21H7"></path>
-              <path d="m5 11 9 9"></path>
-            </svg>
-          </button>
+          {/* Grupo 2: Ações, Borracha, Desfazer, Configurações e Mídia */}
+          <div className="guest-toolbar-group">
+            {/* Borracha Lógica (DRAW_HIDE) */}
+            <button
+              id="tool-guest-eraser"
+              onClick={() => mudarFerramenta('eraser')}
+              disabled={screenLocked}
+              className={`touch-btn ${ferramenta === 'eraser' ? 'touch-btn-active' : ''}`}
+              aria-label="Borracha"
+              title="Borracha"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"></path>
+                <path d="M22 21H7"></path>
+                <path d="m5 11 9 9"></path>
+              </svg>
+            </button>
 
-          {/* Desfazer (Ação do Guest) */}
-          <button
-            id="btn-guest-undo"
-            onClick={handleDesfazer}
-            disabled={screenLocked}
-            className="touch-btn"
-            aria-label="Desfazer"
-            title="Desfazer ação anterior"
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M3 7v6h6"></path>
-              <path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"></path>
-            </svg>
-          </button>
+            {/* Desfazer (Ação do Guest) */}
+            <button
+              id="btn-guest-undo"
+              onClick={handleDesfazer}
+              disabled={screenLocked}
+              className="touch-btn"
+              aria-label="Desfazer"
+              title="Desfazer ação anterior"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M3 7v6h6"></path>
+                <path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"></path>
+              </svg>
+            </button>
 
-          {/* Alternar Drawer de Cores / Traço */}
-          <button
-            id="btn-guest-toggle-drawer"
-            onClick={() => setDrawerFerramentas(!drawerFerramentas)}
-            className="touch-btn"
-            style={{
-              backgroundColor: '#1e293b',
-              border: `2px solid ${corAtual}`,
-            }}
-            aria-label="Cores e espessuras"
-            title="Ajustar cores e espessura"
-          >
-            <div style={{ width: 14, height: 14, borderRadius: '50%', backgroundColor: corAtual }} />
-          </button>
+            {/* Alternar Drawer de Cores / Traço */}
+            <button
+              id="btn-guest-toggle-drawer"
+              onClick={() => setDrawerFerramentas(!drawerFerramentas)}
+              className="touch-btn"
+              style={{
+                backgroundColor: '#1e293b',
+                border: `2px solid ${corAtual}`,
+              }}
+              aria-label="Cores e espessuras"
+              title="Ajustar cores e espessura"
+            >
+              <div style={{ width: 14, height: 14, borderRadius: '50%', backgroundColor: corAtual }} />
+            </button>
 
-          {/* Botões de Mídia (Desabilitados até UNLOCK_MEDIA emitido pelo Host) */}
-          <button
-            id="btn-guest-media-play"
-            onClick={() => handleMediaAction('PLAY')}
-            disabled={!mediaUnlocked || screenLocked}
-            className="touch-btn"
-            style={{
-              backgroundColor: mediaUnlocked ? '#064e3b' : '#1e293b',
-              borderColor: mediaUnlocked ? '#059669' : '#334155',
-              color: mediaUnlocked ? '#34d399' : '#64748b',
-            }}
-            aria-label={mediaUnlocked ? 'Reproduzir mídia' : 'Mídia bloqueada pelo anfitrião'}
-            title={mediaUnlocked ? 'Reproduzir Mídia' : 'Controle de Mídia Bloqueado'}
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <polygon points="5 3 19 12 5 21 5 3"></polygon>
-            </svg>
-          </button>
+            {/* Botões de Mídia (Desabilitados até UNLOCK_MEDIA emitido pelo Host) */}
+            <button
+              id="btn-guest-media-play"
+              onClick={() => handleMediaAction('PLAY')}
+              disabled={!mediaUnlocked || screenLocked}
+              className="touch-btn"
+              style={{
+                backgroundColor: mediaUnlocked ? '#064e3b' : '#1e293b',
+                borderColor: mediaUnlocked ? '#059669' : '#334155',
+                color: mediaUnlocked ? '#34d399' : '#64748b',
+              }}
+              aria-label={mediaUnlocked ? 'Reproduzir mídia' : 'Mídia bloqueada pelo anfitrião'}
+              title={mediaUnlocked ? 'Reproduzir Mídia' : 'Controle de Mídia Bloqueado'}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polygon points="5 3 19 12 5 21 5 3"></polygon>
+              </svg>
+            </button>
+          </div>
         </div>
       </footer>
     </div>

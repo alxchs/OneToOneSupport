@@ -198,6 +198,7 @@ async function main() {
     desenhouESincronizou: false,
     lockScreenOk: false,
     guestMutedOk: false,
+    barraFerramentasVisivel: false,
   };
 
   const parsedGuestUrl = new URL(inviteUrlRaw);
@@ -301,6 +302,31 @@ async function main() {
       await page.waitForSelector('#badge-guest-muted', { timeout: 6000 });
       const hostViuMute = await page.$eval('#badge-guest-muted', (el) => el.innerText.includes('Mutado'));
       guestMobile.guestMutedOk = hostViuMute;
+
+      // Validação 5: Barra de Ferramentas dentro da largura da viewport (C4)
+      const toolbarButtonsOk = await guestPage.evaluate(() => {
+        const ids = [
+          'tool-guest-pencil',
+          'tool-guest-brush',
+          'tool-guest-rect',
+          'tool-guest-ellipse',
+          'tool-guest-arrow',
+          'tool-guest-text',
+          'tool-guest-eraser',
+          'btn-guest-undo',
+          'btn-guest-toggle-drawer',
+          'btn-guest-media-play',
+        ];
+        const vw = window.innerWidth;
+        return ids.every((id) => {
+          const el = document.getElementById(id);
+          if (!el) return false;
+          const r = el.getBoundingClientRect();
+          // Totalmente dentro da largura da viewport (alvos >= 48px e não cortados na borda)
+          return r.left >= 0 && r.right <= vw + 1;
+        });
+      });
+      guestMobile.barraFerramentasVisivel = toolbarButtonsOk;
 
       // Screenshot da emulação do Guest mobile (Android 16 / Motorola Edge 70 Pro)
       const guestShotPath = path.join(root, 'docs', 'guest-mobile-emulation.png');
@@ -563,6 +589,8 @@ main()
         res.guestMobile.lockScreenOk,
       'Guest Mobile: mute local emitiu GUEST_MUTED':
         res.guestMobile.guestMutedOk,
+      'Guest Mobile: barra de ferramentas totalmente visivel na viewport':
+        res.guestMobile.barraFerramentasVisivel,
       'UI: abrir quadro branco HiDPI e verificar DPR 1.5':
         res.ui.quadroDprOk && res.ui.quadroControlesOk,
       'UI: desenhar traço, retângulo, texto, desfazer/refazer e borracha':
