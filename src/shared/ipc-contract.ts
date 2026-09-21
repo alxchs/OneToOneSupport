@@ -43,6 +43,10 @@ export const IPC_CHANNELS = {
   SERVER_LIST_IPS: 'server:list-ips',
   SERVER_SET_IP: 'server:set-ip',
   SERVER_STATUS_CHANGED: 'server:status-changed',
+
+  // Eventos de Quadro Branco e Event Sourcing (Fases 05 e 06)
+  EVENTO_GRAVAR: 'evento:gravar',
+  EVENTO_OBTER_ESTADO: 'evento:obter-estado',
 } as const;
 
 export type IPCChannelName = typeof IPC_CHANNELS[keyof typeof IPC_CHANNELS];
@@ -161,6 +165,19 @@ export interface DisplayMetrics {
   scaleFactor: number;
 }
 
+export interface GravarEventoPayload {
+  sessao_id: string;
+  aba_id?: string | null;
+  tipo: string;
+  payload: string | Record<string, unknown>;
+  autor: string;
+}
+
+export interface ObterEstadoAbaPayload {
+  sessao_id: string;
+  aba_id?: string;
+}
+
 export interface DesktopAPI {
   getScaleFactor: () => Promise<number>;
   getDisplayMetrics: () => Promise<DisplayMetrics>;
@@ -198,6 +215,11 @@ export interface DesktopAPI {
     setIp: (payload: SetServerIpPayload) => Promise<IPCResult<ServerSessionInfoDTO>>;
     onStatusChange: (callback: (status: ServerSessionInfoDTO | null) => void) => () => void;
   };
+
+  eventos: {
+    gravar: (payload: GravarEventoPayload) => Promise<IPCResult<any>>;
+    obterEstadoAba: (sessao_id: string, aba_id?: string) => Promise<IPCResult<any>>;
+  };
 }
 
 declare global {
@@ -205,4 +227,5 @@ declare global {
     desktopAPI?: DesktopAPI;
   }
 }
+
 

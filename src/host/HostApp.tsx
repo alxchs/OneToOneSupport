@@ -4,6 +4,7 @@ import { ListaAtendidosPage } from './pages/ListaAtendidosPage';
 import { FormAtendidoPage } from './pages/FormAtendidoPage';
 import { DetalheAtendidoPage } from './pages/DetalheAtendidoPage';
 import { ConfiguracoesPage } from './pages/ConfiguracoesPage';
+import { QuadroBrancoPage } from './pages/QuadroBrancoPage';
 import { useHostStore } from './store/useHostStore';
 
 export const HostApp: React.FC = () => {
@@ -72,6 +73,7 @@ export const HostApp: React.FC = () => {
         {view === 'form' && <FormAtendidoPage />}
         {view === 'detalhes' && <DetalheAtendidoPage />}
         {view === 'configuracoes' && <ConfiguracoesPage />}
+        {view === 'quadro' && <QuadroBrancoPage />}
       </main>
 
       <footer

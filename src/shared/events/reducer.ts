@@ -195,7 +195,10 @@ export function applyEventInPlace(state: TabState, event: WhiteboardEvent): void
     }
 
     case 'DRAW_HIDE': {
-      const targetId = (payload.targetId as string) || (payload.id as string);
+      const targetId =
+        (payload.targetId as string) ||
+        (payload.elementId as string) ||
+        (payload.id as string);
       if (targetId && state.elements[targetId]) {
         state.elements[targetId].hidden = true;
         state.elements[targetId].hiddenBy = event.id;
