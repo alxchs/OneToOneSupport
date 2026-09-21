@@ -34,7 +34,7 @@ if (!fs.existsSync(vitestMjs)) {
 }
 
 const userArgs = process.argv.slice(2);
-const finalArgs = userArgs.length > 0 ? userArgs : ['run'];
+const finalArgs = userArgs.includes('run') || userArgs.includes('watch') ? userArgs : ['run', ...userArgs];
 
 console.log(`[Test-Runner] Executando vitest sob ABI do Electron (${electronPath}) com ELECTRON_RUN_AS_NODE=1...`);
 

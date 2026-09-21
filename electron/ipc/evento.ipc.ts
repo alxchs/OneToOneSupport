@@ -5,8 +5,14 @@ import {
   GravarEventoPayload,
   ObterEstadoAbaPayload,
 } from '../../src/shared/ipc-contract';
-import { EventoService } from '../services/evento.service';
+import {
+  EventoService,
+  isValidId,
+  TIPOS_EVENTO_CONHECIDOS,
+} from '../services/evento.service';
 import { TabState } from '../../src/shared/events/reducer';
+
+import { serverSessionController } from '../server/index';
 
 const defaultEventoService = new EventoService();
 
@@ -24,27 +30,36 @@ export async function handleEventoGravar(
 
   const p = payload as Partial<GravarEventoPayload>;
 
-  if (typeof p.sessao_id !== 'string' || !p.sessao_id.trim()) {
+  if (typeof p.sessao_id !== 'string' || !isValidId(p.sessao_id)) {
     return {
       success: false,
       error: 'VALIDATION',
-      message: 'sessao_id é obrigatório para gravar evento.',
+      message: 'sessao_id é obrigatório e deve ser um identificador válido.',
     };
   }
 
-  if (typeof p.tipo !== 'string' || !p.tipo.trim()) {
+  if (p.aba_id !== undefined && p.aba_id !== null && (typeof p.aba_id !== 'string' || !isValidId(p.aba_id))) {
     return {
       success: false,
       error: 'VALIDATION',
-      message: 'tipo é obrigatório para gravar evento.',
+      message: 'aba_id inválido.',
     };
   }
 
-  if (typeof p.autor !== 'string' || !p.autor.trim()) {
+  if (typeof p.tipo !== 'string' || !TIPOS_EVENTO_CONHECIDOS.has(p.tipo)) {
     return {
       success: false,
       error: 'VALIDATION',
-      message: 'autor é obrigatório para gravar evento.',
+      message: 'tipo é obrigatório e deve ser um tipo de evento reconhecido.',
+    };
+  }
+
+  // Lista de permissão rigorosa de autor: exatamente 'host' ou 'guest'
+  if (p.autor !== 'host' && p.autor !== 'guest') {
+    return {
+      success: false,
+      error: 'VALIDATION',
+      message: 'autor é obrigatório e deve ser exatamente "host" ou "guest".',
     };
   }
 
@@ -59,11 +74,11 @@ export async function handleEventoGravar(
   try {
     const payloadStr = typeof p.payload === 'string' ? p.payload : JSON.stringify(p.payload);
     const res = service.gravarEvento({
-      sessao_id: p.sessao_id.trim(),
-      aba_id: p.aba_id ? p.aba_id.trim() : null,
-      tipo: p.tipo.trim(),
+      sessao_id: p.sessao_id,
+      aba_id: p.aba_id ? p.aba_id : null,
+      tipo: p.tipo,
       payload: payloadStr,
-      autor: p.autor.trim(),
+      autor: p.autor,
     });
 
     if (!res.sucesso) {
@@ -72,6 +87,22 @@ export async function handleEventoGravar(
         error: 'INTERNAL_ERROR',
         message: res.motivo || 'Erro ao gravar evento.',
       };
+    }
+
+    // Se o evento foi gravado com sucesso pelo Host, transmite cifrado para o Guest conectado
+    if (p.autor === 'host') {
+      try {
+        serverSessionController.broadcastToGuest({
+          type: p.tipo.trim(),
+          payload: typeof p.payload === 'string' ? JSON.parse(p.payload) : p.payload,
+          abaId: p.aba_id ? p.aba_id.trim() : 'default',
+          sessaoId: p.sessao_id.trim(),
+          autor: 'host',
+          ts: Date.now(),
+        });
+      } catch {
+        // Fallback silencioso se falhar envio cifrado
+      }
     }
 
     return { success: true, data: res.evento };
@@ -95,16 +126,24 @@ export async function handleEventoObterEstado(
 
   const { sessao_id, aba_id } = payload as Partial<ObterEstadoAbaPayload>;
 
-  if (typeof sessao_id !== 'string' || !sessao_id.trim()) {
+  if (typeof sessao_id !== 'string' || !isValidId(sessao_id)) {
     return {
       success: false,
       error: 'VALIDATION',
-      message: 'sessao_id é obrigatório.',
+      message: 'sessao_id é obrigatório e deve ser um identificador válido.',
+    };
+  }
+
+  if (aba_id !== undefined && aba_id !== null && (typeof aba_id !== 'string' || !isValidId(aba_id))) {
+    return {
+      success: false,
+      error: 'VALIDATION',
+      message: 'aba_id inválido.',
     };
   }
 
   try {
-    const state = service.reconstruirEstadoAba(sessao_id.trim(), aba_id ? aba_id.trim() : 'default');
+    const state = service.reconstruirEstadoAba(sessao_id, aba_id ? aba_id : 'default');
     return { success: true, data: state };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);

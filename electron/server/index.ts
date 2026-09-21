@@ -4,6 +4,7 @@ import { startHttpServer, HttpServerHandle } from './http';
 import { createWebSocketServer, WsServerHandle } from './ws';
 import { getLanInterfaces, getDefaultLanIp, LanInterface } from './network';
 import { buildInviteUrl } from '../../src/shared/crypto/invite';
+import { EventoService, isValidId } from '../services/evento.service';
 
 export interface ServerSessionInfo {
   sessaoId: string;
@@ -33,6 +34,7 @@ export class ServerSessionController {
   private qrDataUrl: string = '';
 
   private statusListeners: Array<(info: ServerSessionInfo | null) => void> = [];
+  private guestEventListeners: Array<(event: any) => void> = [];
 
   constructor() {
     this.selectedIp = getDefaultLanIp();
@@ -55,6 +57,71 @@ export class ServerSessionController {
     return () => {
       this.statusListeners = this.statusListeners.filter((l) => l !== listener);
     };
+  }
+
+  public onGuestEvent(listener: (event: any) => void): () => void {
+    this.guestEventListeners.push(listener);
+    return () => {
+      this.guestEventListeners = this.guestEventListeners.filter((l) => l !== listener);
+    };
+  }
+
+  private notifyGuestEvent(event: any): void {
+    for (const listener of this.guestEventListeners) {
+      try {
+        listener(event);
+      } catch (err) {
+        console.error('[ServerSessionController] Erro no listener de evento do guest:', err);
+      }
+    }
+  }
+
+  private handleGuestEvent(envelope: any): void {
+    if (!envelope || typeof envelope !== 'object') {
+      return;
+    }
+
+    // Validação na borda de abaId do Guest contra Path Traversal (C1):
+    // Se abaId for enviado, valida estritamente. Se inválido, descarta e NÃO repassa ao Host.
+    const candidateAbaId = envelope.payload?.abaId ?? envelope.abaId;
+    if (candidateAbaId !== undefined && candidateAbaId !== null && !isValidId(candidateAbaId)) {
+      console.warn('[ServerSessionController] Descartando evento do Guest com abaId inválido:', candidateAbaId);
+      return;
+    }
+    const abaId = candidateAbaId || 'default';
+
+    // Se for evento de desenho/quadro branco, persiste no banco de dados SQLite
+    if (
+      envelope.type === 'DRAW_ADD' ||
+      envelope.type === 'DRAW_HIDE' ||
+      envelope.type === 'CLEAR_TAB'
+    ) {
+      try {
+        const eventoService = new EventoService();
+        const payloadData = envelope.payload?.data ?? envelope.payload;
+        const payloadStr = typeof payloadData === 'string' ? payloadData : JSON.stringify(payloadData);
+        const res = eventoService.gravarEvento(
+          {
+            sessao_id: this.sessionManager?.sessaoId || '',
+            aba_id: abaId,
+            tipo: envelope.type,
+            payload: payloadStr,
+            autor: 'guest',
+          },
+          this.sessionManager?.isScreenLocked() || false
+        );
+
+        if (!res.sucesso) {
+          console.warn('[ServerSessionController] Evento do guest rejeitado por gravarEvento:', res.motivo);
+          return; // Retorno de falha: NÃO repassa ao Host (C3)!
+        }
+      } catch (err) {
+        console.error('[ServerSessionController] Erro ao gravar evento do guest no SQLite:', err);
+        return; // Lançou exceção: NÃO repassa ao Host (C3)!
+      }
+    }
+
+    this.notifyGuestEvent(envelope);
   }
 
   private notifyStatusChange(): void {
@@ -97,10 +164,13 @@ export class ServerSessionController {
     // 2. Inicia o servidor HTTP em porta dinâmica (0) ouvindo em 0.0.0.0 (LAN)
     this.httpHandle = await startHttpServer(this.sessionManager, 0, '0.0.0.0');
 
-    // 3. Monta o WebSocket Server acoplado ao servidor HTTP
+    // 3. Monta o WebSocket Server acoplado ao servidor HTTP com listener de eventos do Guest
     this.wsHandle = createWebSocketServer({
       server: this.httpHandle.server,
       sessionManager: this.sessionManager,
+      onGuestEvent: (envelope) => {
+        this.handleGuestEvent(envelope);
+      },
     });
 
     // 4. Monta o link de convite e o QR Code
@@ -206,6 +276,59 @@ export class ServerSessionController {
       screenLocked: this.sessionManager.isScreenLocked(),
       mediaUnlocked: this.sessionManager.isMediaUnlocked(),
     };
+  }
+
+  /**
+   * Envia uma mensagem cifrada para o Guest conectado
+   */
+  public broadcastToGuest(innerEvent: Record<string, unknown>): boolean {
+    if (!this.wsHandle) return false;
+    return this.wsHandle.sendEncryptedToGuest(innerEvent);
+  }
+
+  /**
+   * Altera o bloqueio de tela do Guest e emite o evento LOCK_SCREEN
+   */
+  public lockScreen(locked: boolean): ServerSessionInfo {
+    if (!this.sessionManager) {
+      throw new Error('Nenhuma sessão de servidor ativa.');
+    }
+    this.sessionManager.setScreenLocked(locked);
+    this.broadcastToGuest({
+      type: 'LOCK_SCREEN',
+      locked,
+      ts: Date.now(),
+    });
+    this.notifyStatusChange();
+    return this.getStatus()!;
+  }
+
+  /**
+   * Altera o desbloqueio de mídia do Guest e emite o evento UNLOCK_MEDIA
+   */
+  public unlockMedia(unlocked: boolean): ServerSessionInfo {
+    if (!this.sessionManager) {
+      throw new Error('Nenhuma sessão de servidor ativa.');
+    }
+    this.sessionManager.setMediaUnlocked(unlocked);
+    this.broadcastToGuest({
+      type: 'UNLOCK_MEDIA',
+      unlocked,
+      ts: Date.now(),
+    });
+    this.notifyStatusChange();
+    return this.getStatus()!;
+  }
+
+  /**
+   * Notifica troca sincronizada de aba ativa para o Guest
+   */
+  public switchTab(abaId: string): boolean {
+    return this.broadcastToGuest({
+      type: 'TAB_SWITCH',
+      abaId,
+      ts: Date.now(),
+    });
   }
 }
 

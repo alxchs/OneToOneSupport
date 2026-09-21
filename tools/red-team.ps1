@@ -14,11 +14,11 @@ $branch = (git rev-parse --abbrev-ref HEAD).Trim()
 if ($branch -notlike "$($cfg.BranchPrefix)/$Fase-*") { throw "Branch atual '$branch' não é $($cfg.BranchPrefix)/$Fase-*." }
 if (-not (Test-ArvoreLimpa @('docs/execucoes', '.gitignore'))) { throw "Working tree suja. Commit ou stash antes." }
 if (-not $Autonomo -and -not $DryRun) { throw "O red team precisa de -Autonomo (o headless não pede permissão nem para ler arquivos). Exige autorização do dono." }
-$modelo = Join-Path $cfg.Raiz "$($cfg.PromptsDir)/_red-team.md"
-if (-not (Test-Path $modelo)) { throw "Modelo não encontrado: $modelo" }
+$tplRedTeam = Join-Path $cfg.Raiz "$($cfg.PromptsDir)/_red-team.md"
+if (-not (Test-Path $tplRedTeam)) { throw "Modelo não encontrado: $tplRedTeam" }
 $ordem = Get-PromptFase $cfg $Fase
 
-$corpo = (Get-Content $modelo -Raw).Replace('{{FASE}}', $Fase).Replace('{{ORDEM}}', $(if ($ordem) { "$($cfg.PromptsDir)/$($ordem.Name)" } else { '(sem ordem)' })).Replace('{{BASE}}', $cfg.BaseBranch).Replace('{{TESTDIR}}', $cfg.RedTeamTestDir).Replace('{{TESTCMD}}', $cfg.TestCmd)
+$corpo = (Get-Content $tplRedTeam -Raw).Replace('{{FASE}}', $Fase).Replace('{{ORDEM}}', $(if ($ordem) { "$($cfg.PromptsDir)/$($ordem.Name)" } else { '(sem ordem)' })).Replace('{{BASE}}', $cfg.BaseBranch).Replace('{{TESTDIR}}', $cfg.RedTeamTestDir).Replace('{{TESTCMD}}', $cfg.TestCmd)
 $texto = (New-Cabecalho $cfg $branch) + $corpo
 New-Item -ItemType Directory -Force docs\execucoes | Out-Null
 $log = "docs\execucoes\redteam-$Fase-agy-$(Get-Date -Format yyyyMMdd_HHmm).log"

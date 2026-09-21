@@ -28,6 +28,7 @@ interface HostState {
   mensagemAlerta: { tipo: 'alerta' | 'sucesso'; texto: string } | null;
   erroDuplicado: string | null;
   activeServerSession: ServerSessionInfoDTO | null;
+  guestMuted: boolean;
 
   // Ações puras de UI e invocação de IPC
   setView: (view: HostView) => void;
@@ -52,7 +53,7 @@ interface HostState {
   selecionarIpServidor: (ip: string) => Promise<boolean>;
   carregarStatusServidor: () => Promise<void>;
 
-  // Quadro Branco HiDPI (Fase 06)
+  // Quadro Branco HiDPI (Fase 06 e 07)
   activeSessaoId: string | null;
   activeAbaId: string;
   tabState: TabState;
@@ -61,6 +62,9 @@ interface HostState {
   desfazerQuadro: () => Promise<void>;
   refazerQuadro: () => Promise<void>;
   limparQuadro: () => Promise<void>;
+  bloquearTelaGuest: (locked: boolean) => Promise<boolean>;
+  liberarMidiaGuest: (unlocked: boolean) => Promise<boolean>;
+  trocarAba: (abaId: string) => Promise<boolean>;
 }
 
 export const useHostStore = create<HostState>((set, get) => ({
@@ -80,6 +84,7 @@ export const useHostStore = create<HostState>((set, get) => ({
   mensagemAlerta: null,
   erroDuplicado: null,
   activeServerSession: null,
+  guestMuted: false,
   activeSessaoId: null,
   activeAbaId: 'default',
   tabState: createInitialTabState('default'),
@@ -451,5 +456,44 @@ export const useHostStore = create<HostState>((set, get) => ({
       criado_em: Date.now(),
     };
     await aplicarEventoQuadro(ev);
+  },
+
+  bloquearTelaGuest: async (locked: boolean) => {
+    if (!window.desktopAPI?.serverSession) return false;
+    const res = await window.desktopAPI.serverSession.lockScreen(locked);
+    if (res.success && res.data) {
+      set({ activeServerSession: res.data });
+      return true;
+    }
+    return false;
+  },
+
+  liberarMidiaGuest: async (unlocked: boolean) => {
+    if (!window.desktopAPI?.serverSession) return false;
+    const res = await window.desktopAPI.serverSession.unlockMedia(unlocked);
+    if (res.success && res.data) {
+      set({ activeServerSession: res.data });
+      return true;
+    }
+    return false;
+  },
+
+  trocarAba: async (abaId: string) => {
+    set({ activeAbaId: abaId });
+    if (window.desktopAPI?.serverSession) {
+      await window.desktopAPI.serverSession.switchTab(abaId);
+    }
+    const { activeSessaoId } = get();
+    if (activeSessaoId && window.desktopAPI?.eventos) {
+      try {
+        const res = await window.desktopAPI.eventos.obterEstadoAba(activeSessaoId, abaId);
+        if (res.success && res.data) {
+          set({ tabState: res.data });
+        }
+      } catch (err) {
+        console.error('[HostStore] Erro ao carregar estado da nova aba:', err);
+      }
+    }
+    return true;
   },
 }));

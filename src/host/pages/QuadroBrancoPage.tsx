@@ -27,11 +27,14 @@ export const QuadroBrancoPage: React.FC = () => {
     selectedAtendido,
     dicionario,
     activeServerSession,
+    guestMuted,
     setView,
     aplicarEventoQuadro,
     desfazerQuadro,
     refazerQuadro,
     limparQuadro,
+    bloquearTelaGuest,
+    liberarMidiaGuest,
   } = useHostStore();
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -231,6 +234,64 @@ export const QuadroBrancoPage: React.FC = () => {
               ? 'Sala LAN Ativa'
               : 'Local (Sem Conexão)'}
           </span>
+
+          {/* Controles de Sessão Remota do Convidado */}
+          {activeServerSession && (
+            <>
+              <button
+                id="btn-lock-guest-screen"
+                type="button"
+                onClick={() => bloquearTelaGuest(!activeServerSession.screenLocked)}
+                style={{
+                  padding: '0.4rem 0.8rem',
+                  fontSize: '0.8125rem',
+                  fontWeight: 600,
+                  backgroundColor: activeServerSession.screenLocked ? '#064e3b' : '#451a03',
+                  border: `1px solid ${activeServerSession.screenLocked ? '#059669' : '#b45309'}`,
+                  color: activeServerSession.screenLocked ? '#34d399' : '#fef3c7',
+                  borderRadius: '0.375rem',
+                  cursor: 'pointer',
+                }}
+              >
+                {activeServerSession.screenLocked ? 'Desbloquear Convidado' : 'Bloquear Convidado'}
+              </button>
+
+              <button
+                id="btn-unlock-guest-media"
+                type="button"
+                onClick={() => liberarMidiaGuest(!activeServerSession.mediaUnlocked)}
+                style={{
+                  padding: '0.4rem 0.8rem',
+                  fontSize: '0.8125rem',
+                  fontWeight: 600,
+                  backgroundColor: activeServerSession.mediaUnlocked ? '#451a03' : '#064e3b',
+                  border: `1px solid ${activeServerSession.mediaUnlocked ? '#b45309' : '#059669'}`,
+                  color: activeServerSession.mediaUnlocked ? '#fef3c7' : '#34d399',
+                  borderRadius: '0.375rem',
+                  cursor: 'pointer',
+                }}
+              >
+                {activeServerSession.mediaUnlocked ? 'Bloquear Mídia' : 'Liberar Mídia'}
+              </button>
+
+              {guestMuted && (
+                <span
+                  id="badge-guest-muted"
+                  style={{
+                    padding: '0.25rem 0.6rem',
+                    borderRadius: '9999px',
+                    fontSize: '0.75rem',
+                    fontWeight: 600,
+                    backgroundColor: '#451a03',
+                    border: '1px solid #b45309',
+                    color: '#fef3c7',
+                  }}
+                >
+                  Convidado Mutado
+                </span>
+              )}
+            </>
+          )}
 
           <span
             id="badge-dpr"

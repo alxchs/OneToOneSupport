@@ -36,13 +36,17 @@ export const IPC_CHANNELS = {
   DESKTOP_GET_DISPLAY_METRICS: 'desktop:get-display-metrics',
   DESKTOP_GET_APP_VERSION: 'desktop:get-app-version',
 
-  // Servidor e Sessão Remota (Fase 04)
+  // Servidor e Sessão Remota (Fase 04 e 07)
   SERVER_START_SESSION: 'server:start-session',
   SERVER_STOP_SESSION: 'server:stop-session',
   SERVER_GET_STATUS: 'server:get-status',
   SERVER_LIST_IPS: 'server:list-ips',
   SERVER_SET_IP: 'server:set-ip',
   SERVER_STATUS_CHANGED: 'server:status-changed',
+  SERVER_LOCK_SCREEN: 'server:lock-screen',
+  SERVER_UNLOCK_MEDIA: 'server:unlock-media',
+  SERVER_SWITCH_TAB: 'server:switch-tab',
+  SERVER_GUEST_EVENT_RECEIVED: 'server:guest-event-received',
 
   // Eventos de Quadro Branco e Event Sourcing (Fases 05 e 06)
   EVENTO_GRAVAR: 'evento:gravar',
@@ -213,7 +217,11 @@ export interface DesktopAPI {
     getStatus: () => Promise<IPCResult<ServerSessionInfoDTO | null>>;
     listIps: () => Promise<IPCResult<ServerLanInterfaceDTO[]>>;
     setIp: (payload: SetServerIpPayload) => Promise<IPCResult<ServerSessionInfoDTO>>;
+    lockScreen: (locked: boolean) => Promise<IPCResult<ServerSessionInfoDTO>>;
+    unlockMedia: (unlocked: boolean) => Promise<IPCResult<ServerSessionInfoDTO>>;
+    switchTab: (abaId: string) => Promise<IPCResult<{ switched: boolean }>>;
     onStatusChange: (callback: (status: ServerSessionInfoDTO | null) => void) => () => void;
+    onGuestEvent: (callback: (event: any) => void) => () => void;
   };
 
   eventos: {

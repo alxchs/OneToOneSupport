@@ -3,6 +3,7 @@ import * as http from 'http';
 import * as path from 'path';
 import * as fs from 'fs';
 import { SessionManager } from './session-manager';
+import { GUEST_CSP } from '../../src/shared/csp';
 
 export interface HttpServerHandle {
   app: express.Express;
@@ -10,18 +11,6 @@ export interface HttpServerHandle {
   port: number;
   close: () => Promise<void>;
 }
-
-// Política CSP estrita para o Guest conforme ADR-005
-const GUEST_CSP_HEADER = [
-  "default-src 'self'",
-  "connect-src 'self' ws: wss:",
-  "img-src 'self' blob: data:",
-  "media-src 'self' blob:",
-  "style-src 'self' 'unsafe-inline'",
-  "script-src 'self'",
-  "object-src 'none'",
-  "base-uri 'self'",
-].join('; ');
 
 /**
  * Cria a aplicação Express 4 configurada para servir o Guest e arquivos estáticos,
@@ -36,7 +25,7 @@ export function createExpressApp(sessionManager: SessionManager): express.Expres
 
   // 2. Cabeçalhos de segurança e CSP do ADR-005 em todas as respostas
   app.use((_req: Request, res: Response, next: NextFunction) => {
-    res.setHeader('Content-Security-Policy', GUEST_CSP_HEADER);
+    res.setHeader('Content-Security-Policy', GUEST_CSP);
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Referrer-Policy', 'no-referrer');
@@ -55,11 +44,32 @@ export function createExpressApp(sessionManager: SessionManager): express.Expres
     });
   });
 
-  // 4. Arquivos estáticos do Guest (quando build estiver disponível na Fase 07)
-  const candidateGuestDist = path.resolve(__dirname, '../../dist/guest');
+  // 4. Arquivos estáticos do Guest (compilados pelo Vite para dist/guest)
+  const candidateGuestDistPaths = [
+    path.resolve(__dirname, '../../dist/guest'),
+    path.resolve(__dirname, '../../../dist/guest'),
+    path.resolve(__dirname, '../guest'),
+    path.resolve(process.cwd(), 'dist/guest'),
+  ];
+  const candidateGuestDist =
+    candidateGuestDistPaths.find((p) => fs.existsSync(p)) || candidateGuestDistPaths[0];
+
   if (fs.existsSync(candidateGuestDist)) {
     app.use('/guest', express.static(candidateGuestDist));
+    const assetsDir = path.join(candidateGuestDist, 'assets');
+    if (fs.existsSync(assetsDir)) {
+      app.use('/assets', express.static(assetsDir));
+    }
   }
+
+  app.get('/guest', (_req: Request, res: Response) => {
+    const guestHtmlPath = path.join(candidateGuestDist, 'index.html');
+    if (fs.existsSync(guestHtmlPath)) {
+      res.sendFile(guestHtmlPath);
+      return;
+    }
+    res.status(404).send('Guest build not found');
+  });
 
   // 5. Rota de entrada do convite: /join/:token
   // Nota: o fragmento #<pk_h_base64url> não é enviado pelo navegador nesta requisição HTTP (propriedade do hash)
@@ -111,10 +121,14 @@ export function createExpressApp(sessionManager: SessionManager): express.Expres
       return;
     }
 
-    // Se houver o index.html do guest empacotado, serve o arquivo
-    const guestHtmlPath = path.join(candidateGuestDist, 'index.html');
-    if (fs.existsSync(guestHtmlPath)) {
-      res.sendFile(guestHtmlPath);
+    // Se houver o HTML empacotado do guest, serve o arquivo
+    const candidateHtml = [
+      path.join(candidateGuestDist, 'index.html'),
+      path.join(candidateGuestDist, 'guest.html'),
+    ].find((p) => fs.existsSync(p));
+
+    if (candidateHtml) {
+      res.sendFile(candidateHtml);
       return;
     }
 
@@ -231,6 +245,10 @@ export async function startHttpServer(
         port: assignedPort,
         close: () =>
           new Promise<void>((res, rej) => {
+            const extServer = server as http.Server & { closeAllConnections?: () => void };
+            if (typeof extServer.closeAllConnections === 'function') {
+              extServer.closeAllConnections();
+            }
             server.close((err) => (err ? rej(err) : res()));
           }),
       });

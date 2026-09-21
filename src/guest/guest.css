@@ -1,0 +1,203 @@
+/* Estilos Mobile-First para a Interface do Guest (Motorola Edge 70 Pro / Android 16) */
+/* Mestre §3, §11, §14 e Regra inegociável #3. Paleta sem tons vermelhos. */
+
+:root {
+  --color-bg-main: #0b1120;
+  --color-bg-card: #0f172a;
+  --color-bg-surface: #1e293b;
+  --color-border: #334155;
+  --color-text-primary: #f8fafc;
+  --color-text-secondary: #94a3b8;
+  --color-text-muted: #64748b;
+  --color-accent-blue: #0284c7;
+  --color-accent-blue-active: #0369a1;
+  --color-accent-emerald: #059669;
+  --color-accent-amber: #d97706;
+  --color-accent-purple: #7c3aed;
+
+  /* Safe Area Insets para notch/câmera e barra de navegação do Android 16 */
+  --sat: env(safe-area-inset-top, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+  --sal: env(safe-area-inset-left, 0px);
+  --sar: env(safe-area-inset-right, 0px);
+
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  color-scheme: dark;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  height: 100dvh;
+  min-height: 100dvh;
+  background-color: var(--color-bg-main);
+  color: var(--color-text-primary);
+  overflow: hidden;
+  /* Previne gesto de pull-to-refresh nativo do Chrome Android */
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+#root {
+  width: 100%;
+  height: 100%;
+  height: 100dvh;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+
+/* Utilitários Mobile-First com Alvos de Toque >= 48px */
+.touch-target-48 {
+  min-width: 48px;
+  min-height: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+.touch-btn {
+  min-width: 48px;
+  min-height: 48px;
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  border-radius: 0.625rem;
+  border: 1px solid var(--color-border);
+  background-color: var(--color-bg-surface);
+  color: var(--color-text-primary);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  touch-action: manipulation;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  transition: background-color 0.15s ease, transform 0.1s ease;
+}
+
+/* Barra de Ferramentas Inferior Mobile (Mobile-First 412x915) */
+.guest-toolbar-container {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  padding: 0.25rem 0.5rem;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.guest-toolbar-group {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  flex-wrap: nowrap;
+}
+
+.touch-btn:active:not(:disabled) {
+  background-color: #334155;
+  transform: scale(0.97);
+}
+
+.touch-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.touch-btn-primary {
+  background-color: var(--color-accent-blue);
+  border-color: var(--color-accent-blue);
+  color: #ffffff;
+}
+
+.touch-btn-primary:active:not(:disabled) {
+  background-color: var(--color-accent-blue-active);
+}
+
+.touch-btn-active {
+  background-color: var(--color-accent-blue);
+  border-color: #38bdf8;
+  color: #ffffff;
+}
+
+/* Canvas com touch-action: none obrigatório */
+.whiteboard-canvas-mobile {
+  touch-action: none;
+  cursor: crosshair;
+  background-color: #ffffff;
+}
+
+/* Overlay Claro de Bloqueio de Tela (LOCK_SCREEN) */
+.lock-screen-overlay {
+  position: absolute;
+  inset: 0;
+  background-color: rgba(15, 23, 42, 0.82);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  z-index: 50;
+  text-align: center;
+  box-sizing: border-box;
+}
+
+/* Indicadores de Status */
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0.75rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.status-connected {
+  background-color: #064e3b;
+  color: #34d399;
+  border: 1px solid #059669;
+}
+
+.status-reconnecting {
+  background-color: #451a03;
+  color: #fbbf24;
+  border: 1px solid #b45309;
+}
+
+.status-connecting {
+  background-color: #1e293b;
+  color: #38bdf8;
+  border: 1px solid #0284c7;
+}
+
+.status-ended {
+  background-color: #334155;
+  color: #cbd5e1;
+  border: 1px solid #64748b;
+}
+
+/* Layout Responsivo Seguro */
+.safe-area-header {
+  padding-top: max(0.75rem, var(--sat));
+  padding-left: max(1rem, var(--sal));
+  padding-right: max(1rem, var(--sar));
+}
+
+.safe-area-footer {
+  padding-bottom: max(0.75rem, var(--sab));
+  padding-left: max(0.5rem, var(--sal));
+  padding-right: max(0.5rem, var(--sar));
+}
