@@ -22,6 +22,10 @@ import {
   TabState,
   WhiteboardEvent,
 } from '../../src/shared/events/reducer';
+import {
+  validarAutorEPermissaoCompartilhada,
+  TODOS_TIPOS_CONHECIDOS,
+} from '../../src/shared/autoridade';
 
 export const ID_REGEX = /^[A-Za-z0-9_-]{1,64}$/;
 
@@ -29,27 +33,7 @@ export function isValidId(id: unknown): id is string {
   return typeof id === 'string' && ID_REGEX.test(id);
 }
 
-export const TIPOS_EVENTO_CONHECIDOS = new Set([
-  'DRAW_ADD',
-  'DRAW_HIDE',
-  'CLEAR_TAB',
-  'UNDO',
-  'REDO',
-  'LOCK_SCREEN',
-  'UNLOCK_MEDIA',
-  'TAB_SWITCH',
-  'SCREEN_LOCKED',
-  'GUEST_MUTED',
-  'PLAY',
-  'PAUSE',
-  'SEEK',
-  'MEDIA_CONTROL',
-  'AUTH',
-  'HANDSHAKE_INIT',
-  'ENCRYPTED',
-  'RECONNECT',
-  'ERROR',
-]);
+export const TIPOS_EVENTO_CONHECIDOS = new Set<string>(TODOS_TIPOS_CONHECIDOS);
 
 export interface EventoServiceOptions {
   db?: DatabaseType;
@@ -102,45 +86,16 @@ export class EventoService {
   }
 
   /**
-   * Valida a autoridade do autor e as permissões de execução (Mestre §4, §11, §16).
-   * Lista de PERMISSÃO: autor deve ser exatamente 'host' ou 'guest'.
-   * Decisão de segurança: identidade estrita sem trim silencioso que altere a semântica.
-   * Qualquer outro valor é rejeitado com AUTOR_INVALIDO. Tipos desconhecidos são rejeitados com TIPO_INVALIDO.
+   * Valida a autoridade do autor e as permissões de execução (Mestre §4, §11, §16, ADR-011).
+   * Delega para a fonte única de autoridade compartilhada (validarAutorEPermissaoCompartilhada).
    */
   public validarAutorEPermissao(
     tipo: string,
     autor: string,
-    screenLocked: boolean = false
+    screenLocked: boolean = false,
+    mediaUnlocked: boolean = false
   ): { permitido: boolean; motivo?: string } {
-    // 1. Lista de permissão rigorosa de autores reconhecidos
-    if (autor !== 'host' && autor !== 'guest') {
-      return { permitido: false, motivo: 'AUTOR_INVALIDO' };
-    }
-
-    // 2. Lista de permissão rigorosa de tipos de evento reconhecidos
-    if (!tipo || typeof tipo !== 'string' || !TIPOS_EVENTO_CONHECIDOS.has(tipo)) {
-      return { permitido: false, motivo: 'TIPO_INVALIDO' };
-    }
-
-    // 3. Se a tela estiver bloqueada pelo Host, Guest não pode emitir nenhuma ação
-    if (autor === 'guest' && screenLocked) {
-      return { permitido: false, motivo: 'SCREEN_LOCKED' };
-    }
-
-    // 4. Ações estritamente exclusivas do Host (proibidas ao Guest)
-    if (autor === 'guest') {
-      if (
-        tipo === 'CLEAR_TAB' ||
-        tipo === 'LOCK_SCREEN' ||
-        tipo === 'UNLOCK_MEDIA' ||
-        tipo === 'TAB_SWITCH' ||
-        tipo === 'SCREEN_LOCKED'
-      ) {
-        return { permitido: false, motivo: 'FORBIDDEN_ACTION_GUEST' };
-      }
-    }
-
-    return { permitido: true };
+    return validarAutorEPermissaoCompartilhada(tipo, autor, { screenLocked, mediaUnlocked });
   }
 
   /**

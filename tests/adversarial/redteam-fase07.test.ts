@@ -1,5 +1,4 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import * as http from 'http';
 import * as crypto from 'crypto';
 import { WebSocket as WsImplementation } from 'ws';
 import { ServerSessionController } from '../../electron/server/index';

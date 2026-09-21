@@ -24,15 +24,22 @@
   - `tests/guest-mobile.test.ts`: Suíte completa de 14 testes cobrindo entrega Express, CSP do ADR-005, E2EE, token one-shot, rejeição de segundo convidado, persistência SQLite de desenhos do Guest, `LOCK_SCREEN`, `UNLOCK_MEDIA`, `GUEST_MUTED`, `TAB_SWITCH`, reconexão automática e ataques adversariais.
   - `tools/probe-runtime.cjs`: Estendida para executar o Guest mobile em Chromium real emulando o Motorola Edge 70 Pro / Android 16 (412x915, DPR 2.625, Touch habilitado), validando a remoção do hash, CSP sem violações, desenho com touch sincronizado, `LOCK_SCREEN` e `GUEST_MUTED`.
   - `docs/guest-mobile-emulation.png`: Evidência visual da emulação mobile gerada pela sonda de runtime (50 KB).
-  - `docs/reviews/autoauditoria-07.md`: Relatório completo de autoauditoria da Fase 07.
-* Estado Atual: Fase 07 concluída com 100% de aprovação técnica. O fluxo de conexão do convidado no navegador móvel opera com E2EE de ponta a ponta (X25519 e ChaCha20-Poly1305), remoção imediata do segredo da URL, reconexão resiliente com token rotacionado e sincronização bidirecional de desenho persistida no SQLite. A interface mobile-first atende estritamente a alvos de toque ≥ 48px, safe areas, ausência de hover-only e paleta sem vermelho. Suíte de 172 testes passando sob a ABI do Electron e sonda de runtime aprovando todas as 21 verificações.
+  - `src/shared/autoridade.ts`: Módulo central e fonte única da verdade para a matriz de autoridade e permissões Host x Guest (ADR-011). Implementa allowlist estrita para o Guest (`ACOES_PERMITIDAS_GUEST`), proteção contra prototype pollution, bloqueio integral sob `screenLocked === true` e preservação de privacidade em `GUEST_MUTED`.
+  - `electron/server/session-manager.ts`: Corrigido contra as 5 vulnerabilidades do red team: `handleGuestDisconnect` restrito à conexão autenticada (RT1), `reconnectExpiresAt` imutável após handshake sem extensão espúria (RT2), e `canGuestExecute` delegando para allowlist estrita do módulo de autoridade (RT3, RT4, RT5).
+  - `electron/services/evento.service.ts`: Refatorado para delegar a validação de autor e permissão para a fonte única `validarAutorEPermissaoCompartilhada` (RT6).
+  - `tests/adversarial/autoridade-fonte-unica.test.ts`: Suíte de 8 testes adversariais assegurando sincronia absoluta e ausência de divergência futura entre `SessionManager` e `EventoService` em todos os tipos conhecidos e combinações de estado.
+  - `docs/ADR/011-fonte-unica-autoridade.md`: Registro formal da decisão arquitetural da fonte única de autoridade e eliminação de denylists abertas.
+  - `docs/reviews/autoauditoria-corr-redteam07.md`: Relatório de autoauditoria da correção do Red Team com evidências coladas de comandos reais.
+* Estado Atual: Fase 07 100% aprovada e corrigida contra todas as vulnerabilidades apontadas pelo Red Team. Todas as 40 checagens adversárias em `redteam-fase07.test.ts` passam com defesa comprovada. Fonte única de autoridade estabelecida no ADR-011. Suíte total de 236 testes passando sob a ABI do Electron e sonda de runtime aprovando 22 de 22 verificações em Chromium real emulando o Motorola Edge 70 Pro / Android 16.
 * Próximo Passo Lógico: Mesclar a branch `fase/07-guest-mobile` em `main` (pelo Alexandre) e prosseguir para a Fase 08 (`fase/08-abas-midia-assets`) para implementar abas de mídia (áudio/vídeo) sincronizadas e anotações sobre mídias.
 * Decisões Críticas Tomadas:
+  - Fonte Única de Autoridade (ADR-011): `SessionManager` e `EventoService` compartilham as mesmas regras em `src/shared/autoridade.ts`, eliminando denylists abertas.
+  - Imutabilidade do TTL de Reconexão: O prazo de 5 minutos é definido em `completeHandshake` e NUNCA é estendido por quedas repetidas ou probes de atacantes.
   - Expurgar Fragmento de Hash: O segredo criptográfico `#pk_h` é imediatamente removido da URL com `history.replaceState` logo após a extração, impedindo vazamentos em histórico e referrers.
   - Inclusão de `'wasm-unsafe-eval'` no ADR-005: Diretiva W3C necessária para a instanciação do binário WebAssembly do libsodium no Chromium, mantendo `eval()` e injeção de scripts JavaScript bloqueados.
   - Alvos de Toque ≥ 48px (WCAG): Todos os botões e seletores do Guest possuem dimensões mínimas de 48×48px para ergonomia em telas de smartphones.
   - Paleta Sem Vermelho: A interface mobile adota exclusivamente tons de azul, verde, âmbar, violeta e ardósia, respeitando a regra inegociável do usuário.
-* Divergências da Spec: Nenhuma divergência. A especificação da Fase 07 foi atendida integralmente.
+* Divergências da Spec: Registradas formalmente no `docs/ADR/010-drawhide-elementid.md` (suporte a `elementId` em `DRAW_HIDE`) e `docs/ADR/011-fonte-unica-autoridade.md` (unificação da matriz de autoridade em módulo compartilhado).
 
 ---
 
@@ -322,4 +329,102 @@ PASS  UI: alterar rotulo no dicionario
 PASS  Banco: sem dados duplicados no SQLite
 ```
 *(22/22 checagens PASS)*
+
+---
+
+## Correções do red team
+
+Em resposta ao relatório de auditoria adversarial do Red Team (`docs/reviews/redteam-07.md`) que identificou 5 vulnerabilidades em `electron/server/session-manager.ts`, foram implementadas correções definitivas no código de produção e eliminada a causa raiz comum:
+
+### 1. RT1 (FALHA-3): Desconexão de conexão não-autenticada
+- **Correção:** `handleGuestDisconnect` em `electron/server/session-manager.ts` agora valida estritamente se `connectionId` corresponde à conexão ativa (`activeGuestConnectionId`). Probes de rede, varreduras de porta e desconexões espúrias não-autenticadas são descartadas imediatamente sem transicionar o estado para `reconectando` e sem notificar listeners.
+- **Evidência:** Teste `[FALHA-3 - VULNERAVEL]` passa com sucesso.
+
+### 2. RT2 (FALHA-4): Imutabilidade do TTL de reconexão
+- **Correção:** O prazo `reconnectExpiresAt` é carimbado exclusivamente em `completeHandshake` (quando o handshake com o convidado é concluído com sucesso) com TTL estrito de 5 minutos. Em quedas de rede legítimas do convidado, esse timestamp é mantido e NUNCA é recalculado ou empurrado para frente. Conexões/desconexões repetidas por invasores na rede local não conseguem estender a janela de reconexão.
+- **Evidência:** Teste `[FALHA-4 - VULNERAVEL]` passa com sucesso.
+
+### 3. RT3 (PERMISSAO-2), RT4 (PERMISSAO-3) e RT5 (PERMISSAO-4): canGuestExecute como Allowlist Estrita
+- **Correção:** Denylist aberta banida. `SessionManager.canGuestExecute` agora delega para o validador compartilhado `canGuestExecuteAction` em `src/shared/autoridade.ts`, aplicando allowlist estrita dos 9 tipos autorizados ao Guest:
+  - Quadro branco: `DRAW_ADD`, `DRAW_HIDE`, `UNDO`, `REDO` (bloqueados se `screenLocked === true`).
+  - Mídia: `PLAY`, `PAUSE`, `SEEK`, `MEDIA_CONTROL` (bloqueados se `screenLocked === true` ou `mediaUnlocked === false`).
+  - Local: `GUEST_MUTED` (permitido mesmo com tela bloqueada para garantia de privacidade do microfone).
+  - Tipos reservados ao Host (`SCREEN_LOCKED`, `LOCK_SCREEN`, `UNLOCK_MEDIA`, `TAB_SWITCH`, `CLEAR_TAB`), tipos desconhecidos (`ARBITRARY_ACTION_TYPE`), vazios ou chaves de protótipo (`__proto__`, `constructor`, `toString`) são rejeitados com `allowed: false` e `reason: 'FORBIDDEN_ACTION'`.
+- **Evidência:** Testes `[PERMISSAO-2 - VULNERAVEL]`, `[PERMISSAO-3 - VULNERAVEL]` e `[PERMISSAO-4 - VULNERAVEL]` passam com sucesso.
+
+### 4. RT6: Causa Raiz Comum e Fonte Única de Verdade (ADR-011)
+- **Correção:** Criado o módulo compartilhado `src/shared/autoridade.ts` contendo as constantes e funções canônicas de autorização. Tanto `SessionManager.canGuestExecute` quanto `EventoService.validarAutorEPermissao` consomem esse módulo.
+- **Sincronia:** A suite adversarial `tests/adversarial/autoridade-fonte-unica.test.ts` (8 testes) percorre todos os tipos conhecidos e combinações de estado (`screenLocked` e `mediaUnlocked`), afirmando que ambas as camadas produzem vereditos de permissão estritamente idênticos para o Guest, impedindo qualquer divergência futura.
+- **Decisão Formal:** Registrada em `docs/ADR/011-fonte-unica-autoridade.md`.
+
+### Saída Real dos Testes do Red Team (40/40 Defendidos)
+```
+$ npm test -- tests/adversarial/redteam-fase07.test.ts
+> onetoonesupport@1.0.0 test
+> node scripts/test-runner.mjs tests/adversarial/redteam-fase07.test.ts
+
+[Test-Runner] Executando vitest sob ABI do Electron com ELECTRON_RUN_AS_NODE=1...
+
+ RUN  v2.1.9 C:/desenv/utils/OneToOneSupport
+
+ ✓ tests/adversarial/redteam-fase07.test.ts (40 tests) 3805ms
+   ✓ Red Team Fase 07 - Ataques Adversariais e Testes de Penetração > 2. Repetição e Idempotência > [REPETICAO-1] Replay de nonce na cifra ChaCha20-Poly1305 dispara REPLAY_ATTACK e fecha conexão 387ms
+   ✓ Red Team Fase 07 - Ataques Adversariais e Testes de Penetração > 4. Estado Após Falha Parcial > [FALHA-1] Queda de conexão após AUTH e antes de HANDSHAKE_INIT não consome o token de acesso 376ms
+   ✓ Red Team Fase 07 - Ataques Adversariais e Testes de Penetração > 6. Limites (Rate Limit, Timeout, Tamanho, TTL) > [LIMITES-3] Timeout de handshake derruba conexão inativa após o tempo limite 360ms
+
+ Test Files  1 passed (1)
+      Tests  40 passed (40)
+   Duration  5.88s
+```
+
+### Saída Real do Gate Único Completo (`npm run verify` — 236 Testes + Sonda 22/22)
+```
+$ npm run verify
+> onetoonesupport@1.0.0 verify
+> npm run typecheck && npm run build && npm test && npm run probe
+
+> onetoonesupport@1.0.0 typecheck
+> tsc --noEmit
+
+> onetoonesupport@1.0.0 build
+> tsc -p tsconfig.electron.json && vite build && vite build --config vite.config.guest.ts
+dist/renderer/index.html                  0.97 kB │ gzip:   0.56 kB
+dist/renderer/assets/index-mo4-uC1u.js  508.97 kB │ gzip: 150.98 kB
+dist/guest/guest.html                     0.96 kB │ gzip:   0.51 kB
+dist/guest/assets/index-CD_7vfq9.css      3.37 kB │ gzip:   1.16 kB
+dist/guest/assets/index-B62w5tDu.js   1,479.51 kB │ gzip: 465.16 kB
+
+> onetoonesupport@1.0.0 test
+> node scripts/test-runner.mjs
+Test Files  14 passed (14)
+     Tests  236 passed (236)
+  Duration  12.29s
+
+> onetoonesupport@1.0.0 probe
+> node tools/probe-runtime.cjs
+PASS  typeof require === undefined
+PASS  typeof process === undefined
+PASS  UI renderizou (#root com filhos)
+PASS  CSP: script inline NAO executa
+PASS  CSP: eval bloqueado
+PASS  sem erro de pagina
+PASS  IPC: validacao de payload rejeita dado invalido com erro tipado
+PASS  UI: criar atendido
+PASS  UI: detectar duplicado com mensagem clara (Regra #1)
+PASS  UI: editar atendido
+PASS  UI: desativar atendido (soft delete)
+PASS  UI: iniciar sessao, gerar QR e abrir sala do servidor LAN
+PASS  Guest Mobile: carregou bundle do Guest e removeu hash da URL
+PASS  Guest Mobile: CSP sem violacoes no console
+PASS  Guest Mobile: desenhou com touch e sincronizou com o Host
+PASS  Guest Mobile: LOCK_SCREEN exibiu overlay e desbloqueou
+PASS  Guest Mobile: mute local emitiu GUEST_MUTED
+PASS  Guest Mobile: barra de ferramentas totalmente visivel na viewport
+PASS  UI: abrir quadro branco HiDPI e verificar DPR 1.5
+PASS  UI: desenhar traço, retângulo, texto, desfazer/refazer e borracha
+PASS  UI: alterar rotulo no dicionario
+PASS  Banco: sem dados duplicados no SQLite
+```
+*(22/22 checagens PASS)*
+
 

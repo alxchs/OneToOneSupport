@@ -3,7 +3,7 @@ import { generateHostKeyPair, deriveHostSessionKeys, destroyKeyPair } from '../c
 import { createHostSessionCipher } from '../crypto/cipher';
 import type { SessionCipher } from '../../src/shared/crypto/types';
 import { encodeBase64Url, decodeBase64Url } from '../../src/shared/crypto/base64url';
-import { ProtocolMessageType } from '../../src/shared/events/protocol';
+import { canGuestExecuteAction, GuestActionResult } from '../../src/shared/autoridade';
 
 export type ServerSessionState =
   | 'idle'
@@ -26,10 +26,7 @@ export interface ValidationResult {
   message?: string;
 }
 
-export interface GuestActionResult {
-  allowed: boolean;
-  reason?: 'SCREEN_LOCKED' | 'MEDIA_LOCKED' | 'FORBIDDEN_ACTION';
-}
+export type { GuestActionResult };
 
 /**
  * Comparação de tokens e segredos em tempo constante (crypto.timingSafeEqual),
@@ -289,23 +286,26 @@ export class SessionManager {
   }
 
   /**
-   * Notifica que a conexão do Guest foi perdida/fechada.
-   * Transiciona para 'reconectando' e abre a janela de 5 minutos.
+  /**
+   * Notifica que a conexão do Guest foi perdida/fechada (RT1 e RT2).
+   * Só age quando connectionId for exatamente a conexão ativa/autenticada.
+   * Conexões desconhecidas, espúrias ou nunca autenticadas são ignoradas sem nenhum efeito colateral.
+   * O TTL de reconexão (reconnectExpiresAt) NUNCA é estendido em desconexões.
    */
   public handleGuestDisconnect(connectionId?: string): void {
-    if (this.activeGuestConnectionId && connectionId && this.activeGuestConnectionId !== connectionId) {
-      return; // Desconexão de conexão não-ativa
+    if (this.state === 'encerrada') {
+      return;
     }
 
+    if (!this.activeGuestConnectionId || (connectionId !== undefined && connectionId !== this.activeGuestConnectionId)) {
+      return;
+    }
+
+    const wasConnected = this.guestConnected;
     this.guestConnected = false;
     this.activeGuestConnectionId = null;
 
-    if (this.state !== 'encerrada') {
-      const now = this.clock();
-      // Garante que o TTL de reconexão de 5 minutos está ativo
-      if (this.reconnectExpiresAt < now + this.reconnectTokenTtlMs) {
-        this.reconnectExpiresAt = now + this.reconnectTokenTtlMs;
-      }
+    if (wasConnected) {
       this.notifyStateChange('reconectando');
     }
   }
@@ -315,10 +315,8 @@ export class SessionManager {
   }
 
   /**
-   * Matriz de Autoridade do Host (Mestre §11 e §16):
-   * - Host emite LOCK_SCREEN -> Guest bloqueado para interações no canvas e mídia
-   * - Host emite UNLOCK_MEDIA -> Libera controle de mídia para o Guest
-   * - Guest só desenha (DRAW_ADD), desfaz própria ação (DRAW_HIDE)
+   * Matriz de Autoridade do Host (Mestre §11 e §16, ADR-011):
+   * Delega a decisão de permissão para a fonte única compartilhada canGuestExecuteAction.
    */
   public setScreenLocked(locked: boolean): void {
     this.screenLocked = locked;
@@ -328,46 +326,11 @@ export class SessionManager {
     this.mediaUnlocked = unlocked;
   }
 
-  public canGuestExecute(actionType: ProtocolMessageType): GuestActionResult {
-    // 1. Se a tela estiver bloqueada pelo Host (LOCK_SCREEN), bloqueia qualquer ação interativa
-    if (this.screenLocked) {
-      if (
-        actionType === 'DRAW_ADD' ||
-        actionType === 'DRAW_HIDE' ||
-        actionType === 'CLEAR_TAB' ||
-        actionType === 'PLAY' ||
-        actionType === 'PAUSE' ||
-        actionType === 'SEEK' ||
-        actionType === 'MEDIA_CONTROL'
-      ) {
-        return { allowed: false, reason: 'SCREEN_LOCKED' };
-      }
-    }
-
-    // 2. Ações exclusivas do Host (Guest NUNCA pode emitir)
-    if (
-      actionType === 'LOCK_SCREEN' ||
-      actionType === 'UNLOCK_MEDIA' ||
-      actionType === 'TAB_SWITCH' ||
-      actionType === 'CLEAR_TAB'
-    ) {
-      return { allowed: false, reason: 'FORBIDDEN_ACTION' };
-    }
-
-    // 3. Controle de mídia: Guest só pode emitir se UNLOCK_MEDIA estiver ativo
-    if (
-      actionType === 'PLAY' ||
-      actionType === 'PAUSE' ||
-      actionType === 'SEEK' ||
-      actionType === 'MEDIA_CONTROL'
-    ) {
-      if (!this.mediaUnlocked) {
-        return { allowed: false, reason: 'MEDIA_LOCKED' };
-      }
-    }
-
-    // 4. DRAW_ADD, DRAW_HIDE e GUEST_MUTED são permitidos no fluxo normal
-    return { allowed: true };
+  public canGuestExecute(actionType: unknown): GuestActionResult {
+    return canGuestExecuteAction(actionType, {
+      screenLocked: this.screenLocked,
+      mediaUnlocked: this.mediaUnlocked,
+    });
   }
 
   /**
