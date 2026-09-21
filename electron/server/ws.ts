@@ -11,6 +11,7 @@ import {
   ProtocolMessageType,
 } from '../../src/shared/events/protocol';
 import { CryptoError } from '../../src/shared/crypto/types';
+import { EventoService } from '../services/evento.service';
 
 export type WsConnectionStage =
   | 'AWAITING_AUTH'
@@ -297,6 +298,25 @@ export function createWebSocketServer(options: WsServerOptions): WsServerHandle 
           const encrypted = cipher.encrypt(sessionReadyPayload);
           const responseEnvelope = createEnvelope('ENCRYPTED', encrypted);
           ws.send(JSON.stringify(responseEnvelope));
+
+          // Sincronização inicial do estado da aba ativa no quadro branco para o Guest conectado
+          try {
+            const eventoService = new EventoService();
+            const initialTabState = eventoService.reconstruirEstadoAba(sessionManager.sessaoId, 'default');
+            if (initialTabState && initialTabState.elementOrder.length > 0) {
+              const tabStatePayload = JSON.stringify({
+                type: 'TAB_STATE',
+                abaId: 'default',
+                state: initialTabState,
+                sessaoId: sessionManager.sessaoId,
+                ts: Date.now(),
+              });
+              const encryptedState = cipher.encrypt(tabStatePayload);
+              ws.send(JSON.stringify(createEnvelope('ENCRYPTED', encryptedState)));
+            }
+          } catch (err) {
+            console.warn('[WsServer] Aviso ao sincronizar estado inicial da aba no handshake:', err);
+          }
         } catch {
           conn.stage = 'TERMINATED';
           ws.terminate();

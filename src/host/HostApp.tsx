@@ -7,6 +7,7 @@ import { ConfiguracoesPage } from './pages/ConfiguracoesPage';
 import { QuadroBrancoPage } from './pages/QuadroBrancoPage';
 import { useHostStore } from './store/useHostStore';
 import { reduceEvent, WhiteboardEvent } from '../shared/events/reducer';
+import { generateUUID } from '../shared/events/protocol';
 
 export const HostApp: React.FC = () => {
   const { view, mensagemAlerta, limparMensagens, carregarDicionario } = useHostStore();
@@ -37,17 +38,19 @@ export const HostApp: React.FC = () => {
         if (
           event.type === 'DRAW_ADD' ||
           event.type === 'DRAW_HIDE' ||
-          event.type === 'CLEAR_TAB'
+          event.type === 'CLEAR_TAB' ||
+          event.type === 'UNDO' ||
+          event.type === 'REDO'
         ) {
           const rawPayload = event.payload;
           const parsedPayload =
             typeof rawPayload === 'string' ? JSON.parse(rawPayload) : rawPayload;
           const ev: WhiteboardEvent = {
-            id: event.id || (window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : `ev-${Date.now()}`),
+            id: event.id || generateUUID(),
             sessao_id: useHostStore.getState().activeSessaoId || undefined,
             aba_id: event.abaId || 'default',
             tipo: event.type,
-            payload: parsedPayload,
+            payload: parsedPayload || {},
             autor: 'guest',
             criado_em: event.ts || Date.now(),
           };

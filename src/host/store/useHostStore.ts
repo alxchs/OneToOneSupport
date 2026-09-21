@@ -12,6 +12,7 @@ import {
   reduceEvent,
   WhiteboardEvent,
 } from '../../shared/events/reducer';
+import { generateUUID } from '../../shared/events/protocol';
 
 export type HostView = 'lista' | 'form' | 'detalhes' | 'configuracoes' | 'quadro';
 
@@ -336,7 +337,7 @@ export const useHostStore = create<HostState>((set, get) => ({
 
   iniciarServidorSessao: async (sessaoId: string, atendidoId: string, preferredIp?: string) => {
     if (!window.desktopAPI?.serverSession) return false;
-    set({ carregando: true });
+    set({ carregando: true, activeSessaoId: sessaoId, activeAbaId: 'default' });
     const res = await window.desktopAPI.serverSession.start({
       sessaoId,
       atendidoId,
@@ -344,7 +345,7 @@ export const useHostStore = create<HostState>((set, get) => ({
     });
     set({ carregando: false });
     if (res.success) {
-      set({ activeServerSession: res.data });
+      set({ activeServerSession: res.data, activeSessaoId: sessaoId, activeAbaId: 'default' });
       return true;
     } else {
       set({ mensagemAlerta: { tipo: 'alerta', texto: res.message } });
@@ -419,7 +420,7 @@ export const useHostStore = create<HostState>((set, get) => ({
   desfazerQuadro: async () => {
     const { aplicarEventoQuadro, activeSessaoId, activeAbaId } = get();
     const ev: WhiteboardEvent = {
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       sessao_id: activeSessaoId || undefined,
       aba_id: activeAbaId,
       tipo: 'UNDO',
@@ -433,7 +434,7 @@ export const useHostStore = create<HostState>((set, get) => ({
   refazerQuadro: async () => {
     const { aplicarEventoQuadro, activeSessaoId, activeAbaId } = get();
     const ev: WhiteboardEvent = {
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       sessao_id: activeSessaoId || undefined,
       aba_id: activeAbaId,
       tipo: 'REDO',
@@ -447,7 +448,7 @@ export const useHostStore = create<HostState>((set, get) => ({
   limparQuadro: async () => {
     const { aplicarEventoQuadro, activeSessaoId, activeAbaId } = get();
     const ev: WhiteboardEvent = {
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       sessao_id: activeSessaoId || undefined,
       aba_id: activeAbaId,
       tipo: 'CLEAR_TAB',

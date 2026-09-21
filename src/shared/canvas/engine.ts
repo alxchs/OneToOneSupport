@@ -15,6 +15,7 @@ import {
   WhiteboardEvent,
   getVisibleElements,
 } from '../events/reducer';
+import { generateUUID } from '../events/protocol';
 
 export type WhiteboardTool =
   | 'select'
@@ -25,7 +26,8 @@ export type WhiteboardTool =
   | 'line'
   | 'arrow'
   | 'text'
-  | 'eraser';
+  | 'eraser'
+  | 'object_eraser';
 
 export interface PointerCoords {
   clientX: number;
@@ -79,6 +81,24 @@ export function createFabricObjectFromData(tipo: string, data: any): FabricObjec
   if (!data) return null;
 
   switch (tipo) {
+    case 'eraser_stroke': {
+      if (data.path) {
+        return new Path(data.path, {
+          left: data.left,
+          top: data.top,
+          fill: null,
+          stroke: '#000000',
+          strokeWidth: data.strokeWidth ?? 8,
+          strokeLineCap: data.strokeLineCap ?? 'round',
+          strokeLineJoin: data.strokeLineJoin ?? 'round',
+          globalCompositeOperation: 'destination-out',
+          selectable: false,
+          evented: false,
+        });
+      }
+      return null;
+    }
+
     case 'path': {
       if (typeof data === 'string') {
         return new Path(data);
@@ -261,9 +281,10 @@ export class WhiteboardEngine {
     this.onEmitEvent = options.onEmitEvent;
     this.onToolChange = options.onToolChange;
 
-    // Fundo branco estático conforme Mestre §12 e ADR-003
+    // Fundo branco no elemento HTML e buffer transparente para composição destination-out (ADR-003, ADR-012)
+    canvasElement.style.backgroundColor = '#ffffff';
     this.canvas = new Canvas(canvasElement, {
-      backgroundColor: '#ffffff',
+      backgroundColor: 'transparent',
       enableRetinaScaling: true,
       selection: true,
       stopContextMenu: true,
@@ -421,12 +442,13 @@ export class WhiteboardEngine {
    * Configura listeners de eventos do Fabric para captura e emissão de eventos
    */
   private setupEngineEventListeners(): void {
-    // 1. Finalização de traço livre (Pencil e Brush)
+    // 1. Finalização de traço livre (Pencil, Brush e Borracha de Trecho)
     this.canvas.on('path:created', (opt: any) => {
       const pathObj = opt.path;
       if (!pathObj) return;
 
-      const elementId = crypto.randomUUID();
+      const isEraser = this.activeTool === 'eraser';
+      const elementId = generateUUID();
       const pathData = pathObj.toObject();
 
       // Remove imediatamente o elemento cru do canvas; ele será inserido
@@ -434,7 +456,7 @@ export class WhiteboardEngine {
       this.canvas.remove(pathObj);
 
       const event: WhiteboardEvent = {
-        id: crypto.randomUUID(),
+        id: generateUUID(),
         sessao_id: this.sessaoId,
         aba_id: this.abaId,
         tipo: 'DRAW_ADD',
@@ -442,20 +464,29 @@ export class WhiteboardEngine {
         criado_em: Date.now(),
         payload: {
           id: elementId,
-          tipo: 'path',
-          data: pathData,
+          tipo: isEraser ? 'eraser_stroke' : 'path',
+          data: isEraser
+            ? {
+                path: pathData.path,
+                left: pathData.left,
+                top: pathData.top,
+                strokeWidth: pathObj.strokeWidth,
+                strokeLineCap: 'round',
+                strokeLineJoin: 'round',
+              }
+            : pathData,
         },
       };
 
       this.emitEvent(event);
     });
 
-    // 2. Interações com o mouse/ponteiro para formas, texto e borracha
+    // 2. Interações com o mouse/ponteiro para formas, texto e borracha de objeto
     this.canvas.on('mouse:down', (opt: any) => {
       const e = opt.e;
       if (!e) return;
 
-      if (this.activeTool === 'eraser') {
+      if (this.activeTool === 'object_eraser') {
         this.handleEraserAction(opt);
         return;
       }
@@ -480,7 +511,7 @@ export class WhiteboardEngine {
       const e = opt.e;
       if (!e) return;
 
-      if (this.activeTool === 'eraser' && opt.e.buttons === 1) {
+      if (this.activeTool === 'object_eraser' && opt.e.buttons === 1) {
         this.handleEraserAction(opt);
         return;
       }
@@ -499,14 +530,14 @@ export class WhiteboardEngine {
   }
 
   /**
-   * Ação da borracha: localiza o elemento sob o ponteiro e emite DRAW_HIDE (sem apagar do histórico do reducer)
+   * Ação da borracha de objeto: localiza o elemento sob o ponteiro e emite DRAW_HIDE (sem apagar do histórico do reducer)
    */
   private handleEraserAction(opt: any): void {
     const target = opt.target;
     if (target && (target as any).elementId) {
       const elementId = (target as any).elementId;
       const event: WhiteboardEvent = {
-        id: crypto.randomUUID(),
+        id: generateUUID(),
         sessao_id: this.sessaoId,
         aba_id: this.abaId,
         tipo: 'DRAW_HIDE',
@@ -618,7 +649,7 @@ export class WhiteboardEngine {
       return;
     }
 
-    const elementId = crypto.randomUUID();
+    const elementId = generateUUID();
     let tipo = '';
     let data: any = {};
 
@@ -664,7 +695,7 @@ export class WhiteboardEngine {
 
     if (tipo) {
       const event: WhiteboardEvent = {
-        id: crypto.randomUUID(),
+        id: generateUUID(),
         sessao_id: this.sessaoId,
         aba_id: this.abaId,
         tipo: 'DRAW_ADD',
@@ -686,7 +717,7 @@ export class WhiteboardEngine {
    */
   private handleTextCreation(e: any): void {
     const pos = this.pointerToScene(e);
-    const elementId = crypto.randomUUID();
+    const elementId = generateUUID();
 
     const textObj = new IText('Texto', {
       left: pos.x,
@@ -713,7 +744,7 @@ export class WhiteboardEngine {
       if (!textValue) return;
 
       const event: WhiteboardEvent = {
-        id: crypto.randomUUID(),
+        id: generateUUID(),
         sessao_id: this.sessaoId,
         aba_id: this.abaId,
         tipo: 'DRAW_ADD',
@@ -795,6 +826,17 @@ export class WhiteboardEngine {
       }
 
       case 'eraser': {
+        this.canvas.isDrawingMode = true;
+        const brush = new PencilBrush(this.canvas);
+        brush.width = Math.max(2, this.strokeWidth);
+        brush.color = '#000000';
+        this.canvas.freeDrawingBrush = brush;
+        this.canvas.defaultCursor = 'crosshair';
+        break;
+      }
+
+      case 'object_eraser': {
+        this.canvas.isDrawingMode = false;
         this.canvas.defaultCursor = 'not-allowed';
         break;
       }
@@ -807,7 +849,7 @@ export class WhiteboardEngine {
 
   public setStrokeColor(color: string): void {
     this.strokeColor = color;
-    if (this.canvas.freeDrawingBrush) {
+    if (this.canvas.freeDrawingBrush && this.activeTool !== 'eraser') {
       this.canvas.freeDrawingBrush.color = color;
     }
   }
@@ -815,7 +857,8 @@ export class WhiteboardEngine {
   public setStrokeWidth(width: number): void {
     this.strokeWidth = width;
     if (this.canvas.freeDrawingBrush) {
-      this.canvas.freeDrawingBrush.width = this.activeTool === 'brush' ? width * 2.5 : width;
+      this.canvas.freeDrawingBrush.width =
+        this.activeTool === 'brush' ? Math.max(6, width * 2.5) : Math.max(1, width);
     }
   }
 
@@ -833,7 +876,7 @@ export class WhiteboardEngine {
    */
   public clearTab(): void {
     const event: WhiteboardEvent = {
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       sessao_id: this.sessaoId,
       aba_id: this.abaId,
       tipo: 'CLEAR_TAB',
@@ -851,7 +894,7 @@ export class WhiteboardEngine {
    */
   public undo(): void {
     const event: WhiteboardEvent = {
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       sessao_id: this.sessaoId,
       aba_id: this.abaId,
       tipo: 'UNDO',
@@ -867,7 +910,7 @@ export class WhiteboardEngine {
    */
   public redo(): void {
     const event: WhiteboardEvent = {
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       sessao_id: this.sessaoId,
       aba_id: this.abaId,
       tipo: 'REDO',
@@ -918,6 +961,7 @@ export class WhiteboardEngine {
 
   /**
    * Exporta a imagem do quadro em alta definição preservando nitidez HiDPI (multiplier = DPR).
+   * Compõe sobre fundo branco opaco para evitar perfurações transparentes causadas por destination-out (ADR-012).
    */
   public toDataURL(options?: {
     multiplier?: number;
@@ -926,6 +970,25 @@ export class WhiteboardEngine {
   }): string {
     const dpr = this.currentDpr || (typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1);
     const multiplier = options?.multiplier ?? dpr;
+
+    if (typeof document !== 'undefined') {
+      const lowerEl = this.canvas.lowerCanvasEl;
+      if (lowerEl && lowerEl.width > 0 && lowerEl.height > 0) {
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = lowerEl.width;
+        tempCanvas.height = lowerEl.height;
+        const ctx = tempCanvas.getContext('2d');
+        if (ctx) {
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+          ctx.drawImage(lowerEl, 0, 0);
+          return tempCanvas.toDataURL(
+            options?.format === 'jpeg' ? 'image/jpeg' : 'image/png',
+            options?.quality ?? 1
+          );
+        }
+      }
+    }
 
     return this.canvas.toDataURL({
       format: options?.format || 'png',

@@ -90,9 +90,10 @@ export async function handleEventoGravar(
     }
 
     // Se o evento foi gravado com sucesso pelo Host, transmite cifrado para o Guest conectado
+    let guestBroadcastSuccess: boolean | undefined;
     if (p.autor === 'host') {
       try {
-        serverSessionController.broadcastToGuest({
+        const sent = serverSessionController.broadcastToGuest({
           type: p.tipo.trim(),
           payload: typeof p.payload === 'string' ? JSON.parse(p.payload) : p.payload,
           abaId: p.aba_id ? p.aba_id.trim() : 'default',
@@ -100,12 +101,17 @@ export async function handleEventoGravar(
           autor: 'host',
           ts: Date.now(),
         });
-      } catch {
-        // Fallback silencioso se falhar envio cifrado
+        guestBroadcastSuccess = sent;
+        if (!sent && serverSessionController.getStatus()?.guestConnected) {
+          console.warn('[EventoIPC] Falha ao transmitir evento cifrado para o Guest conectado.');
+        }
+      } catch (broadcastErr) {
+        console.warn('[EventoIPC] Erro ao transmitir broadcast para o Guest:', broadcastErr);
+        guestBroadcastSuccess = false;
       }
     }
 
-    return { success: true, data: res.evento };
+    return { success: true, data: { ...res.evento, guestBroadcastSuccess } };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     return { success: false, error: 'INTERNAL_ERROR', message };

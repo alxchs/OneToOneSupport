@@ -94,12 +94,17 @@ export class ServerSessionController {
     if (
       envelope.type === 'DRAW_ADD' ||
       envelope.type === 'DRAW_HIDE' ||
-      envelope.type === 'CLEAR_TAB'
+      envelope.type === 'CLEAR_TAB' ||
+      envelope.type === 'UNDO' ||
+      envelope.type === 'REDO'
     ) {
       try {
         const eventoService = new EventoService();
-        const payloadData = envelope.payload?.data ?? envelope.payload;
-        const payloadStr = typeof payloadData === 'string' ? payloadData : JSON.stringify(payloadData);
+        // Preserva o payload estruturado completo com id, tipo e data
+        const payloadStr =
+          typeof envelope.payload === 'string'
+            ? envelope.payload
+            : JSON.stringify(envelope.payload || {});
         const res = eventoService.gravarEvento(
           {
             sessao_id: this.sessionManager?.sessaoId || '',
@@ -324,11 +329,26 @@ export class ServerSessionController {
    * Notifica troca sincronizada de aba ativa para o Guest
    */
   public switchTab(abaId: string): boolean {
-    return this.broadcastToGuest({
+    const res = this.broadcastToGuest({
       type: 'TAB_SWITCH',
       abaId,
       ts: Date.now(),
     });
+    try {
+      if (this.sessionManager) {
+        const eventoService = new EventoService();
+        const tabState = eventoService.reconstruirEstadoAba(this.sessionManager.sessaoId, abaId);
+        this.broadcastToGuest({
+          type: 'TAB_STATE',
+          abaId,
+          state: tabState,
+          ts: Date.now(),
+        });
+      }
+    } catch (err) {
+      console.warn('[ServerSessionController] Aviso ao sincronizar estado da aba após switchTab:', err);
+    }
+    return res;
   }
 }
 
