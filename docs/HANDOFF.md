@@ -427,4 +427,136 @@ PASS  Banco: sem dados duplicados no SQLite
 ```
 *(22/22 checagens PASS)*
 
+---
+
+## Homologação 1 — Correção de Sincronização Mobile, Borracha de Trecho e Isolamento de Verificação
+
+### Contexto e Relato da Homologação Real
+Na primeira homologação real com dispositivo físico (Host = notebook Windows, Guest = Motorola Edge 70 Pro, Android 16, Chrome, LAN Wi-Fi), foram identificados 3 comportamentos críticos divergentes da expectativa do dono do produto:
+1. **H1 (Bloqueante):** Conexão E2EE bem-sucedida via QR Code, mas desenhos não sincronizavam entre Host e Guest em nenhum dos dois sentidos.
+2. **H2 (Bloqueante):** No smartphone, ao desenhar um traço no canvas, o risco surgia na tela e desaparecia imediatamente na sequência, sem ser transmitido ao Host.
+3. **H3:** A ferramenta de borracha apagava o objeto inteiro ao invés de apagar somente o trecho por onde a borracha passava.
+4. **H4:** A sonda de runtime anterior (`tools/probe-runtime.cjs`) e suítes de teste poluíam o banco de dados de produção do usuário (%APPDATA%\OneToOneSupport\onetoone.db) e apresentavam falso PASS ao testar conexões com loopback 127.0.0.1 em vez de interfaces LAN reais.
+
+### Causas-Raiz e Correções Implementadas
+
+#### 1. H1 — Sincronização Bidirecional e Persistência
+- **Causa A (Stripping de ID na persistência SQLite):** Em `electron/server/index.ts`, `handleGuestEvent` persistia no SQLite apenas `JSON.stringify(envelope.payload?.data || {})`, descartando `id` e `tipo` do elemento. Ao reconstruir o estado ou disparar renderizações, os elementos chegavam sem identificador. Corrigido para serializar o payload estruturado completo `{ id, tipo, data }`.
+- **Causa B (Ignorar retorno e silêncio em IPC):** Em `electron/ipc/evento.ipc.ts`, o retorno booleano de `broadcastToGuest` era ignorado e o catch era silencioso. Corrigido para registrar o resultado e reportar eventuais falhas.
+- **Causa C (UNDO e REDO do Guest não refletidos no Host):** Em `handleGuestEvent` e `src/host/HostApp.tsx`, eventos `UNDO` e `REDO` do Guest não eram gravados no banco nem atualizavam o `tabState` do Host. Adicionado suporte completo à persistência e projeção de `UNDO` e `REDO` de ambos os autores.
+- **Causa D (Envio de estado inicial no Handshake):** Em `electron/server/ws.ts`, o Host agora despacha imediatamente o evento `TAB_STATE` cifrado logo após `SESSION_READY`, garantindo que traços já existentes antes do join do Guest sejam exibidos assim que o convidado entra na sala.
+- **Causa E (Sincronização de abas):** `switchTab` atualizado para enviar `TAB_STATE` da nova aba ao Guest. `activeSessaoId` mantido no `src/host/store/useHostStore.ts`.
+
+#### 2. H2 — Celular: Traço surgia e sumia (Browser Insecure Contexts)
+- **Causa Raiz:** O método nativo `crypto.randomUUID()` só é exposto pelo Chromium em contextos seguros (HTTPS ou `localhost`/`127.0.0.1`). Em redes locais Wi-Fi onde o smartphone acessa o Host via HTTP em IP privado (`http://192.168.x.x:port`), `crypto.randomUUID()` é `undefined`. Ao desenhar, a chamada lançava exceção não tratada ou atribuía ID indefinido, fazendo com que a reconciliação do `renderState` do Fabric removesse o objeto na frame seguinte.
+- **Correção:** Substituição de todas as ocorrências de `crypto.randomUUID()` por `generateUUID()` (de `src/shared/events/protocol.ts`), implementado com `crypto.getRandomValues()`, suportado universalmente em HTTP e HTTPS.
+
+#### 3. H3 — Borracha de Trecho (ADR-012)
+- **Decisão:** A borracha padrão (`eraser`) passa a ser **Borracha de Trecho**, compatível com Event Sourcing append-only:
+  - Cada passada emite `DRAW_ADD` com `tipo: 'eraser_stroke'`.
+  - No Fabric.js, objetos `eraser_stroke` utilizam `globalCompositeOperation = 'destination-out'`.
+  - O canvas possui fundo transparente em sua camada interna e `#ffffff` no CSS, com exportação `toDataURL` compondo sobre fundo branco opaco para evitar vazamento ou perfurações.
+  - Reversibilidade total por `UNDO` e `REDO` por autor sem alteração do histórico append-only.
+  - A antiga borracha lógica foi mantida sob a ferramenta `object_eraser` (`#tool-object-eraser`).
+  - Reducer O(N): benchmark de 50.000 eventos processados em ~60ms (< 1500ms).
+
+#### 4. H4 — Isolamento de Banco de Dados e Sonda de Runtime LAN
+- **Banco Temporário:** `tools/probe-runtime.cjs` e `scripts/test-runner.mjs` inicializam diretório temporário isolado (`os.tmpdir()`) com `ONETOONE_DB_PATH` e `--user-data-dir`, removidos ao final da execução.
+- **Integridade do Banco Real:** O banco %APPDATA%\OneToOneSupport\onetoone.db permanece com hash e tamanho inalterados antes e após `npm run verify` (SHA256: `211F8CD9ACEAF5AAA24F77CDD3F1F8A63CEC1980B36257F253450611285C6379`, tamanho: 98304 bytes).
+- **Variável `ONETOONE_DB_RESET=1`:** Permite reset/recriação de banco vazio na inicialização em desenvolvimento (`NODE_ENV !== 'production'`); é expressamente recusada caso `NODE_ENV === 'production'`.
+- **Sonda LAN Estendida:** A sonda conecta o Guest através do IP LAN real do convite (e.g. `http://192.168.1.200:porta`), validando conteúdo bidirecional por IDs de elementos, passada de borracha de trecho e `UNDO`/`REDO` bidirecionais.
+
+### Lacuna de Verificação (Por que o teste antigo passou e o mundo real falhou)
+1. **Ambiente de Contexto Seguro Artificial:** A sonda anterior conectava o Guest forçando `parsedGuestUrl.hostname = '127.0.0.1'`. Para os motores de renderização baseados em Chromium, `127.0.0.1` é tratado como *Secure Context*, permitindo o funcionamento de APIs como `crypto.randomUUID()`. No mundo real, a conexão é feita via IP da LAN (ex.: `http://192.168.1.200`), onde conexões HTTP comuns são marcadas como *Insecure Context*, desabilitando APIs que dependem de HTTPS/Secure Context.
+2. **Asserção Apenas por Contagem, sem Comparar Conteúdo:** A sonda anterior verificava apenas se o contador `#badge-elementos` não continha o caractere `'0'`. O teste não conferia se o ID gerado pelo Guest correspondia exatamente ao ID existente no Host, nem se o elemento persistido no banco SQLite continha as propriedades vetoriais completas.
+3. **Falta de Teste Bidirecional com Ambas as Pontas Ativas:** A sonda anterior iniciava o Guest, executava uma ação e fechava o Guest antes de o Host interagir com as ferramentas de desenho. Não havia verificação de troca cruzada de eventos ao vivo.
+4. **Vazamento para o Banco de Dados Real:** Testes e probes anteriores gravavam no banco real do desenvolvedor, acumulando registros espúrios que mascaravam estados limpos de inicialização.
+
+### Evidências da Verificação Completa da Correção
+
+#### Prova de Inalterabilidade do Banco Real do Usuário (Antes e Depois do Gate)
+```
+Algorithm       Hash                                                                   Path
+---------       ----                                                                   ----
+SHA256          211F8CD9ACEAF5AAA24F77CDD3F1F8A63CEC1980B36257F253450611285C6379       C:\Users\alxch\AppData\Roaming\OneToOneSupport\onetoone.db
+Tamanho:        98304 bytes
+```
+
+#### Saída Real de `tests/borracha-trecho.test.ts`
+```
+$ node scripts/test-runner.mjs tests/borracha-trecho.test.ts
+[Test-Runner] Executando vitest sob ABI do Electron com ELECTRON_RUN_AS_NODE=1 e DB isolado...
+ RUN  v2.1.9 C:/desenv/utils/OneToOneSupport
+
+stdout | tests/borracha-trecho.test.ts > ADR-012 — Borracha de Trecho (Stroke Segment Eraser) e Reducer O(N) > (e) processa 50 000 eventos no reducer em menos de 1500 ms (linearidade O(N))
+[Benchmark Reducer] 50 000 eventos processados em: 59.58 ms
+
+ ✓ tests/borracha-trecho.test.ts (5 tests) 1185ms
+   ✓ ADR-012 — Borracha de Trecho (Stroke Segment Eraser) e Reducer O(N) > (d) borracha e UNDO/REDO sincronizam bidirecionalmente entre Guest e Host via WebSocket 951ms
+
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+   Duration  2.67s
+```
+
+#### Saída Real de `npm run verify` (15 Suítes, 241 Testes, Sonda 24/24 PASS)
+```
+$ npm run verify
+> onetoonesupport@1.0.0 verify
+> npm run typecheck && npm run build && npm test && npm run probe
+
+> onetoonesupport@1.0.0 typecheck
+> tsc --noEmit
+
+> onetoonesupport@1.0.0 build
+> tsc -p tsconfig.electron.json && vite build && vite build --config vite.config.guest.ts
+dist/renderer/index.html                  0.97 kB │ gzip:   0.56 kB
+dist/renderer/assets/index-DCgmMq-s.js  511.01 kB │ gzip: 151.51 kB
+dist/guest/guest.html                     0.96 kB │ gzip:   0.51 kB
+dist/guest/assets/index-CD_7vfq9.css      3.37 kB │ gzip:   1.16 kB
+dist/guest/assets/index-DLORmdV1.js   1,481.29 kB │ gzip: 465.49 kB
+
+> onetoonesupport@1.0.0 test
+> node scripts/test-runner.mjs
+[Test-Runner] Executando vitest sob ABI do Electron com ELECTRON_RUN_AS_NODE=1 e DB isolado...
+
+ Test Files  15 passed (15)
+      Tests  241 passed (241)
+   Duration  11.81s
+
+> onetoonesupport@1.0.0 probe
+> node tools/probe-runtime.cjs
+[Probe] Inicializando ambiente isolado temporário: C:\Users\alxch\AppData\Local\Temp\onetoone-probe-...
+[Probe] Banco SQLite temporário: C:\Users\alxch\AppData\Local\Temp\onetoone-probe-...\onetoone-probe.db
+[Probe] URL de convite gerada pelo Host: http://192.168.1.200:59524/join/...#...
+[Probe] Lançando Chromium emulado para Guest mobile: C:\Program Files\Google\Chrome\Application\chrome.exe
+[Probe] Conectando Guest mobile ao IP LAN: http://192.168.1.200:59524/join/...#...
+PASS  typeof require === undefined
+PASS  typeof process === undefined
+PASS  UI renderizou (#root com filhos)
+PASS  CSP: script inline NAO executa
+PASS  CSP: eval bloqueado
+PASS  sem erro de pagina
+PASS  IPC: validacao de payload rejeita dado invalido com erro tipado
+PASS  UI: criar atendido
+PASS  UI: detectar duplicado com mensagem clara (Regra #1)
+PASS  UI: editar atendido
+PASS  UI: desativar atendido (soft delete)
+PASS  UI: iniciar sessao, gerar QR e abrir sala do servidor LAN
+PASS  Guest Mobile: carregou bundle do Guest e removeu hash da URL
+PASS  Guest Mobile: CSP sem violacoes no console
+PASS  Guest Mobile: sincronizacao bidirecional por conteudo (IDs de elementos)
+PASS  Guest Mobile: borracha de trecho sincronizou elemento eraser_stroke
+PASS  Guest Mobile: UNDO e REDO bidirecionais sincronizaram estado
+PASS  Guest Mobile: LOCK_SCREEN exibiu overlay e desbloqueou
+PASS  Guest Mobile: mute local emitiu GUEST_MUTED
+PASS  Guest Mobile: barra de ferramentas totalmente visivel na viewport
+PASS  UI: abrir quadro branco HiDPI e verificar DPR 1.5
+PASS  UI: desenhar traço, retângulo, texto, desfazer/refazer e borracha
+PASS  UI: alterar rotulo no dicionario
+PASS  Banco: sem dados duplicados no SQLite
+```
+*(24/24 checagens PASS)*
+
+
 
