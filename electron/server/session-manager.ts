@@ -32,6 +32,18 @@ export interface GuestActionResult {
 }
 
 /**
+ * Comparação de tokens e segredos em tempo constante (crypto.timingSafeEqual),
+ * tratando tamanhos diferentes com segurança.
+ */
+function safeTokenEqual(provided: string, expected: string): boolean {
+  if (typeof provided !== 'string' || typeof expected !== 'string') return false;
+  const bufA = Buffer.from(provided, 'utf8');
+  const bufB = Buffer.from(expected, 'utf8');
+  if (bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
+/**
  * Gerenciador de Sessão 1:1 no Servidor (Host)
  * Responsável por tokens de acesso (guest_token one-shot e reconnect_token com rotação),
  * autoridade do Host, chave efêmera X25519, relógio mestre para mídia e estado da conexão.
@@ -151,12 +163,12 @@ export class SessionManager {
     const now = this.clock();
 
     // Permite guest_token se ainda não foi usado ou se for recente
-    if (token === this.guestToken && now <= this.guestTokenExpiresAt) {
+    if (safeTokenEqual(token, this.guestToken) && now <= this.guestTokenExpiresAt) {
       return true;
     }
 
     // Permite reconnect_token se ativo e dentro do TTL
-    if (token === this.reconnectToken && now <= this.reconnectExpiresAt) {
+    if (this.reconnectToken !== null && safeTokenEqual(token, this.reconnectToken) && now <= this.reconnectExpiresAt) {
       return true;
     }
 
@@ -173,7 +185,7 @@ export class SessionManager {
       return { valid: false, code: 'INVALID_STATE', message: 'Sessão encerrada.' };
     }
 
-    if (this.guestConnected) {
+    if (this.guestConnected || (this.activeGuestConnectionId !== null && this.activeGuestConnectionId !== connectionId)) {
       return {
         valid: false,
         code: 'SESSION_BUSY',
@@ -181,7 +193,7 @@ export class SessionManager {
       };
     }
 
-    if (token !== this.guestToken) {
+    if (!safeTokenEqual(token, this.guestToken)) {
       return { valid: false, code: 'INVALID_TOKEN', message: 'Token de acesso inválido.' };
     }
 
@@ -198,8 +210,7 @@ export class SessionManager {
       return { valid: false, code: 'TOKEN_EXPIRED', message: 'Token de convite expirado.' };
     }
 
-    // Invalidação imediata do one-shot token
-    this.guestTokenUsed = true;
+    // Vincula a conexão ativa durante o handshake (o token só é queimado como usado após completeHandshake)
     this.activeGuestConnectionId = connectionId;
 
     return { valid: true };
@@ -214,7 +225,7 @@ export class SessionManager {
       return { valid: false, code: 'INVALID_STATE', message: 'Sessão encerrada.' };
     }
 
-    if (this.guestConnected) {
+    if (this.guestConnected || (this.activeGuestConnectionId !== null && this.activeGuestConnectionId !== connectionId)) {
       return {
         valid: false,
         code: 'SESSION_BUSY',
@@ -222,7 +233,7 @@ export class SessionManager {
       };
     }
 
-    if (!this.reconnectToken || token !== this.reconnectToken) {
+    if (!this.reconnectToken || !safeTokenEqual(token, this.reconnectToken)) {
       return { valid: false, code: 'INVALID_TOKEN', message: 'Token de reconexão inválido.' };
     }
 
@@ -258,6 +269,9 @@ export class SessionManager {
       this.sessionCipher.destroy();
       this.sessionCipher = null;
     }
+
+    // Invalida o token de convite inicial de forma definitiva (one-shot) agora que o handshake completou
+    this.guestTokenUsed = true;
 
     // Derivação de chaves direcionais (rx/tx) com crypto_kx
     const sessionKeys = deriveHostSessionKeys(this.hostKeyPair, guestPublicKey);

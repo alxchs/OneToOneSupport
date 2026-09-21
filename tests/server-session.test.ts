@@ -697,4 +697,142 @@ describe('Fase 04 - Servidor HTTP/WS, Session Manager e E2EE', () => {
       expect(controller.getStatus()).toBeNull();
     });
   });
+
+  describe('14. Resiliência de Handshake: Queda no meio do handshake', () => {
+    it('queda no meio do handshake -> um segundo Guest legítimo com o mesmo convite consegue entrar', async () => {
+      const sm = new SessionManager({
+        sessaoId: 'sessao-handshake-drop',
+        atendidoId: 'atendido-01',
+      });
+
+      activeHttp = await startHttpServer(sm, 0, '127.0.0.1');
+      activeWs = createWebSocketServer({
+        server: activeHttp.server,
+        sessionManager: sm,
+      });
+
+      const inviteUrl = buildInviteUrl({
+        baseUrl: `http://127.0.0.1:${activeHttp.port}`,
+        token: sm.getGuestToken(),
+        hostPublicKey: sm.getHostPublicKeyBase64Url(),
+      });
+
+      // 1. Primeiro cliente conecta e envia AUTH com sucesso, mas cai antes do handshake
+      const client1 = new TestGuestClient({ inviteUrl });
+      await client1.connect();
+      await client1.sendAuth();
+
+      // Queda abrupta no meio do handshake
+      client1.close();
+      await new Promise((r) => setTimeout(r, 100));
+
+      // 2. Segundo cliente legítimo entra usando o mesmo link de convite (token não queimado precocemente)
+      const client2 = new TestGuestClient({ inviteUrl });
+      activeClients.push(client2);
+      await client2.connect();
+      await client2.sendAuth();
+      const handshakeResult = await client2.performHandshake();
+
+      expect(handshakeResult.reconnectToken).toBeDefined();
+      expect(sm.getState()).toBe('conectado');
+      expect(sm.isGuestConnected()).toBe(true);
+    });
+  });
+
+  describe('15. Limite de Taxa: Rate Limit de 100 msg/s por conexão', () => {
+    it('estoura rate limit enviando mais de 100 mensagens em 1 segundo e derruba a conexão', async () => {
+      const sm = new SessionManager({
+        sessaoId: 'sessao-rate-limit',
+        atendidoId: 'atendido-01',
+      });
+
+      activeHttp = await startHttpServer(sm, 0, '127.0.0.1');
+      activeWs = createWebSocketServer({
+        server: activeHttp.server,
+        sessionManager: sm,
+        maxMessagesPerSecond: 100,
+      });
+
+      const inviteUrl = buildInviteUrl({
+        baseUrl: `http://127.0.0.1:${activeHttp.port}`,
+        token: sm.getGuestToken(),
+        hostPublicKey: sm.getHostPublicKeyBase64Url(),
+      });
+
+      const client = new TestGuestClient({ inviteUrl });
+      activeClients.push(client);
+      await client.connect();
+      await client.sendAuth();
+      await client.performHandshake();
+      expect(sm.getState()).toBe('conectado');
+
+      // Prepara monitoramento do fechamento
+      const closedPromise = new Promise<boolean>((resolve) => {
+        client.ws?.on('close', () => resolve(true));
+      });
+
+      // Envia rajada rápida de 105 mensagens cifradas para estourar o limite de 100 msg/s
+      for (let i = 0; i < 105; i++) {
+        try {
+          await client.sendEncrypted({
+            type: 'DRAW_ADD',
+            id: `draw-flood-${i}`,
+            data: { x: i, y: i },
+          });
+        } catch {
+          break;
+        }
+      }
+
+      const closed = await Promise.race([
+        closedPromise,
+        new Promise<boolean>((r) => setTimeout(() => r(false), 2000)),
+      ]);
+
+      expect(closed).toBe(true);
+    });
+  });
+
+  describe('16. Heartbeat: 2 pings sem resposta derrubam conexão inativa', () => {
+    it('derruba conexão após 2 ciclos de ping sem pong', async () => {
+      const sm = new SessionManager({
+        sessaoId: 'sessao-heartbeat-timeout',
+        atendidoId: 'atendido-01',
+      });
+
+      activeHttp = await startHttpServer(sm, 0, '127.0.0.1');
+      activeWs = createWebSocketServer({
+        server: activeHttp.server,
+        sessionManager: sm,
+        heartbeatIntervalMs: 50, // 50ms por ping para teste rápido
+      });
+
+      const ws = new WebSocket(`ws://127.0.0.1:${activeHttp.port}/ws`, {
+        autoPong: false,
+      });
+
+      await new Promise<void>((resolve) => ws.on('open', resolve));
+
+      // Envia AUTH inicial
+      ws.send(
+        JSON.stringify(
+          createProtocolEnvelope('AUTH', {
+            token: sm.getGuestToken(),
+          })
+        )
+      );
+
+      const closedPromise = new Promise<boolean>((resolve) => {
+        ws.on('close', () => resolve(true));
+      });
+
+      // Em 2 ciclos (>= 100ms) sem resposta de pong, o servidor deve terminar a conexão
+      const closed = await Promise.race([
+        closedPromise,
+        new Promise<boolean>((r) => setTimeout(() => r(false), 1000)),
+      ]);
+
+      expect(closed).toBe(true);
+    });
+  });
 });
