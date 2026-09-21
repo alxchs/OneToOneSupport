@@ -36,7 +36,13 @@ if (!fs.existsSync(vitestMjs)) {
 const userArgs = process.argv.slice(2);
 const finalArgs = userArgs.includes('run') || userArgs.includes('watch') ? userArgs : ['run', ...userArgs];
 
-console.log(`[Test-Runner] Executando vitest sob ABI do Electron (${electronPath}) com ELECTRON_RUN_AS_NODE=1...`);
+import os from 'os';
+
+const defaultTestTempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'onetoone-test-runner-'));
+const defaultTestDbPath = path.join(defaultTestTempDir, 'test-runner.db');
+const testDbPath = process.env.ONETOONE_DB_PATH || defaultTestDbPath;
+
+console.log(`[Test-Runner] Executando vitest sob ABI do Electron (${electronPath}) com ELECTRON_RUN_AS_NODE=1 e DB isolado (${testDbPath})...`);
 
 const child = spawn(electronPath, [vitestMjs, ...finalArgs], {
   cwd: projectRoot,
@@ -44,9 +50,13 @@ const child = spawn(electronPath, [vitestMjs, ...finalArgs], {
   env: {
     ...process.env,
     ELECTRON_RUN_AS_NODE: '1',
+    ONETOONE_DB_PATH: testDbPath,
   },
 });
 
 child.on('exit', (code) => {
+  try {
+    fs.rmSync(defaultTestTempDir, { recursive: true, force: true });
+  } catch {}
   process.exit(code ?? 0);
 });

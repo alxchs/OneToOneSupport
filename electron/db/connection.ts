@@ -10,6 +10,9 @@ export interface DbOptions {
 }
 
 export function getDefaultDbPath(): string {
+  if (process.env.ONETOONE_DB_PATH) {
+    return process.env.ONETOONE_DB_PATH;
+  }
   const appData =
     process.env.APPDATA ||
     (process.platform === 'darwin'
@@ -38,6 +41,29 @@ export function initDb(options: DbOptions = {}): DatabaseType {
     const dir = path.dirname(targetPath);
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
+    }
+
+    // Reset em desenvolvimento quando ONETOONE_DB_RESET=1 (recusado em produção)
+    if (process.env.ONETOONE_DB_RESET === '1') {
+      if (process.env.NODE_ENV === 'production') {
+        console.warn('[DB] ONETOONE_DB_RESET=1 recusado em ambiente de produção (NODE_ENV=production).');
+      } else {
+        if (dbInstance) {
+          try {
+            dbInstance.close();
+          } catch {}
+          dbInstance = null;
+        }
+        try {
+          if (fs.existsSync(targetPath)) fs.unlinkSync(targetPath);
+          const shm = `${targetPath}-shm`;
+          const wal = `${targetPath}-wal`;
+          if (fs.existsSync(shm)) fs.unlinkSync(shm);
+          if (fs.existsSync(wal)) fs.unlinkSync(wal);
+        } catch (err) {
+          console.warn('[DB] Erro ao limpar banco existente para reset:', err);
+        }
+      }
     }
   }
 

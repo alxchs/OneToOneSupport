@@ -1,19 +1,26 @@
 /*
   Sonda de runtime: abre o app Electron BUILDADO (dist/) e exercita a aplicação de verdade.
   Verifica segurança (CSP, isolamento, require/process) e fluxo completo da UI:
+  - Criação e isolamento estrito de banco de dados e userData em pasta temporária (H4)
   - Criar atendido
   - Tentar criar duplicado e validar mensagem clara (Regra #1)
   - Editar atendido
   - Desativar atendido (soft delete)
   - Alterar rótulo no dicionário dinâmico
   - Validação de payload do IPC com o preload real
-  - Verificação no banco de dados (ausência de duplicados)
-  - Captura de tela para evidência visual
+  - Servidor de sessão LAN e emulação Guest mobile (Motorola Edge 70 Pro / Android 16 / Chrome)
+  - Conexão do Guest pelo IP LAN real do convite (não 127.0.0.1)
+  - Sincronização BIDIRECIONAL por conteúdo (IDs de elementos e dados) entre Host e Guest
+  - Borracha de trecho (eraser_stroke com destination-out) bidirecional (H3)
+  - UNDO / REDO bidirecionais entre Host e Guest
+  - Verificação no banco de dados SQLite isolado (ausência de duplicados)
+  - Capturas de tela para evidência visual
   Sai com código 1 se qualquer verificação falhar.
 */
 const { spawn, spawnSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 const root = path.resolve(__dirname, '..');
 const puppeteer = require('puppeteer');
 
@@ -21,7 +28,20 @@ const shotIdx = process.argv.indexOf('--shot');
 const shotPath = shotIdx > 0 ? process.argv[shotIdx + 1] : path.join(root, 'docs', 'electron-window.png');
 const PORT = 9400 + Math.floor(Math.random() * 500);
 
-const env = { ...process.env, NODE_ENV: 'production' };
+// H4: Banco de dados e userData TEMPORÁRIOS e isolados — NUNCA tocar no banco real
+const probeTempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'onetoone-probe-'));
+const probeDbPath = path.join(probeTempDir, 'onetoone-probe.db');
+const probeUserDataDir = path.join(probeTempDir, 'userData');
+fs.mkdirSync(probeUserDataDir, { recursive: true });
+
+console.log(`[Probe] Inicializando ambiente isolado temporário: ${probeTempDir}`);
+console.log(`[Probe] Banco SQLite temporário: ${probeDbPath}`);
+
+const env = {
+  ...process.env,
+  NODE_ENV: 'production',
+  ONETOONE_DB_PATH: probeDbPath,
+};
 delete env.ELECTRON_RUN_AS_NODE;
 delete env.VITE_DEV_SERVER_URL; // Garante teste de CSP estrita de produção
 
@@ -32,7 +52,11 @@ const exe = path.join(
   'dist',
   process.platform === 'win32' ? 'electron.exe' : 'electron'
 );
-const app = spawn(exe, ['.', `--remote-debugging-port=${PORT}`], { cwd: root, env, stdio: 'pipe' });
+const app = spawn(
+  exe,
+  ['.', `--remote-debugging-port=${PORT}`, `--user-data-dir=${probeUserDataDir}`],
+  { cwd: root, env, stdio: 'pipe' }
+);
 let log = '';
 app.stdout.on('data', (d) => (log += d));
 app.stderr.on('data', (d) => (log += d));
@@ -93,7 +117,7 @@ async function main() {
   const testNome = `Mariana Probe ${Date.now().toString().slice(-4)}`;
   const testContato = '11988887777';
   const testEmail = 'mariana.probe@teste.com';
-  const testNotas = 'Notas geradas pela sonda de runtime';
+  const testNotas = 'Notas geradas pela sonda de runtime isolada';
 
   await page.waitForSelector('#btn-novo-atendido', { timeout: 5000 });
   await page.click('#btn-novo-atendido');
@@ -136,7 +160,7 @@ async function main() {
   await page.click(editSelector);
 
   await page.waitForSelector('#input-notas', { timeout: 5000 });
-  const notasAtualizadas = 'Notas atualizadas com sucesso via probe de runtime';
+  const notasAtualizadas = 'Notas atualizadas com sucesso via probe de runtime isolada';
   await page.evaluate(() => {
     const el = document.getElementById('input-notas');
     if (el) el.value = '';
@@ -183,27 +207,54 @@ async function main() {
   });
 
   const inviteUrlRaw = await page.$eval('#input-url-convite', (el) => el.value);
+  console.log(`[Probe] URL de convite gerada pelo Host: ${inviteUrlRaw}`);
 
-  // 7.1 UI: Abrir Quadro Branco HiDPI (Fase 06)
+  // 7.1 UI: Abrir Quadro Branco HiDPI (Fase 06) no Host
   await page.waitForSelector('#btn-abrir-quadro-servidor', { timeout: 5000 });
   await page.click('#btn-abrir-quadro-servidor');
   await page.waitForSelector('#pagina-quadro-branco', { timeout: 8000 });
   await page.waitForSelector('#canvas-quadro-branco', { timeout: 8000 });
   await new Promise((r) => setTimeout(r, 600));
 
-  // 7.1.1 Guest Mobile: Emulação Motorola Edge 70 Pro / Android 16 (Fase 07)
+  // 7.2 Leitura do DPR real e verificação dos controles do Quadro Branco no Host
+  const quadroCheck = await page.evaluate(async () => {
+    const dpr = window.devicePixelRatio;
+    const canvasEl = document.getElementById('canvas-quadro-branco');
+    const upperCanvasEl = document.querySelector('.upper-canvas');
+    const badgeDpr = document.getElementById('badge-dpr')?.innerText || '';
+    const badgeElementos = document.getElementById('badge-elementos')?.innerText || '';
+    const btnPencil = document.getElementById('tool-pencil');
+    const btnRect = document.getElementById('tool-rectangle');
+    const btnUndo = document.getElementById('btn-undo');
+    const btnRedo = document.getElementById('btn-redo');
+    const btnClear = document.getElementById('btn-clear-tab');
+
+    return {
+      dpr,
+      dprOk: dpr === 1.5,
+      canvasExiste: Boolean(canvasEl),
+      upperCanvasExiste: Boolean(upperCanvasEl),
+      botoesExistem: Boolean(btnPencil && btnRect && btnUndo && btnRedo && btnClear),
+      badgeDpr,
+      badgeElementos,
+    };
+  });
+
+  // 7.3 Guest Mobile: Conexão via IP LAN e Homologação Motorola Edge 70 Pro / Android 16 (H1, H3, H4)
   const guestMobile = {
     carregouBundleERemoveuHash: false,
     cspSemViolacoes: false,
     desenhouESincronizou: false,
+    syncBidirecionalConteudoOk: false,
+    borrachaTrechoOk: false,
+    undoRedoBidirecionalOk: false,
     lockScreenOk: false,
     guestMutedOk: false,
     barraFerramentasVisivel: false,
   };
 
-  const parsedGuestUrl = new URL(inviteUrlRaw);
-  parsedGuestUrl.hostname = '127.0.0.1';
-  const guestProbeUrl = parsedGuestUrl.toString();
+  // Conecta pelo IP LAN real do convite (H4: sem forçar 127.0.0.1)
+  const guestProbeUrl = inviteUrlRaw;
 
   const browserCandidates = [
     'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
@@ -215,6 +266,7 @@ async function main() {
   const chromiumExe = browserCandidates.find((p) => p && fs.existsSync(p));
 
   if (chromiumExe) {
+    console.log(`[Probe] Lançando Chromium emulado para Guest mobile: ${chromiumExe}`);
     const guestBrowser = await puppeteer.launch({
       executablePath: chromiumExe,
       headless: true,
@@ -240,17 +292,18 @@ async function main() {
         });
       });
 
+      console.log(`[Probe] Conectando Guest mobile ao IP LAN: ${guestProbeUrl}`);
       await guestPage.goto(guestProbeUrl, { waitUntil: 'networkidle0', timeout: 15000 });
       await guestPage.waitForSelector('#guest-room-container', { timeout: 15000 });
 
-      // Validação 1: Removeu fragmento #pk_h e sem violações CSP
+      // Validação 1: Removeu fragmento #pk_h da barra de endereço e sem violações CSP
       const hashAposJoin = await guestPage.evaluate(() => window.location.hash);
       const guestViolations = await guestPage.evaluate(() => window.__guestViolations || []);
 
       guestMobile.carregouBundleERemoveuHash = hashAposJoin === '';
       guestMobile.cspSemViolacoes = guestViolations.length === 0;
 
-      // Validação 2: Desenho com touch no Guest e sincronização com o Host
+      // Validação 2: Sincronização Bidirecional com Verificação de IDs de Elemento (H1, H4)
       await guestPage.waitForSelector('#tool-guest-pencil', { timeout: 5000 });
       await guestPage.tap('#tool-guest-pencil');
 
@@ -259,7 +312,7 @@ async function main() {
         return { left: r.left, top: r.top, width: r.width, height: r.height };
       });
 
-      // Simulação de traço com touch
+      // --- Passo 2A: Guest desenha com touch no canvas ---
       const touchStartX = Math.round(guestCanvasArea.left + 100);
       const touchStartY = Math.round(guestCanvasArea.top + 120);
 
@@ -277,14 +330,142 @@ async function main() {
         touchPoints: [],
       });
 
-      // Aguarda persistência e envio via WebSocket
-      await new Promise((r) => setTimeout(r, 1200));
+      await new Promise((r) => setTimeout(r, 1000));
 
-      // Verifica se o Host recebeu o elemento desenhado pelo Guest
-      const hostElementosAposGuest = await page.$eval('#badge-elementos', (el) => el.innerText);
-      guestMobile.desenhouESincronizou = !hostElementosAposGuest.includes('0');
+      // Captura o ID do traço criado pelo Guest
+      const guestDrawnIds = await guestPage.evaluate(() => {
+        const state = window.__guestEngine?.getLastRenderedState();
+        return state ? Object.keys(state.elements) : [];
+      });
+      const guestStrokeId = guestDrawnIds[guestDrawnIds.length - 1];
 
-      // Validação 3: LOCK_SCREEN
+      // Verifica se o Host recebeu exatamente esse ID de elemento do Guest
+      const hostReceivedGuestStroke = await page.evaluate((expectedId) => {
+        const state = window.__whiteboardEngine?.getLastRenderedState();
+        return Boolean(expectedId && state?.elements[expectedId] && !state.elements[expectedId].hidden);
+      }, guestStrokeId);
+
+      // --- Passo 2B: Host desenha e Guest recebe por ID ---
+      const canvasBox = await page.$eval('.upper-canvas', (el) => {
+        const rect = el.getBoundingClientRect();
+        return { left: rect.left, top: rect.top, width: rect.width, height: rect.height };
+      });
+
+      await page.click('#tool-pencil');
+      const hostStartX = Math.round(canvasBox.left + 150);
+      const hostStartY = Math.round(canvasBox.top + 150);
+      await page.mouse.move(hostStartX, hostStartY);
+      await page.mouse.down();
+      await page.mouse.move(hostStartX + 80, hostStartY + 50);
+      await page.mouse.up();
+
+      await new Promise((r) => setTimeout(r, 1000));
+
+      const hostDrawnIds = await page.evaluate(() => {
+        const state = window.__whiteboardEngine?.getLastRenderedState();
+        return state ? Object.keys(state.elements) : [];
+      });
+      const hostStrokeId = hostDrawnIds[hostDrawnIds.length - 1];
+
+      // Verifica se o Guest recebeu exatamente esse ID de elemento do Host
+      const guestReceivedHostStroke = await guestPage.evaluate((expectedId) => {
+        const state = window.__guestEngine?.getLastRenderedState();
+        return Boolean(expectedId && state?.elements[expectedId] && !state.elements[expectedId].hidden);
+      }, hostStrokeId);
+
+      guestMobile.syncBidirecionalConteudoOk = Boolean(
+        guestStrokeId &&
+        hostReceivedGuestStroke &&
+        hostStrokeId &&
+        guestReceivedHostStroke
+      );
+      guestMobile.desenhouESincronizou = guestMobile.syncBidirecionalConteudoOk;
+
+      // Validação 3: Borracha de Trecho (H3 / ADR-012)
+      // Guest seleciona borracha e passa sobre o traço desenhado
+      await guestPage.waitForSelector('#tool-guest-eraser', { timeout: 5000 });
+      await guestPage.tap('#tool-guest-eraser');
+
+      const eraserStartX = touchStartX + 20;
+      const eraserStartY = touchStartY + 15;
+      await cdpClient.send('Input.dispatchTouchEvent', {
+        type: 'touchStart',
+        touchPoints: [{ x: eraserStartX, y: eraserStartY }],
+      });
+      await cdpClient.send('Input.dispatchTouchEvent', {
+        type: 'touchMove',
+        touchPoints: [{ x: eraserStartX + 30, y: eraserStartY + 25 }],
+      });
+      await cdpClient.send('Input.dispatchTouchEvent', {
+        type: 'touchEnd',
+        touchPoints: [],
+      });
+
+      await new Promise((r) => setTimeout(r, 1000));
+
+      const guestEraserInfo = await guestPage.evaluate(() => {
+        const state = window.__guestEngine?.getLastRenderedState();
+        if (!state) return null;
+        const keys = Object.keys(state.elements);
+        const lastKey = keys[keys.length - 1];
+        const el = state.elements[lastKey];
+        return el ? { id: el.id, tipo: el.tipo } : null;
+      });
+
+      const hostReceivedEraser = await page.evaluate((eraserInfo) => {
+        if (!eraserInfo) return false;
+        const state = window.__whiteboardEngine?.getLastRenderedState();
+        const el = state?.elements[eraserInfo.id];
+        return Boolean(el && el.tipo === 'eraser_stroke' && !el.hidden);
+      }, guestEraserInfo);
+
+      guestMobile.borrachaTrechoOk = Boolean(
+        guestEraserInfo &&
+        guestEraserInfo.tipo === 'eraser_stroke' &&
+        hostReceivedEraser
+      );
+
+      // Validação 4: UNDO e REDO Bidirecionais (H1, H3, H4)
+      // 4A: Guest faz UNDO da passada de borracha
+      await guestPage.waitForSelector('#btn-guest-undo', { timeout: 5000 });
+      await guestPage.tap('#btn-guest-undo');
+      await new Promise((r) => setTimeout(r, 1000));
+
+      const guestEraserHiddenOnGuest = await guestPage.evaluate((id) => {
+        const state = window.__guestEngine?.getLastRenderedState();
+        return Boolean(id && state?.elements[id]?.hidden);
+      }, guestEraserInfo?.id);
+
+      const guestEraserHiddenOnHost = await page.evaluate((id) => {
+        const state = window.__whiteboardEngine?.getLastRenderedState();
+        return Boolean(id && state?.elements[id]?.hidden);
+      }, guestEraserInfo?.id);
+
+      // 4B: Host faz UNDO e REDO do traço dele
+      await page.click('#btn-undo');
+      await new Promise((r) => setTimeout(r, 1000));
+
+      const hostStrokeHiddenOnGuest = await guestPage.evaluate((id) => {
+        const state = window.__guestEngine?.getLastRenderedState();
+        return Boolean(id && state?.elements[id]?.hidden);
+      }, hostStrokeId);
+
+      await page.click('#btn-redo');
+      await new Promise((r) => setTimeout(r, 1000));
+
+      const hostStrokeRestoredOnGuest = await guestPage.evaluate((id) => {
+        const state = window.__guestEngine?.getLastRenderedState();
+        return Boolean(id && state?.elements[id] && !state.elements[id].hidden);
+      }, hostStrokeId);
+
+      guestMobile.undoRedoBidirecionalOk = Boolean(
+        guestEraserHiddenOnGuest &&
+        guestEraserHiddenOnHost &&
+        hostStrokeHiddenOnGuest &&
+        hostStrokeRestoredOnGuest
+      );
+
+      // Validação 5: LOCK_SCREEN
       await page.waitForSelector('#btn-lock-guest-screen', { timeout: 5000 });
       await page.click('#btn-lock-guest-screen');
       await guestPage.waitForSelector('#guest-lock-overlay', { timeout: 6000 });
@@ -296,14 +477,14 @@ async function main() {
       const lockRemovido = await guestPage.evaluate(() => !document.getElementById('guest-lock-overlay'));
       guestMobile.lockScreenOk = lockVisivel && lockRemovido;
 
-      // Validação 4: Mute local no Guest emite GUEST_MUTED
+      // Validação 6: Mute local no Guest emite GUEST_MUTED
       await guestPage.waitForSelector('#btn-guest-mute', { timeout: 5000 });
       await guestPage.tap('#btn-guest-mute');
       await page.waitForSelector('#badge-guest-muted', { timeout: 6000 });
       const hostViuMute = await page.$eval('#badge-guest-muted', (el) => el.innerText.includes('Mutado'));
       guestMobile.guestMutedOk = hostViuMute;
 
-      // Validação 5: Barra de Ferramentas dentro da largura da viewport (C4)
+      // Validação 7: Barra de Ferramentas dentro da largura da viewport (C4)
       const toolbarButtonsOk = await guestPage.evaluate(() => {
         const ids = [
           'tool-guest-pencil',
@@ -322,7 +503,6 @@ async function main() {
           const el = document.getElementById(id);
           if (!el) return false;
           const r = el.getBoundingClientRect();
-          // Totalmente dentro da largura da viewport (alvos >= 48px e não cortados na borda)
           return r.left >= 0 && r.right <= vw + 1;
         });
       });
@@ -336,46 +516,11 @@ async function main() {
     }
   }
 
-  // 7.2 Leitura do DPR real e verificação dos controles do Quadro Branco
-  const quadroCheck = await page.evaluate(async () => {
-    const dpr = window.devicePixelRatio;
-    const canvasEl = document.getElementById('canvas-quadro-branco');
-    const upperCanvasEl = document.querySelector('.upper-canvas');
-    const badgeDpr = document.getElementById('badge-dpr')?.innerText || '';
-    const badgeElementos = document.getElementById('badge-elementos')?.innerText || '';
-    const btnPencil = document.getElementById('tool-pencil');
-    const btnRect = document.getElementById('tool-rectangle');
-    const btnUndo = document.getElementById('btn-undo');
-    const btnRedo = document.getElementById('btn-redo');
-    const btnClear = document.getElementById('btn-clear-tab');
-
-    return {
-      dpr,
-      dprOk: dpr === 1.5,
-      canvasExiste: Boolean(canvasEl),
-      upperCanvasExiste: Boolean(upperCanvasEl),
-      botoesExistem: Boolean(btnPencil && btnRect && btnUndo && btnRedo && btnClear),
-      badgeDpr,
-      badgeElementos,
-    };
-  });
-
-  // 7.3 Interação Real de Desenho no Canvas via Puppeteer
+  // 7.4 Host: Geometrias e Ferramentas Complementares
   const canvasBox = await page.$eval('.upper-canvas', (el) => {
     const rect = el.getBoundingClientRect();
     return { left: rect.left, top: rect.top, width: rect.width, height: rect.height };
   });
-
-  // Desenhar traço com lápis:
-  await page.click('#tool-pencil');
-  const startX = Math.round(canvasBox.left + 150);
-  const startY = Math.round(canvasBox.top + 150);
-  await page.mouse.move(startX, startY);
-  await page.mouse.down();
-  await page.mouse.move(startX + 80, startY + 50);
-  await page.mouse.move(startX + 140, startY + 90);
-  await page.mouse.up();
-  await new Promise((r) => setTimeout(r, 400));
 
   // Desenhar retângulo com ferramenta geométrica:
   await page.click('#tool-rectangle');
@@ -411,16 +556,8 @@ async function main() {
   await page.click('#tool-text');
   await page.mouse.click(Math.round(canvasBox.left + 180), Math.round(canvasBox.top + 260));
   await new Promise((r) => setTimeout(r, 300));
-  // Clica fora para consolidar o texto
   await page.mouse.click(Math.round(canvasBox.left + 50), Math.round(canvasBox.top + 50));
   await new Promise((r) => setTimeout(r, 400));
-
-  // Gira o texto adicionado para comprovar suporte a texto rotacionável (Mestre §12)
-  await page.evaluate(() => {
-    const canvas = window.__whiteboardCanvas;
-    // Seleciona o texto no estado ou rotaciona objeto de texto
-    const textEl = document.querySelector('canvas');
-  });
 
   const contagemAposDesenho = await page.$eval('#badge-elementos', (el) => el.innerText);
 
@@ -434,9 +571,12 @@ async function main() {
   await new Promise((r) => setTimeout(r, 300));
   const contagemAposRedo = await page.$eval('#badge-elementos', (el) => el.innerText);
 
-  // Testar Borracha sobre a forma retângulo desenhada
+  // Testar Borracha de Trecho sobre a forma desenhada
   await page.click('#tool-eraser');
-  await page.mouse.click(rectX + 50, rectY + 35);
+  await page.mouse.move(rectX + 20, rectY + 30);
+  await page.mouse.down();
+  await page.mouse.move(rectX + 80, rectY + 50);
+  await page.mouse.up();
   await new Promise((r) => setTimeout(r, 400));
   const contagemAposBorracha = await page.$eval('#badge-elementos', (el) => el.innerText);
 
@@ -465,7 +605,7 @@ async function main() {
   await page.click('#btn-voltar-lista');
   await page.waitForSelector('#input-busca-atendido', { timeout: 5000 });
 
-  // 7. UI: Trocar o Rótulo do Dicionário
+  // 8. UI: Trocar o Rótulo do Dicionário
   await page.waitForSelector('#btn-aba-config', { timeout: 5000 });
   await page.click('#btn-aba-config');
   await page.waitForSelector('#input-rotulo-guest', { timeout: 5000 });
@@ -486,14 +626,14 @@ async function main() {
     return document.body.innerText.includes(rot);
   }, novoRotulo);
 
-  // 8. Screenshot da janela
+  // 9. Screenshot da janela
   if (shotPath) {
     const dir = path.dirname(shotPath);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     await page.screenshot({ path: shotPath });
   }
 
-  // 9. Verificação de dados no SQLite através do processo Electron
+  // 10. Verificação de dados no SQLite através do processo Electron
   const dbCheck = await page.evaluate(async () => {
     const res = await window.desktopAPI.atendidos.list({ apenasAtivos: false });
     if (!res.success) return { semDuplicados: false, total: 0 };
@@ -512,21 +652,19 @@ async function main() {
 
   await browser.disconnect();
 
-  // Verificação direta no arquivo do SQLite usando ABI do Electron (ADR-004)
+  // Verificação direta no banco SQLite isolado da sonda (H4: sem tocar no banco real)
   let bancoDirectCheck = true;
   try {
     const checkSql = `
       const Database = require('better-sqlite3');
-      const path = require('path');
-      const appData = process.env.APPDATA || (process.platform === 'darwin' ? path.join(process.env.HOME || '', 'Library', 'Application Support') : path.join(process.env.HOME || '', '.config'));
-      const db = new Database(path.join(appData, 'OneToOneSupport', 'onetoone.db'));
+      const db = new Database(process.env.ONETOONE_DB_PATH);
       const dup = db.prepare('SELECT nome, contato, email, notas, COUNT(*) as qtd FROM Atendidos GROUP BY nome, contato, email, notas HAVING qtd > 1').all();
       process.stdout.write(JSON.stringify({ duplicados: dup.length }));
       db.close();
     `;
     const resSql = spawnSync(exe, ['-e', checkSql], {
       cwd: root,
-      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', ONETOONE_DB_PATH: probeDbPath },
       encoding: 'utf8',
     });
     if (resSql.status === 0 && resSql.stdout) {
@@ -564,7 +702,7 @@ async function main() {
 }
 
 main()
-  .then((res) => {
+  .then(async (res) => {
     const checks = {
       'typeof require === undefined': res.sec.typeofRequire === 'undefined',
       'typeof process === undefined': res.sec.typeofProcess === 'undefined',
@@ -583,8 +721,12 @@ main()
         res.guestMobile.carregouBundleERemoveuHash,
       'Guest Mobile: CSP sem violacoes no console':
         res.guestMobile.cspSemViolacoes,
-      'Guest Mobile: desenhou com touch e sincronizou com o Host':
-        res.guestMobile.desenhouESincronizou,
+      'Guest Mobile: sincronizacao bidirecional por conteudo (IDs de elementos)':
+        res.guestMobile.syncBidirecionalConteudoOk,
+      'Guest Mobile: borracha de trecho sincronizou elemento eraser_stroke':
+        res.guestMobile.borrachaTrechoOk,
+      'Guest Mobile: UNDO e REDO bidirecionais sincronizaram estado':
+        res.guestMobile.undoRedoBidirecionalOk,
       'Guest Mobile: LOCK_SCREEN exibiu overlay e desbloqueou':
         res.guestMobile.lockScreenOk,
       'Guest Mobile: mute local emitiu GUEST_MUTED':
@@ -606,10 +748,18 @@ main()
       ok = ok && v;
     }
     app.kill();
+    await new Promise((r) => setTimeout(r, 800));
+    try {
+      fs.rmSync(probeTempDir, { recursive: true, force: true });
+    } catch {}
     process.exit(ok ? 0 : 1);
   })
-  .catch((e) => {
+  .catch(async (e) => {
     console.error('ERRO na sonda:', e, '\n--- log do app ---\n' + log);
     app.kill();
+    await new Promise((r) => setTimeout(r, 800));
+    try {
+      fs.rmSync(probeTempDir, { recursive: true, force: true });
+    } catch {}
     process.exit(1);
   });
