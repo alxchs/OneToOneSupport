@@ -14,14 +14,16 @@ Write-Host "==========================================================" -Foregro
 
 # 1. Verificacao de Git (Branch e Arvore Limpa)
 if (-not $SkipGitCheck) {
-  $currentBranch = (git rev-parse --abbrev-ref HEAD).Trim()
+  [string]$currentBranch = (git rev-parse --abbrev-ref HEAD)
+  $currentBranch = $currentBranch.Trim()
   $expectedBranch = "fase/07-homologacao-1"
   if ($currentBranch -ne $expectedBranch) {
     Write-Error "[ERRO] Branch incorreta: '$currentBranch'. Esperada: '$expectedBranch'."
     exit 1
   }
 
-  $gitStatus = (git status --porcelain).Trim()
+  [string]$gitStatus = (git status --porcelain)
+  $gitStatus = $gitStatus.Trim()
   if ($gitStatus) {
     Write-Error "[ERRO] Existem alteracoes nao commitadas na arvore Git. Faca commit antes de homologar:`n$gitStatus"
     exit 1
