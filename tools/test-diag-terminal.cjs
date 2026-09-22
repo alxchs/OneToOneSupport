@@ -11,7 +11,7 @@ const os = require('os');
 const puppeteer = require('puppeteer');
 
 const root = path.resolve(__dirname, '..');
-const PORT = 9500 + Math.floor(Math.random() * 400);
+const PORT = 9500 + Math.floor(Math.random() * 400); // risco-aceito: ALEATORIO_FRACO
 
 const testTempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'onetoone-diag-test-'));
 const testDbPath = path.join(testTempDir, 'onetoone-diag.db');

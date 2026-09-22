@@ -675,19 +675,19 @@ PASS  V3: 4 direções e 7 ferramentas sincronizam pixels não-transparentes no 
 ```
 =================== VERIFICAÇÃO DE CHECKPOINTS NO TERMINAL ===================
 PASS: [path:created/finishShapeCreation] encontrado na pos 0:
-      [DIAG-HOST] [2026-09-22T11:08:09.332Z] [finishShapeCreation] {"tool":"rectangle","author":"host","tipo":"rect","dist":187,"descartado":false}
+      [DIAG-HOST] [2026-09-22T15:57:47.885Z] [finishShapeCreation] {"tool":"rectangle","author":"host","tipo":"rect","dist":187,"descartado":false}
 PASS: [emitEvent] encontrado na pos 142:
-      [DIAG-HOST] [2026-09-22T11:08:09.332Z] [emitEvent] {"tipo":"DRAW_ADD","autor":"host","id":"b4868f52-f836-40e8-ba60-1218e3bc27a7","abaId":"default","payloadId":"ac36efce-87f1-4055-b0f1-e580dacb5152"}
+      [DIAG-HOST] [2026-09-22T15:57:47.885Z] [emitEvent] {"tipo":"DRAW_ADD","autor":"host","id":"e6deafa3-de21-4e1f-b531-f87145460a06","abaId":"default","payloadId":"1f16ea6a-71b8-4cfa-b635-d1316feee4c5"}
 PASS: [aplicarEventoQuadro] encontrado na pos 341:
-      [DIAG-HOST] [2026-09-22T11:08:09.333Z] [aplicarEventoQuadro] {"tipo":"DRAW_ADD","visiveisAntes":0,"visiveisDepois":1,"abaId":"default","autor":"host"}
+      [DIAG-HOST] [2026-09-22T15:57:47.886Z] [aplicarEventoQuadro] {"tipo":"DRAW_ADD","visiveisAntes":0,"visiveisDepois":1,"abaId":"default","autor":"host"}
 PASS: [gravar (IPC)] encontrado na pos 492:
-      [DIAG-HOST] [2026-09-22T11:08:09.333Z] [gravar (IPC)] {"fase":"inicio","tipo":"DRAW_ADD","sessaoId":"3747783c-4cd5-4023-9e10-bb59d544a458","abaId":"default","autor":"host"}
+      [DIAG-HOST] [2026-09-22T15:57:47.887Z] [gravar (IPC)] {"fase":"inicio","tipo":"DRAW_ADD","sessaoId":"bbbdeccb-c984-4595-a5d4-73dcf9ec7fa9","abaId":"default","autor":"host"}
 PASS: [broadcastToGuest] encontrado na pos 665:
-      [DIAG-SERVER] [2026-09-22T11:08:09.335Z] [broadcastToGuest] {"sucesso":true,"tipo":"DRAW_ADD","abaId":"default","autor":"host"}
+      [DIAG-SERVER] [2026-09-22T15:57:47.890Z] [broadcastToGuest] {"sucesso":true,"tipo":"DRAW_ADD","abaId":"default","autor":"host"}
 PASS: [chegada no Guest] encontrado na pos 793:
-      [DIAG-SERVER] [2026-09-22T11:08:09.335Z] [chegada no Guest] {"transporte":"tcp_flushed","tipo":"DRAW_ADD","connId":"faa7c92f-a53f-43ae-b136-7377a8d5c712"}
+      [DIAG-SERVER] [2026-09-22T15:57:47.891Z] [chegada no Guest] {"transporte":"tcp_flushed","tipo":"DRAW_ADD","connId":"09d2b1a6-3ba0-4f08-95a8-7df23f9c8646"}
 PASS: [renderState] encontrado na pos 1101:
-      [DIAG-HOST] [2026-09-22T11:08:09.335Z] [renderState] {"autor":"host","totalVisiveis":1,"adicionados":["ac36efce-87f1-4055-b0f1-e580dacb5152"],"removidos":[]}
+      [DIAG-HOST] [2026-09-22T15:57:47.891Z] [renderState] {"autor":"host","totalVisiveis":1,"adicionados":["1f16ea6a-71b8-4cfa-b635-d1316feee4c5"],"removidos":[]}
 ==============================================================================
 ```
 
@@ -701,8 +701,8 @@ PASS: [renderState] encontrado na pos 1101:
 
 > onetoonesupport@1.0.0 build
 > node scripts/generate-build-info.mjs && tsc -p tsconfig.electron.json && vite build && vite build --config vite.config.guest.ts
-[BuildInfo] Carimbo gerado em C:\desenv\utils\OneToOneSupport\src\shared\build-info.json: 6de0c33 (fase/07-homologacao-1) 2026-09-22T11:09:15.027Z
-[BuildInfo] Carimbo gerado em C:\desenv\utils\OneToOneSupport\dist\guest\version.json: 6de0c33 (fase/07-homologacao-1) 2026-09-22T11:09:15.027Z
+[BuildInfo] Carimbo gerado em C:\desenv\utils\OneToOneSupport\src\shared\build-info.json: 82b67fa (fase/07-homologacao-1) 2026-09-22T15:58:29.298Z
+[BuildInfo] Carimbo gerado em C:\desenv\utils\OneToOneSupport\dist\guest\version.json: 82b67fa (fase/07-homologacao-1) 2026-09-22T15:58:29.298Z
 
 > onetoonesupport@1.0.0 test
 > node scripts/test-runner.mjs
