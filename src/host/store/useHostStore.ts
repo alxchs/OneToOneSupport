@@ -10,9 +10,11 @@ import {
   TabState,
   createInitialTabState,
   reduceEvent,
+  getVisibleElements,
   WhiteboardEvent,
 } from '../../shared/events/reducer';
 import { generateUUID } from '../../shared/events/protocol';
+import { diagLog } from '../../shared/diag';
 
 export type HostView = 'lista' | 'form' | 'detalhes' | 'configuracoes' | 'quadro';
 
@@ -399,19 +401,46 @@ export const useHostStore = create<HostState>((set, get) => ({
 
   aplicarEventoQuadro: async (evento: WhiteboardEvent) => {
     const { tabState, activeSessaoId, activeAbaId } = get();
+    const visiveisAntes = getVisibleElements(tabState).length;
     const proximoEstado = reduceEvent(tabState, evento);
+    const visiveisDepois = getVisibleElements(proximoEstado).length;
+
+    diagLog('aplicarEventoQuadro', {
+      tipo: evento.tipo,
+      visiveisAntes,
+      visiveisDepois,
+      abaId: activeAbaId,
+      autor: evento.autor,
+    });
+
     set({ tabState: proximoEstado });
 
     if (window.desktopAPI?.eventos && activeSessaoId) {
       try {
-        await window.desktopAPI.eventos.gravar({
+        const res = await window.desktopAPI.eventos.gravar({
           sessao_id: activeSessaoId,
           aba_id: activeAbaId,
           tipo: evento.tipo,
           payload: evento.payload,
           autor: evento.autor,
         });
-      } catch (err) {
+        const isSuccess = Boolean(res && res.success);
+        const errCode = res && !res.success ? res.error : undefined;
+        const errMsg = res && !res.success ? res.message : undefined;
+        diagLog('gravarEventoIPC', {
+          sucesso: isSuccess,
+          erro: errCode,
+          motivo: errMsg,
+          tipo: evento.tipo,
+        });
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        diagLog('gravarEventoIPC', {
+          sucesso: false,
+          erro: 'EXCEPTION',
+          motivo: msg,
+          tipo: evento.tipo,
+        });
         console.error('[HostStore] Erro ao persistir evento no SQLite:', err);
       }
     }

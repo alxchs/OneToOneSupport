@@ -2,11 +2,18 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 
+import buildInfo from './src/shared/build-info.json';
+
 // O header CSP do main.ts não é aplicado a páginas file:// (build empacotado); no build a política vai no próprio HTML.
 const CSP =
   "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws: wss:;";
 
 export default defineConfig({
+  define: {
+    'process.env.ONETOONE_DIAG': JSON.stringify(process.env.ONETOONE_DIAG || ''),
+    'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV || 'development'),
+    __APP_BUILD_INFO__: JSON.stringify(buildInfo),
+  },
   plugins: [
     react(),
     {
