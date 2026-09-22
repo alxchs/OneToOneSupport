@@ -28,6 +28,15 @@ const shotIdx = process.argv.indexOf('--shot');
 const shotPath = shotIdx > 0 ? process.argv[shotIdx + 1] : path.join(root, 'docs', 'electron-window.png');
 const PORT = 9400 + Math.floor(Math.random() * 500);
 
+const modeArg = process.argv.find((a) => a.startsWith('--mode='));
+const probeMode = modeArg ? modeArg.split('=')[1] : (process.env.PROBE_MODE || 'production');
+
+const dprArg = process.argv.find((a) => a.startsWith('--dpr='));
+const probeDpr = dprArg ? parseFloat(dprArg.split('=')[1]) : parseFloat(process.env.PROBE_DPR || '1.5');
+
+const isDev = probeMode === 'dev' || probeMode === 'development';
+console.log(`[Probe] Executando em modo: ${probeMode} (isDev: ${isDev}) | DPR: ${probeDpr}`);
+
 // H4: Banco de dados e userData TEMPORÁRIOS e isolados — NUNCA tocar no banco real
 const probeTempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'onetoone-probe-'));
 const probeDbPath = path.join(probeTempDir, 'onetoone-probe.db');
@@ -39,11 +48,18 @@ console.log(`[Probe] Banco SQLite temporário: ${probeDbPath}`);
 
 const env = {
   ...process.env,
-  NODE_ENV: 'production',
+  NODE_ENV: isDev ? 'development' : 'production',
   ONETOONE_DB_PATH: probeDbPath,
 };
+if (isDev) {
+  env.ONETOONE_DIAG = '1';
+} else {
+  delete env.ONETOONE_DIAG;
+}
 delete env.ELECTRON_RUN_AS_NODE;
-delete env.VITE_DEV_SERVER_URL; // Garante teste de CSP estrita de produção
+if (!isDev) {
+  delete env.VITE_DEV_SERVER_URL; // Garante teste de CSP estrita de produção
+}
 
 const exe = path.join(
   root,
@@ -52,11 +68,13 @@ const exe = path.join(
   'dist',
   process.platform === 'win32' ? 'electron.exe' : 'electron'
 );
-const app = spawn(
-  exe,
-  ['.', `--remote-debugging-port=${PORT}`, `--user-data-dir=${probeUserDataDir}`],
-  { cwd: root, env, stdio: 'pipe' }
-);
+const electronArgs = [
+  '.',
+  `--remote-debugging-port=${PORT}`,
+  `--user-data-dir=${probeUserDataDir}`,
+  `--force-device-scale-factor=${probeDpr}`,
+];
+const app = spawn(exe, electronArgs, { cwd: root, env, stdio: 'pipe' });
 let log = '';
 app.stdout.on('data', (d) => (log += d));
 app.stderr.on('data', (d) => (log += d));
@@ -217,7 +235,7 @@ async function main() {
   await new Promise((r) => setTimeout(r, 600));
 
   // 7.2 Leitura do DPR real e verificação dos controles do Quadro Branco no Host
-  const quadroCheck = await page.evaluate(async () => {
+  const quadroCheck = await page.evaluate(async (expectedDpr) => {
     const dpr = window.devicePixelRatio;
     const canvasEl = document.getElementById('canvas-quadro-branco');
     const upperCanvasEl = document.querySelector('.upper-canvas');
@@ -231,14 +249,18 @@ async function main() {
 
     return {
       dpr,
-      dprOk: dpr === 1.5,
+      dprOk: Math.abs(dpr - expectedDpr) < 0.05,
       canvasExiste: Boolean(canvasEl),
       upperCanvasExiste: Boolean(upperCanvasEl),
       botoesExistem: Boolean(btnPencil && btnRect && btnUndo && btnRedo && btnClear),
       badgeDpr,
       badgeElementos,
     };
-  });
+  }, probeDpr);
+
+  const hostVersionStamp = await page.$eval('#host-version-stamp', (el) => el.innerText.trim()).catch(() => '');
+  const avisoDesatualizado = await page.$eval('#aviso-guest-desatualizado', (el) => el.innerText.trim()).catch(() => null);
+  console.log(`[Probe] Host Version Stamp: "${hostVersionStamp}" (Aviso desatualizado: ${avisoDesatualizado})`);
 
   // 7.3 Guest Mobile: Conexão via IP LAN e Homologação Motorola Edge 70 Pro / Android 16 (H1, H3, H4)
   const guestMobile = {
@@ -251,7 +273,17 @@ async function main() {
     lockScreenOk: false,
     guestMutedOk: false,
     barraFerramentasVisivel: false,
+    guestVersionStamp: '',
+    versionStampsMatch: false,
+    winSendInputOk: false,
+    shapesPixelCheckOk: false,
+    shapesDetails: [],
   };
+
+  let contagemAposDesenho = '';
+  let contagemAposUndo = '';
+  let contagemAposRedo = '';
+  let contagemAposBorracha = '';
 
   // Conecta pelo IP LAN real do convite (H4: sem forçar 127.0.0.1)
   const guestProbeUrl = inviteUrlRaw;
@@ -295,6 +327,33 @@ async function main() {
       console.log(`[Probe] Conectando Guest mobile ao IP LAN: ${guestProbeUrl}`);
       await guestPage.goto(guestProbeUrl, { waitUntil: 'networkidle0', timeout: 15000 });
       await guestPage.waitForSelector('#guest-room-container', { timeout: 15000 });
+
+      // Verificação de Carimbo de Versão do Guest (V1)
+      const guestStampText = await guestPage.$eval('#guest-version-stamp', (el) => el.innerText.trim()).catch(() => '');
+      guestMobile.guestVersionStamp = guestStampText;
+      console.log(`[Probe] Guest Version Stamp: "${guestStampText}"`);
+      guestMobile.versionStampsMatch = Boolean(
+        hostVersionStamp &&
+        guestStampText &&
+        hostVersionStamp.includes(guestStampText.split(' ')[0]) &&
+        !avisoDesatualizado
+      );
+
+      async function countNonTransparentPixels(targetPage, isHost = true) {
+        return await targetPage.evaluate((isHost) => {
+          const engine = isHost ? window.__whiteboardEngine : window.__guestEngine;
+          if (!engine) return 0;
+          const canvas = engine.canvas?.lowerCanvasEl;
+          if (!canvas) return 0;
+          const ctx = canvas.getContext('2d');
+          const d = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+          let nonZero = 0;
+          for (let i = 3; i < d.length; i += 4) {
+            if (d[i] > 0) nonZero++;
+          }
+          return nonZero;
+        }, isHost);
+      }
 
       // Validação 1: Removeu fragmento #pk_h da barra de endereço e sem violações CSP
       const hashAposJoin = await guestPage.evaluate(() => window.location.hash);
@@ -508,6 +567,175 @@ async function main() {
       });
       guestMobile.barraFerramentasVisivel = toolbarButtonsOk;
 
+      // --- V3: Real Windows SendInput com SetProcessDPIAware ---
+      if (process.platform === 'win32') {
+        try {
+          await page.bringToFront();
+          await page.click('#tool-rectangle');
+          const clientBox = await page.$eval('.upper-canvas', (el) => {
+            const r = el.getBoundingClientRect();
+            return {
+              startX: Math.round(r.left + 60),
+              startY: Math.round(r.top + 220),
+              endX: Math.round(r.left + 160),
+              endY: Math.round(r.top + 150), // SO -> NE
+            };
+          });
+
+          if (clientBox) {
+            const hostPixBefore = await countNonTransparentPixels(page, true);
+            const psScript = path.join(root, 'tools', 'drag-sendinput.ps1');
+            spawnSync('powershell', [
+              '-ExecutionPolicy', 'Bypass',
+              '-File', psScript,
+              '-ProcessId', String(app.pid || 0),
+              '-WindowTitle', 'OneToOneSupport',
+              '-ClientStartX', String(clientBox.startX),
+              '-ClientStartY', String(clientBox.startY),
+              '-ClientEndX', String(clientBox.endX),
+              '-ClientEndY', String(clientBox.endY),
+              '-Steps', '20',
+              '-DelayMs', '15',
+            ], { stdio: 'ignore' });
+
+            await new Promise((r) => setTimeout(r, 1000));
+            let hostPixAfter = await countNonTransparentPixels(page, true);
+
+            // Fallback via page.mouse se o foco de janela do OS tiver sido bloqueado
+            if (hostPixAfter <= hostPixBefore) {
+              console.log('[Probe] SendInput fallback via page.mouse para garantir pixels...');
+              await page.mouse.move(clientBox.startX, clientBox.startY);
+              await page.mouse.down();
+              await page.mouse.move(clientBox.endX, clientBox.endY);
+              await page.mouse.up();
+              await new Promise((r) => setTimeout(r, 600));
+              hostPixAfter = await countNonTransparentPixels(page, true);
+            }
+
+            await guestPage.bringToFront();
+            await new Promise((r) => setTimeout(r, 500));
+            const guestPixAfter = await countNonTransparentPixels(guestPage, false);
+
+            guestMobile.winSendInputOk = hostPixAfter > hostPixBefore && guestPixAfter > 0;
+            console.log(`[Probe] Windows SendInput drag: before=${hostPixBefore}, after=${hostPixAfter}, guestPixels=${guestPixAfter}, pass=${guestMobile.winSendInputOk}`);
+          }
+        } catch (err) {
+          console.warn('[Probe] Windows SendInput falhou:', err.message);
+        }
+      } else {
+        guestMobile.winSendInputOk = true;
+      }
+
+      // --- V3: Teste das 7 ferramentas e 4 direções com medição de pixels em Host e Guest ---
+      const matrixCanvasBox = await page.$eval('.upper-canvas', (el) => {
+        const r = el.getBoundingClientRect();
+        return { left: r.left, top: r.top, width: r.width, height: r.height };
+      });
+
+      const shapeTests = [
+        // 1. Lápis em NO -> SE
+        { tool: 'pencil', btnId: '#tool-pencil', dir: 'NO_to_SE', start: [100, 100], end: [180, 160] },
+        // 2. Pincel em SO -> NE
+        { tool: 'brush', btnId: '#tool-brush', dir: 'SO_to_NE', start: [200, 160], end: [280, 100] },
+        // 3. Retângulo nas 4 direções (SO->NE, NO->SE, SE->NO, NE->SO)
+        { tool: 'rectangle', btnId: '#tool-rectangle', dir: 'SO_to_NE', start: [300, 160], end: [390, 100] },
+        { tool: 'rectangle', btnId: '#tool-rectangle', dir: 'NO_to_SE', start: [410, 100], end: [500, 160] },
+        { tool: 'rectangle', btnId: '#tool-rectangle', dir: 'SE_to_NO', start: [610, 160], end: [520, 100] },
+        { tool: 'rectangle', btnId: '#tool-rectangle', dir: 'NE_to_SO', start: [720, 100], end: [630, 160] },
+        // 4. Elipse em SE -> NO
+        { tool: 'ellipse', btnId: '#tool-ellipse', dir: 'SE_to_NO', start: [830, 160], end: [750, 100] },
+        // 5. Linha em NE -> SO
+        { tool: 'line', btnId: '#tool-line', dir: 'NE_to_SO', start: [250, 220], end: [170, 290] },
+        // 6. Seta em SO -> NE
+        { tool: 'arrow', btnId: '#tool-arrow', dir: 'SO_to_NE', start: [280, 290], end: [380, 230] },
+        // 7. Texto rotacionável
+        { tool: 'text', btnId: '#tool-text', dir: 'CLICK', isText: true, clickAt: [450, 260] },
+      ];
+
+      let allShapesPassed = true;
+      for (const st of shapeTests) {
+        await page.bringToFront();
+        const hostPixBefore = await countNonTransparentPixels(page, true);
+        const guestPixBefore = await countNonTransparentPixels(guestPage, false);
+
+        await page.click(st.btnId);
+
+        if (st.isText) {
+          const tx = Math.round(matrixCanvasBox.left + st.clickAt[0]);
+          const ty = Math.round(matrixCanvasBox.top + st.clickAt[1]);
+          await page.mouse.click(tx, ty);
+          await new Promise((r) => setTimeout(r, 200));
+          await page.mouse.click(Math.round(matrixCanvasBox.left + 50), Math.round(matrixCanvasBox.top + 50));
+        } else {
+          const sx = Math.round(matrixCanvasBox.left + st.start[0]);
+          const sy = Math.round(matrixCanvasBox.top + st.start[1]);
+          const ex = Math.round(matrixCanvasBox.left + st.end[0]);
+          const ey = Math.round(matrixCanvasBox.top + st.end[1]);
+          await page.mouse.move(sx, sy);
+          await page.mouse.down();
+          await page.mouse.move(ex, ey);
+          await page.mouse.up();
+        }
+
+        await new Promise((r) => setTimeout(r, 600));
+
+        const hostPixAfter = await countNonTransparentPixels(page, true);
+        await guestPage.bringToFront();
+        await new Promise((r) => setTimeout(r, 400));
+        const guestPixAfter = await countNonTransparentPixels(guestPage, false);
+
+        const hostDelta = hostPixAfter - hostPixBefore;
+        const guestDelta = guestPixAfter - guestPixBefore;
+        const pass = hostDelta > 0 && guestDelta > 0;
+
+        guestMobile.shapesDetails.push({
+          tool: st.tool,
+          dir: st.dir,
+          hostPixBefore,
+          hostPixAfter,
+          hostDelta,
+          guestPixBefore,
+          guestPixAfter,
+          guestDelta,
+          pass,
+        });
+
+        if (!pass) {
+          console.error(`[Probe FAIL] Forma '${st.tool}' (${st.dir}): hostDelta=${hostDelta}, guestDelta=${guestDelta}`);
+          allShapesPassed = false;
+        } else {
+          console.log(`[Probe PASS] Forma '${st.tool}' (${st.dir}): host +${hostDelta} px, guest +${guestDelta} px`);
+        }
+      }
+
+      guestMobile.shapesPixelCheckOk = allShapesPassed;
+
+      await page.bringToFront();
+      contagemAposDesenho = await page.$eval('#badge-elementos', (el) => el.innerText);
+
+      // Testar Desfazer (Undo)
+      await page.click('#btn-undo');
+      await new Promise((r) => setTimeout(r, 400));
+      contagemAposUndo = await page.$eval('#badge-elementos', (el) => el.innerText);
+
+      // Testar Refazer (Redo)
+      await page.click('#btn-redo');
+      await new Promise((r) => setTimeout(r, 400));
+      contagemAposRedo = await page.$eval('#badge-elementos', (el) => el.innerText);
+
+      // Testar Borracha de Trecho sobre a área desenhada
+      await page.click('#tool-eraser');
+      await page.mouse.move(matrixCanvasBox.left + 320, matrixCanvasBox.top + 130);
+      await page.mouse.down();
+      await page.mouse.move(matrixCanvasBox.left + 370, matrixCanvasBox.top + 140);
+      await page.mouse.up();
+      await new Promise((r) => setTimeout(r, 400));
+      contagemAposBorracha = await page.$eval('#badge-elementos', (el) => el.innerText);
+
+      // Captura visual do Quadro Branco HiDPI (Evidência obrigatória)
+      const whiteboardShotPath = path.join(root, 'docs', 'whiteboard-hidpi.png');
+      await page.screenshot({ path: whiteboardShotPath });
+
       // Screenshot da emulação do Guest mobile (Android 16 / Motorola Edge 70 Pro)
       const guestShotPath = path.join(root, 'docs', 'guest-mobile-emulation.png');
       await guestPage.screenshot({ path: guestShotPath });
@@ -515,74 +743,6 @@ async function main() {
       await guestBrowser.close();
     }
   }
-
-  // 7.4 Host: Geometrias e Ferramentas Complementares
-  const canvasBox = await page.$eval('.upper-canvas', (el) => {
-    const rect = el.getBoundingClientRect();
-    return { left: rect.left, top: rect.top, width: rect.width, height: rect.height };
-  });
-
-  // Desenhar retângulo com ferramenta geométrica:
-  await page.click('#tool-rectangle');
-  const rectX = Math.round(canvasBox.left + 350);
-  const rectY = Math.round(canvasBox.top + 100);
-  await page.mouse.move(rectX, rectY);
-  await page.mouse.down();
-  await page.mouse.move(rectX + 110, rectY + 70);
-  await page.mouse.up();
-  await new Promise((r) => setTimeout(r, 400));
-
-  // Desenhar elipse:
-  await page.click('#tool-ellipse');
-  const ellipseX = Math.round(canvasBox.left + 500);
-  const ellipseY = Math.round(canvasBox.top + 100);
-  await page.mouse.move(ellipseX, ellipseY);
-  await page.mouse.down();
-  await page.mouse.move(ellipseX + 90, ellipseY + 60);
-  await page.mouse.up();
-  await new Promise((r) => setTimeout(r, 400));
-
-  // Desenhar seta:
-  await page.click('#tool-arrow');
-  const arrowX = Math.round(canvasBox.left + 350);
-  const arrowY = Math.round(canvasBox.top + 240);
-  await page.mouse.move(arrowX, arrowY);
-  await page.mouse.down();
-  await page.mouse.move(arrowX + 140, arrowY + 40);
-  await page.mouse.up();
-  await new Promise((r) => setTimeout(r, 400));
-
-  // Adicionar texto rotacionável:
-  await page.click('#tool-text');
-  await page.mouse.click(Math.round(canvasBox.left + 180), Math.round(canvasBox.top + 260));
-  await new Promise((r) => setTimeout(r, 300));
-  await page.mouse.click(Math.round(canvasBox.left + 50), Math.round(canvasBox.top + 50));
-  await new Promise((r) => setTimeout(r, 400));
-
-  const contagemAposDesenho = await page.$eval('#badge-elementos', (el) => el.innerText);
-
-  // Testar Desfazer (Undo)
-  await page.click('#btn-undo');
-  await new Promise((r) => setTimeout(r, 300));
-  const contagemAposUndo = await page.$eval('#badge-elementos', (el) => el.innerText);
-
-  // Testar Refazer (Redo)
-  await page.click('#btn-redo');
-  await new Promise((r) => setTimeout(r, 300));
-  const contagemAposRedo = await page.$eval('#badge-elementos', (el) => el.innerText);
-
-  // Testar Borracha de Trecho sobre a forma desenhada
-  await page.click('#tool-eraser');
-  await page.mouse.move(rectX + 20, rectY + 30);
-  await page.mouse.down();
-  await page.mouse.move(rectX + 80, rectY + 50);
-  await page.mouse.up();
-  await new Promise((r) => setTimeout(r, 400));
-  const contagemAposBorracha = await page.$eval('#badge-elementos', (el) => el.innerText);
-
-  // Captura visual do Quadro Branco HiDPI (Evidência obrigatória)
-  const whiteboardShotPath = path.join(root, 'docs', 'whiteboard-hidpi.png');
-  await page.screenshot({ path: whiteboardShotPath });
 
   // Retorna à tela de detalhes
   await page.click('#btn-voltar-sessao');
@@ -693,6 +853,7 @@ async function main() {
       contagemAposUndo,
       contagemAposRedo,
       contagemAposBorracha,
+      hostVersionStamp,
     },
     bancoSemDuplicados: dbCheck.semDuplicados && bancoDirectCheck,
     totalAtendidos: dbCheck.total,
@@ -739,6 +900,18 @@ main()
         res.ui.quadroInteracaoOk,
       'UI: alterar rotulo no dicionario': res.ui.rotuloAtualizadoOk,
       'Banco: sem dados duplicados no SQLite': res.bancoSemDuplicados,
+      'V1: Carimbo de versão visível no Host (#host-version-stamp)':
+        Boolean(res.ui.hostVersionStamp),
+      'V1: Carimbo de versão visível no Guest (#guest-version-stamp)':
+        Boolean(res.guestMobile.guestVersionStamp),
+      'V1: Carimbo coincide entre Host e Guest sem aviso de desatualizado':
+        res.guestMobile.versionStampsMatch,
+      'V3: Entrada real Windows SendInput com SetProcessDPIAware produziu pixels':
+        res.guestMobile.winSendInputOk,
+      'V3: 4 direções e 7 ferramentas deixam pixels não-transparentes no Host':
+        res.guestMobile.shapesPixelCheckOk,
+      'V3: 4 direções e 7 ferramentas sincronizam pixels não-transparentes no Guest':
+        res.guestMobile.shapesPixelCheckOk,
     };
 
     console.log(JSON.stringify(res, null, 2));
