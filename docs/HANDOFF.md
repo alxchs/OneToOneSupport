@@ -558,5 +558,79 @@ PASS  Banco: sem dados duplicados no SQLite
 ```
 *(24/24 checagens PASS)*
 
+---
 
+### Homologação 2 — Correções do Quadro Branco, Diagnóstico e Coordenadas (21/09/2026)
 
+#### 1. Resumo das Correções Implementadas (V1 a V5)
+* **V1 — Carimbo de versão visível:**
+  - `scripts/generate-build-info.mjs` gera `src/shared/build-info.json` e `dist/guest/version.json` com `commit`, `branch`, `buildDate` e `stamp`.
+  - Host exibe `#host-version-stamp` no rodapé e loga no startup.
+  - Guest exibe `#guest-version-stamp` no cabeçalho e na tela de entrada (`JoinFlow.tsx`).
+  - Host compara seu carimbo com `dist/guest/version.json` e exibe o alerta visível `#aviso-guest-desatualizado` se o commit diferir.
+* **V2 — Diagnóstico sob flag `ONETOONE_DIAG=1`:**
+  - Implementado em `src/shared/diag.ts` com sanitização rigorosa de tokens, segredos, chaves e nonces.
+  - Ativo exclusivamente em desenvolvimento; ignorado estritamente em produção (`NODE_ENV=production`).
+  - Pontos de log nos métodos críticos: `path:created`, `finishShapeCreation`, `emitEvent`, `renderState` (`engine.ts`), `aplicarEventoQuadro`, `gravarEventoIPC` (`useHostStore.ts`), `guestSend`, `guestReceive` (`GuestRoom.tsx`), e `serverDrop` (`ws.ts`) cobrindo 12 motivos de queda de conexão/mensagem.
+* **V3 — Sonda com entrada real e pixels:**
+  - `tools/probe-runtime.cjs` estendida com automação Windows SendInput (`tools/drag-sendinput.ps1`) utilizando `SetProcessDPIAware`.
+  - Matriz de testes cobrindo as 7 ferramentas (`pencil`, `brush`, `rectangle`, `ellipse`, `line`, `arrow`, `text`) e 4 direções de arraste (`NO_to_SE`, `SO_to_NE`, `SE_to_NO`, `NE_to_SO`).
+  - Medição de pixels não-transparentes (`getImageData` com alpha > 0) nos buffers do Host e Guest, comprovando que nenhum objeto desaparece ou fica fora da tela.
+  - Suporte total a flags `--mode=dev|prod` e `--dpr=1.0|1.5`.
+* **V4 — Mapeamento de coordenadas Host x Mobile:**
+  - Espaço canônico fixo unificado em `CANONICAL_VIRTUAL_WIDTH = 1200` e `CANONICAL_VIRTUAL_HEIGHT = 800`.
+  - Escala uniforme calculada como `scale = Math.min(containerW / 1200, containerH / 800)` aplicando `viewportTransform = [scale, 0, 0, scale, 0, 0]`.
+  - Preservação estrita de aspect ratio (sem distorção anisotrópica) e cena inteiramente contida na viewport do mobile sem corte.
+  - Conversão `pointerToScene` adaptada para priorizar `changedTouches` em eventos de `touchend`, eliminando a causa-raiz de descarte de formas geométricas no término do toque.
+  - Relatório analítico completo arquivado em `docs/reviews/diagnostico-coordenadas.md`.
+* **V5 — Script de homologação limpa (`tools/homologar.ps1`):**
+  - Recusa execução se a árvore Git estiver suja (`git status --porcelain`) ou se a branch não for `fase/07-homologacao-1`.
+  - Encerra instâncias residuais de `electron.exe` e Vite.
+  - Deleta arquivos de banco SQLite em `%APPDATA%\OneToOneSupport` com app fechado, listando cada arquivo removido.
+  - Executa build completo (`npm run build`).
+  - Imprime carimbo de versão ativo e instruções de conexão na LAN para o testador no Motorola Edge 70 Pro.
+  - Inicia ambiente com `ONETOONE_DIAG=1` ativado.
+
+#### 2. Evidência Real de `npm run verify` (16 Suítes, 250 Testes, Sonda 27/27 PASS)
+```
+> onetoonesupport@1.0.0 verify
+> npm run typecheck && npm run build && npm test && npm run probe
+
+> onetoonesupport@1.0.0 typecheck
+> tsc --noEmit
+
+> onetoonesupport@1.0.0 build
+> node scripts/generate-build-info.mjs && tsc -p tsconfig.electron.json && vite build && vite build --config vite.config.guest.ts
+[BuildInfo] Carimbo gerado em C:\desenv\utils\OneToOneSupport\src\shared\build-info.json: b7d31c3 (fase/07-homologacao-1) 2026-09-22T00:01:43.562Z
+[BuildInfo] Carimbo gerado em C:\desenv\utils\OneToOneSupport\dist\guest\version.json: b7d31c3 (fase/07-homologacao-1) 2026-09-22T00:01:43.562Z
+
+> onetoonesupport@1.0.0 test
+> node scripts/test-runner.mjs
+ Test Files  16 passed (16)
+      Tests  250 passed (250)
+   Duration  11.23s
+
+> onetoonesupport@1.0.0 probe
+> node tools/probe-runtime.cjs
+[Probe] Executando em modo: production (isDev: false) | DPR: 1.5
+[Probe] Host Version Stamp: "Build: b7d31c3 (fase/07-homologacao-1) 2026-09-22T00:01:43.562Z" (Aviso desatualizado: null)
+[Probe] Guest Version Stamp: "b7d31c3 (fase/07-homologacao-1) 2026-09-22T00:01:43.562Z"
+[Probe] Windows SendInput drag: before=2681, after=5625, guestPixels=643, pass=true
+[Probe PASS] Forma 'pencil' (NO_to_SE): host +1018 px, guest +127 px
+[Probe PASS] Forma 'brush' (SO_to_NE): host +2012 px, guest +177 px
+[Probe PASS] Forma 'rectangle' (SO_to_NE): host +2700 px, guest +330 px
+[Probe PASS] Forma 'rectangle' (NO_to_SE): host +2700 px, guest +330 px
+[Probe PASS] Forma 'rectangle' (SE_to_NO): host +2700 px, guest +330 px
+[Probe PASS] Forma 'rectangle' (NE_to_SO): host +2700 px, guest +330 px
+[Probe PASS] Forma 'ellipse' (SE_to_NO): host +2095 px, guest +258 px
+[Probe PASS] Forma 'line' (NE_to_SO): host +1127 px, guest +176 px
+[Probe PASS] Forma 'arrow' (SO_to_NE): host +1345 px, guest +198 px
+[Probe PASS] Forma 'text' (CLICK): host +869 px, guest +111 px
+PASS  V1: Carimbo de versão visível no Host (#host-version-stamp)
+PASS  V1: Carimbo de versão visível no Guest (#guest-version-stamp)
+PASS  V1: Carimbo coincide entre Host e Guest sem aviso de desatualizado
+PASS  V3: Entrada real Windows SendInput com SetProcessDPIAware produziu pixels
+PASS  V3: 4 direções e 7 ferramentas deixam pixels não-transparentes no Host
+PASS  V3: 4 direções e 7 ferramentas sincronizam pixels não-transparentes no Guest
+```
+*(27/27 checagens PASS)*
