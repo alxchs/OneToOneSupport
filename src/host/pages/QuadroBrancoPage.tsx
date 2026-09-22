@@ -1,6 +1,11 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useHostStore } from '../store/useHostStore';
-import { WhiteboardEngine, WhiteboardTool } from '../../shared/canvas/engine';
+import {
+  WhiteboardEngine,
+  WhiteboardTool,
+  CANONICAL_VIRTUAL_WIDTH,
+  CANONICAL_VIRTUAL_HEIGHT,
+} from '../../shared/canvas/engine';
 import { getVisibleElements } from '../../shared/events/reducer';
 
 const PALETA_CORES = [
@@ -55,12 +60,12 @@ export const QuadroBrancoPage: React.FC = () => {
     setDprReal(dpr);
 
     const rect = containerRef.current.getBoundingClientRect();
-    const initWidth = Math.max(900, Math.floor(rect.width) || 1200);
-    const initHeight = Math.max(600, Math.floor(rect.height) || 750);
+    const displayWidth = Math.floor(rect.width) || CANONICAL_VIRTUAL_WIDTH;
+    const displayHeight = Math.floor(rect.height) || CANONICAL_VIRTUAL_HEIGHT;
 
     const engine = new WhiteboardEngine(canvasRef.current, {
-      virtualWidth: initWidth,
-      virtualHeight: initHeight,
+      virtualWidth: CANONICAL_VIRTUAL_WIDTH,
+      virtualHeight: CANONICAL_VIRTUAL_HEIGHT,
       autor: 'host',
       sessaoId: activeSessaoId || 'sessao-ativa',
       abaId: activeAbaId || 'default',
@@ -71,6 +76,8 @@ export const QuadroBrancoPage: React.FC = () => {
         setFerramenta(tool);
       },
     });
+
+    engine.setDimensions(displayWidth, displayHeight);
 
     engine.setStrokeColor(corAtual);
     engine.setStrokeWidth(espessuraAtual);

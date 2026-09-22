@@ -16,6 +16,10 @@ import {
   getVisibleElements,
 } from '../events/reducer';
 import { generateUUID } from '../events/protocol';
+import { diagLog } from '../diag';
+
+export const CANONICAL_VIRTUAL_WIDTH = 1200;
+export const CANONICAL_VIRTUAL_HEIGHT = 800;
 
 export type WhiteboardTool =
   | 'select'
@@ -55,23 +59,20 @@ export function pointerToScene(
   const rawX = pointer.clientX - boundingRect.left;
   const rawY = pointer.clientY - boundingRect.top;
 
-  // Escala relativa entre o tamanho virtual e a dimensão CSS do elemento canvas no layout
-  const scaleX = boundingRect.width > 0 ? virtualWidth / boundingRect.width : 1;
-  const scaleY = boundingRect.height > 0 ? virtualHeight / boundingRect.height : 1;
-
-  const canvasX = rawX * scaleX;
-  const canvasY = rawY * scaleY;
-
-  // Se houver matriz de viewport (zoom / pan), aplica a transformação inversa
+  // Se houver matriz de viewport (zoom / pan do Fabric), mapeia a coordenada de viewport CSS diretamente para a cena
   if (viewportTransform) {
     const [zoomX, , , zoomY, panX, panY] = viewportTransform;
     return {
-      x: (canvasX - panX) / (zoomX || 1),
-      y: (canvasY - panY) / (zoomY || 1),
+      x: (rawX - (panX || 0)) / (zoomX || 1),
+      y: (rawY - (panY || 0)) / (zoomY || 1),
     };
   }
 
-  return { x: canvasX, y: canvasY };
+  // Se não houver viewportTransform, aplica a escala direta entre CSS e tamanho virtual
+  const scaleX = boundingRect.width > 0 ? virtualWidth / boundingRect.width : 1;
+  const scaleY = boundingRect.height > 0 ? virtualHeight / boundingRect.height : 1;
+
+  return { x: rawX * scaleX, y: rawY * scaleY };
 }
 
 /**
@@ -248,6 +249,9 @@ export class WhiteboardEngine {
   public readonly canvas: Canvas;
   public virtualWidth: number;
   public virtualHeight: number;
+  public displayWidth: number;
+  public displayHeight: number;
+  public scale: number = 1;
   public currentDpr: number = 1;
 
   public activeTool: WhiteboardTool = 'pencil';
@@ -267,14 +271,17 @@ export class WhiteboardEngine {
   // Controle de desenho interativo de formas
   private isCreatingShape: boolean = false;
   private shapeOrigin: { x: number; y: number } | null = null;
+  private lastPointerScene: { x: number; y: number } | null = null;
   private previewShape: FabricObject | null = null;
 
   // Cleanup de listeners de resolução e redimensionamento
   private cleanupFns: Array<() => void> = [];
 
   constructor(canvasElement: HTMLCanvasElement, options: WhiteboardEngineOptions = {}) {
-    this.virtualWidth = options.virtualWidth || 1920;
-    this.virtualHeight = options.virtualHeight || 1080;
+    this.virtualWidth = options.virtualWidth || CANONICAL_VIRTUAL_WIDTH;
+    this.virtualHeight = options.virtualHeight || CANONICAL_VIRTUAL_HEIGHT;
+    this.displayWidth = this.virtualWidth;
+    this.displayHeight = this.virtualHeight;
     this.author = options.autor || 'host';
     this.sessaoId = options.sessaoId || 'sessao-ativa';
     this.abaId = options.abaId || 'default';
@@ -345,23 +352,29 @@ export class WhiteboardEngine {
     let clientX = 0;
     let clientY = 0;
 
-    if ('clientX' in e && typeof e.clientX === 'number') {
-      clientX = e.clientX;
-      clientY = e.clientY;
-    } else if ('touches' in e && (e as TouchEvent).touches && (e as TouchEvent).touches.length > 0) {
-      clientX = (e as TouchEvent).touches[0].clientX;
-      clientY = (e as TouchEvent).touches[0].clientY;
-    } else if (
+    if (
       'changedTouches' in e &&
       (e as TouchEvent).changedTouches &&
       (e as TouchEvent).changedTouches.length > 0
     ) {
       clientX = (e as TouchEvent).changedTouches[0].clientX;
       clientY = (e as TouchEvent).changedTouches[0].clientY;
+    } else if (
+      'touches' in e &&
+      (e as TouchEvent).touches &&
+      (e as TouchEvent).touches.length > 0
+    ) {
+      clientX = (e as TouchEvent).touches[0].clientX;
+      clientY = (e as TouchEvent).touches[0].clientY;
+    } else if ('clientX' in e && typeof e.clientX === 'number') {
+      clientX = e.clientX;
+      clientY = e.clientY;
     }
 
     const upperEl = this.canvas.upperCanvasEl || this.canvas.lowerCanvasEl;
-    const bounds = upperEl ? upperEl.getBoundingClientRect() : { left: 0, top: 0, width: this.virtualWidth, height: this.virtualHeight };
+    const bounds = upperEl
+      ? upperEl.getBoundingClientRect()
+      : { left: 0, top: 0, width: this.displayWidth, height: this.displayHeight };
 
     return pointerToScene(
       { clientX, clientY },
@@ -375,30 +388,36 @@ export class WhiteboardEngine {
   }
 
   /**
-   * Dimensiona o canvas com window.devicePixelRatio conforme ADR-003.
-   * Aplica setDimensions({ width, height }, { cssOnly: true }) e coordena o buffer real = virtual × DPR
-   * sem aplicar o fator em duplicidade.
+   * Dimensiona o canvas para caber no container com escala uniforme preservando a cena virtual (V4, Mestre §12, ADR-003).
+   * O buffer físico acompanha DPR sem aplicar o fator em duplicidade.
    */
-  public setDimensions(width: number, height: number): void {
-    this.virtualWidth = Math.max(100, width);
-    this.virtualHeight = Math.max(100, height);
+  public setDimensions(containerWidth: number, containerHeight: number): void {
+    const validWidth = Math.max(100, containerWidth);
+    const validHeight = Math.max(100, containerHeight);
+
+    // Escala uniforme para caber o quadro inteiro sem recorte
+    const scale = Math.min(
+      validWidth / this.virtualWidth,
+      validHeight / this.virtualHeight
+    );
+    this.scale = scale;
+
+    const displayWidth = Math.max(1, Math.round(this.virtualWidth * scale));
+    const displayHeight = Math.max(1, Math.round(this.virtualHeight * scale));
+    this.displayWidth = displayWidth;
+    this.displayHeight = displayHeight;
 
     const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
     this.currentDpr = dpr;
 
-    // 1. Aplica dimensões de visualização CSS (cssOnly: true)
+    // 1. Aplica dimensões do canvas CSS e buffer de tela
     this.canvas.setDimensions(
-      { width: this.virtualWidth, height: this.virtualHeight },
-      { cssOnly: true }
+      { width: displayWidth, height: displayHeight },
+      { cssOnly: false }
     );
 
-    // 2. O Fabric 6 com enableRetinaScaling: true ajusta o buffer físico para:
-    // buffer.width = virtualWidth * DPR e buffer.height = virtualHeight * DPR
-    // sem dupla escala nas coordenadas do contexto 2D.
-    this.canvas.setDimensions(
-      { width: this.virtualWidth, height: this.virtualHeight },
-      { backstoreOnly: false }
-    );
+    // 2. Aplica escala uniforme na cena através da viewportTransform do Fabric
+    this.canvas.setViewportTransform([scale, 0, 0, scale, 0, 0]);
 
     this.canvas.calcOffset();
     this.canvas.requestRenderAll();
@@ -477,6 +496,13 @@ export class WhiteboardEngine {
             : pathData,
         },
       };
+
+      diagLog('path:created', {
+        tool: this.activeTool,
+        author: this.author,
+        isEraser,
+        elementId,
+      });
 
       this.emitEvent(event);
     });
@@ -559,6 +585,7 @@ export class WhiteboardEngine {
   private startShapeCreation(e: any): void {
     this.isCreatingShape = true;
     this.shapeOrigin = this.pointerToScene(e);
+    this.lastPointerScene = this.shapeOrigin;
 
     const { x, y } = this.shapeOrigin;
 
@@ -608,6 +635,7 @@ export class WhiteboardEngine {
     if (!this.previewShape || !this.shapeOrigin) return;
 
     const current = this.pointerToScene(e);
+    this.lastPointerScene = current;
 
     if (this.activeTool === 'rectangle') {
       const left = Math.min(this.shapeOrigin.x, current.x);
@@ -634,7 +662,17 @@ export class WhiteboardEngine {
   private finishShapeCreation(e: any): void {
     if (!this.shapeOrigin) return;
 
-    const current = this.pointerToScene(e);
+    let current = e ? this.pointerToScene(e) : null;
+    if (
+      !current ||
+      (current.x === 0 &&
+        current.y === 0 &&
+        this.lastPointerScene &&
+        (this.lastPointerScene.x !== 0 || this.lastPointerScene.y !== 0))
+    ) {
+      current = this.lastPointerScene || this.shapeOrigin;
+    }
+
     const dist = Math.hypot(current.x - this.shapeOrigin.x, current.y - this.shapeOrigin.y);
 
     if (this.previewShape) {
@@ -645,7 +683,15 @@ export class WhiteboardEngine {
 
     // Ignora cliques mínimos sem arraste
     if (dist < 4) {
+      diagLog('finishShapeCreation', {
+        tool: this.activeTool,
+        author: this.author,
+        tipo: this.activeTool,
+        dist: Math.round(dist),
+        descartado: true,
+      });
       this.shapeOrigin = null;
+      this.lastPointerScene = null;
       return;
     }
 
@@ -691,7 +737,16 @@ export class WhiteboardEngine {
       };
     }
 
+    diagLog('finishShapeCreation', {
+      tool: this.activeTool,
+      author: this.author,
+      tipo,
+      dist: Math.round(dist),
+      descartado: false,
+    });
+
     this.shapeOrigin = null;
+    this.lastPointerScene = null;
 
     if (tipo) {
       const event: WhiteboardEvent = {
@@ -741,7 +796,24 @@ export class WhiteboardEngine {
       this.canvas.remove(textObj);
 
       const textValue = textObj.text?.trim();
-      if (!textValue) return;
+      if (!textValue) {
+        diagLog('finishShapeCreation', {
+          tool: 'text',
+          author: this.author,
+          tipo: 'text',
+          dist: 0,
+          descartado: true,
+        });
+        return;
+      }
+
+      diagLog('finishShapeCreation', {
+        tool: 'text',
+        author: this.author,
+        tipo: 'text',
+        dist: textValue.length,
+        descartado: false,
+      });
 
       const event: WhiteboardEvent = {
         id: generateUUID(),
@@ -866,6 +938,13 @@ export class WhiteboardEngine {
    * Emite evento padronizado para o Reducer/Session Manager
    */
   private emitEvent(event: WhiteboardEvent): void {
+    diagLog('emitEvent', {
+      tipo: event.tipo,
+      autor: event.autor,
+      id: event.id,
+      abaId: event.aba_id,
+      payloadId: (event.payload as any)?.id,
+    });
     if (this.onEmitEvent) {
       this.onEmitEvent(event);
     }
@@ -930,11 +1009,15 @@ export class WhiteboardEngine {
     const visibleElements = getVisibleElements(state);
     const visibleIds = new Set(visibleElements.map((el) => el.id));
 
+    const idsRemovidos: string[] = [];
+    const idsAdicionados: string[] = [];
+
     // 1. Remove do canvas qualquer objeto que foi ocultado (DRAW_HIDE, CLEAR_TAB, UNDO)
     for (const [id, fabricObj] of this.objectsMap.entries()) {
       if (!visibleIds.has(id)) {
         this.canvas.remove(fabricObj);
         this.objectsMap.delete(id);
+        idsRemovidos.push(id);
       }
     }
 
@@ -948,9 +1031,17 @@ export class WhiteboardEngine {
           (fabricObj as any).autor = el.autor;
           this.canvas.add(fabricObj);
           this.objectsMap.set(el.id, fabricObj);
+          idsAdicionados.push(el.id);
         }
       }
     }
+
+    diagLog('renderState', {
+      autor: this.author,
+      totalVisiveis: visibleElements.length,
+      adicionados: idsAdicionados,
+      removidos: idsRemovidos,
+    });
 
     this.canvas.requestRenderAll();
   }
