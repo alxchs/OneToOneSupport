@@ -14,16 +14,17 @@ Write-Host "==========================================================" -Foregro
 
 # 1. Verificacao de Git (Branch e Arvore Limpa)
 if (-not $SkipGitCheck) {
-  [string]$currentBranch = (git rev-parse --abbrev-ref HEAD)
-  $currentBranch = $currentBranch.Trim()
+  # Nota: (git ...) pode avaliar para $null quando executado como arquivo .ps1 (mesmo com saida de
+  # uma linha so, em certas versoes do PowerShell); [string]$x = $null tambem pode virar $null em vez
+  # de "" nesse contexto. Out-String garante sempre uma string real, nunca $null.
+  $currentBranch = (git rev-parse --abbrev-ref HEAD | Out-String).Trim()
   $expectedBranch = "fase/07-homologacao-1"
   if ($currentBranch -ne $expectedBranch) {
     Write-Error "[ERRO] Branch incorreta: '$currentBranch'. Esperada: '$expectedBranch'."
     exit 1
   }
 
-  [string]$gitStatus = (git status --porcelain)
-  $gitStatus = $gitStatus.Trim()
+  $gitStatus = (git status --porcelain | Out-String).Trim()
   if ($gitStatus) {
     Write-Error "[ERRO] Existem alteracoes nao commitadas na arvore Git. Faca commit antes de homologar:`n$gitStatus"
     exit 1
