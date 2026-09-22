@@ -634,3 +634,113 @@ PASS  V3: 4 direções e 7 ferramentas deixam pixels não-transparentes no Host
 PASS  V3: 4 direções e 7 ferramentas sincronizam pixels não-transparentes no Guest
 ```
 *(27/27 checagens PASS)*
+
+---
+
+### Homologação 2 (D1) — Encaminhamento de Diagnóstico do Renderer para o Terminal do Host
+
+#### 1. Instrução literal para o dono do produto (D1.6)
+
+> para relatar um problema no quadro branco, feche tudo, rode tools\homologar.ps1, desenhe, e copie TODO o texto do terminal para o chefe — não precisa abrir nada além do que já abre.
+
+#### 2. Implementação das Entregas (D1.1 a D1.5)
+
+* **D1.1 & D1.2 — Canal IPC `diag:forward` e Encaminhamento do Host (`[DIAG-HOST]`):**
+  - Adicionado canal `IPC_CHANNELS.DIAG_FORWARD = 'diag:forward'` em `src/shared/ipc-contract.ts` e tipagem em `DesktopAPI.diagForward`.
+  - Exposição condicional em `electron/preload.ts`: as bridges `__ONETOONE_DIAG_FORWARD__` e `desktopAPI.diagForward` são expostas no `contextBridge` **estritamente** quando `isDiagEnabled()` for verdadeiro (`ONETOONE_DIAG=1` e `NODE_ENV !== 'production'`). Nunca expostas em ambiente de produção.
+  - Implementada função `diagLog` em `src/shared/diag.ts`: além de registrar no DevTools com sanitização de segredos via `sanitizeDiagData`, despacha o checkpoint e dados sanitizados por IPC para o Main Process.
+  - Criado `electron/ipc/diag.ipc.ts` e registrado em `electron/ipc/router.ts`: escuta `diag:forward`, recebe eventos sanitizados e imprime no stdout do terminal com o prefixo `[DIAG-HOST] [timestamp] [checkpoint]`.
+
+* **D1.3 — Diagnóstico do Servidor WebSocket / LAN (`[DIAG-SERVER]`):**
+  - Implementada função `diagServerLog(checkpoint, data)` em `src/shared/diag.ts`, registrando com prefixo `[DIAG-SERVER] [timestamp] [checkpoint]` e sanitização de segurança.
+  - Instrumentação de borda em `electron/server/ws.ts`:
+    - Checkpoint `autoridade`: registra a decisão de `sessionManager.canGuestExecute(innerType)` com tipo, permissão e motivo.
+    - Checkpoint `descarte` / `serverDrop`: cobre todas as razões de descarte de conexão/envelope/mensagem com motivo, estágio e detalhes.
+    - Checkpoint `chegada no Guest` / `chegadaNoGuest`: notificado no callback assíncrono de transmissão do frame WebSocket para o socket do sistema operacional (`tcp_flushed`).
+    - Checkpoint `guestEventReceived`: registra eventos decifrados recebidos do Guest.
+  - Instrumentação em `electron/server/index.ts`:
+    - Checkpoint `pathTraversal`: detecta tentativas de navegação maliciosa por `abaId` / `sessaoId` e descarta o evento com `descarte`.
+    - Checkpoint `broadcastToGuest`: registra o despacho de eventos do Host para o convidado via WebSocket cifrado.
+    - Checkpoint `guestEventPersisted`: confirma a persistência do evento do Guest na base SQLite.
+
+* **D1.4 — Visibilidade Integrada em Linha do Tempo Única:**
+  - O terminal onde o Host roda (`tools\homologar.ps1` ou `npm run dev`) unifica as saídas `[DIAG-HOST]` e `[DIAG-SERVER]`, dispensando que o usuário abra DevTools.
+
+* **D1.5 — Teste Automatizado de Timeline (`tools/test-diag-terminal.cjs`):**
+  - Desenha retângulo via SendInput real (`tools/drag-sendinput.ps1`) com Guest mobile conectado em emulação Chromium 412x915.
+  - Captura o stdout do processo `app` e valida cronologicamente a ordem exata de checkpoints:
+    `finishShapeCreation -> emitEvent -> aplicarEventoQuadro -> gravar (IPC) -> broadcastToGuest -> chegada no Guest -> renderState`.
+
+#### 3. Evidência Real de `tools/test-diag-terminal.cjs`
+```
+=================== VERIFICAÇÃO DE CHECKPOINTS NO TERMINAL ===================
+PASS: [path:created/finishShapeCreation] encontrado na pos 0:
+      [DIAG-HOST] [2026-09-22T11:08:09.332Z] [finishShapeCreation] {"tool":"rectangle","author":"host","tipo":"rect","dist":187,"descartado":false}
+PASS: [emitEvent] encontrado na pos 142:
+      [DIAG-HOST] [2026-09-22T11:08:09.332Z] [emitEvent] {"tipo":"DRAW_ADD","autor":"host","id":"b4868f52-f836-40e8-ba60-1218e3bc27a7","abaId":"default","payloadId":"ac36efce-87f1-4055-b0f1-e580dacb5152"}
+PASS: [aplicarEventoQuadro] encontrado na pos 341:
+      [DIAG-HOST] [2026-09-22T11:08:09.333Z] [aplicarEventoQuadro] {"tipo":"DRAW_ADD","visiveisAntes":0,"visiveisDepois":1,"abaId":"default","autor":"host"}
+PASS: [gravar (IPC)] encontrado na pos 492:
+      [DIAG-HOST] [2026-09-22T11:08:09.333Z] [gravar (IPC)] {"fase":"inicio","tipo":"DRAW_ADD","sessaoId":"3747783c-4cd5-4023-9e10-bb59d544a458","abaId":"default","autor":"host"}
+PASS: [broadcastToGuest] encontrado na pos 665:
+      [DIAG-SERVER] [2026-09-22T11:08:09.335Z] [broadcastToGuest] {"sucesso":true,"tipo":"DRAW_ADD","abaId":"default","autor":"host"}
+PASS: [chegada no Guest] encontrado na pos 793:
+      [DIAG-SERVER] [2026-09-22T11:08:09.335Z] [chegada no Guest] {"transporte":"tcp_flushed","tipo":"DRAW_ADD","connId":"faa7c92f-a53f-43ae-b136-7377a8d5c712"}
+PASS: [renderState] encontrado na pos 1101:
+      [DIAG-HOST] [2026-09-22T11:08:09.335Z] [renderState] {"autor":"host","totalVisiveis":1,"adicionados":["ac36efce-87f1-4055-b0f1-e580dacb5152"],"removidos":[]}
+==============================================================================
+```
+
+#### 4. Evidência Real de `npm run verify` Completo Pós-D1 (17 Suítes, 257 Testes, Sonda 27/27 PASS)
+```
+> onetoonesupport@1.0.0 verify
+> npm run typecheck && npm run build && npm test && npm run probe
+
+> onetoonesupport@1.0.0 typecheck
+> tsc --noEmit
+
+> onetoonesupport@1.0.0 build
+> node scripts/generate-build-info.mjs && tsc -p tsconfig.electron.json && vite build && vite build --config vite.config.guest.ts
+[BuildInfo] Carimbo gerado em C:\desenv\utils\OneToOneSupport\src\shared\build-info.json: 6de0c33 (fase/07-homologacao-1) 2026-09-22T11:09:15.027Z
+[BuildInfo] Carimbo gerado em C:\desenv\utils\OneToOneSupport\dist\guest\version.json: 6de0c33 (fase/07-homologacao-1) 2026-09-22T11:09:15.027Z
+
+> onetoonesupport@1.0.0 test
+> node scripts/test-runner.mjs
+ Test Files  17 passed (17)
+      Tests  257 passed (257)
+   Duration  11.51s
+
+> onetoonesupport@1.0.0 probe
+> node tools/probe-runtime.cjs
+PASS  typeof require === undefined
+PASS  typeof process === undefined
+PASS  UI renderizou (#root com filhos)
+PASS  CSP: script inline NAO executa
+PASS  CSP: eval bloqueado
+PASS  sem erro de pagina
+PASS  IPC: validacao de payload rejeita dado invalido com erro tipado
+PASS  UI: criar atendido
+PASS  UI: detectar duplicado com mensagem clara (Regra #1)
+PASS  UI: editar atendido
+PASS  UI: desativar atendido (soft delete)
+PASS  UI: iniciar sessao, gerar QR e abrir sala do servidor LAN
+PASS  Guest Mobile: carregou bundle do Guest e removeu hash da URL
+PASS  Guest Mobile: CSP sem violacoes no console
+PASS  Guest Mobile: sincronizacao bidirecional por conteudo (IDs de elementos)
+PASS  Guest Mobile: borracha de trecho sincronizou elemento eraser_stroke
+PASS  Guest Mobile: UNDO e REDO bidirecionais sincronizaram estado
+PASS  Guest Mobile: LOCK_SCREEN exibiu overlay e desbloqueou
+PASS  Guest Mobile: mute local emitiu GUEST_MUTED
+PASS  Guest Mobile: barra de ferramentas totalmente visivel na viewport
+PASS  UI: abrir quadro branco HiDPI e verificar DPR 1.5
+PASS  UI: desenhar traço, retângulo, texto, desfazer/refazer e borracha
+PASS  UI: alterar rotulo no dicionario
+PASS  Banco: sem dados duplicados no SQLite
+PASS  V1: Carimbo de versão visível no Host (#host-version-stamp)
+PASS  V1: Carimbo de versão visível no Guest (#guest-version-stamp)
+PASS  V1: Carimbo coincide entre Host e Guest sem aviso de desatualizado
+PASS  V3: Entrada real Windows SendInput com SetProcessDPIAware produziu pixels
+PASS  V3: 4 direções e 7 ferramentas deixam pixels não-transparentes no Host
+PASS  V3: 4 direções e 7 ferramentas sincronizam pixels não-transparentes no Guest
+```
+*(27/27 checagens PASS)*

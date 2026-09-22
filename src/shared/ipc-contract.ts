@@ -52,6 +52,9 @@ export const IPC_CHANNELS = {
   // Eventos de Quadro Branco e Event Sourcing (Fases 05 e 06)
   EVENTO_GRAVAR: 'evento:gravar',
   EVENTO_OBTER_ESTADO: 'evento:obter-estado',
+
+  // Diagnóstico Forward (D1)
+  DIAG_FORWARD: 'diag:forward',
 } as const;
 
 export type IPCChannelName = typeof IPC_CHANNELS[keyof typeof IPC_CHANNELS];
@@ -236,6 +239,8 @@ export interface DesktopAPI {
     gravar: (payload: GravarEventoPayload) => Promise<IPCResult<any>>;
     obterEstadoAba: (sessao_id: string, aba_id?: string) => Promise<IPCResult<any>>;
   };
+
+  diagForward?: (checkpoint: string, data?: Record<string, unknown>) => void;
 }
 
 declare global {

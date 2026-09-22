@@ -20,32 +20,72 @@ export function isDiagEnabled(): boolean {
   return false;
 }
 
+export function sanitizeDiagData(data: Record<string, unknown>): Record<string, unknown> {
+  const safeData: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(data)) {
+    const lower = k.toLowerCase();
+    if (
+      lower.includes('token') ||
+      lower.includes('secret') ||
+      lower.includes('key') ||
+      lower.includes('nonce') ||
+      lower.includes('hash') ||
+      lower.includes('segredo') ||
+      lower.includes('plaintext') ||
+      lower.includes('pass')
+    ) {
+      safeData[k] = '[REDACTED]';
+    } else {
+      safeData[k] = v;
+    }
+  }
+  return safeData;
+}
+
 export function diagLog(checkpoint: string, data?: Record<string, unknown>): void {
   if (!isDiagEnabled()) return;
 
   const ts = new Date().toISOString();
-  if (data) {
-    // Sanitização de segurança: remove chaves sensíveis caso existam
-    const safeData: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(data)) {
-      const lower = k.toLowerCase();
-      if (
-        lower.includes('token') ||
-        lower.includes('secret') ||
-        lower.includes('key') ||
-        lower.includes('nonce') ||
-        lower.includes('hash') ||
-        lower.includes('segredo') ||
-        lower.includes('plaintext') ||
-        lower.includes('pass')
-      ) {
-        safeData[k] = '[REDACTED]';
-      } else {
-        safeData[k] = v;
-      }
-    }
+  const safeData = data ? sanitizeDiagData(data) : undefined;
+
+  if (safeData) {
     console.log(`[DIAG ${ts}] [${checkpoint}]`, JSON.stringify(safeData));
   } else {
     console.log(`[DIAG ${ts}] [${checkpoint}]`);
   }
+
+  // Encaminha diagnóstico do Host (renderer) para o processo principal via IPC (D1)
+  if (typeof window !== 'undefined') {
+    const w = window as any;
+    if (typeof w.__ONETOONE_DIAG_FORWARD__ === 'function') {
+      try {
+        w.__ONETOONE_DIAG_FORWARD__(checkpoint, safeData);
+      } catch {
+        // noop
+      }
+    } else if (w.desktopAPI && typeof w.desktopAPI.diagForward === 'function') {
+      try {
+        w.desktopAPI.diagForward(checkpoint, safeData);
+      } catch {
+        // noop
+      }
+    }
+  }
 }
+
+/**
+ * Diagnóstico do Servidor (electron/server side) com prefixo [DIAG-SERVER] (D1)
+ */
+export function diagServerLog(checkpoint: string, data?: Record<string, unknown>): void {
+  if (!isDiagEnabled()) return;
+
+  const ts = new Date().toISOString();
+  const safeData = data ? sanitizeDiagData(data) : undefined;
+
+  if (safeData) {
+    console.log(`[DIAG-SERVER] [${ts}] [${checkpoint}]`, JSON.stringify(safeData));
+  } else {
+    console.log(`[DIAG-SERVER] [${ts}] [${checkpoint}]`);
+  }
+}
+

@@ -49,6 +49,9 @@ const IPC_CHANNELS = {
 
   EVENTO_GRAVAR: 'evento:gravar',
   EVENTO_OBTER_ESTADO: 'evento:obter-estado',
+
+  // Diagnóstico Forward (D1)
+  DIAG_FORWARD: 'diag:forward',
 } as const;
 
 export type { DisplayMetrics, DesktopAPI };
@@ -142,8 +145,31 @@ const desktopAPI: DesktopAPI = {
   },
 };
 
+const isDiag = process.env.ONETOONE_DIAG === '1' && process.env.NODE_ENV !== 'production';
+
+if (isDiag) {
+  desktopAPI.diagForward = (checkpoint: string, data?: Record<string, unknown>) => {
+    try {
+      ipcRenderer.send(IPC_CHANNELS.DIAG_FORWARD, { checkpoint, data });
+    } catch {
+      // noop
+    }
+  };
+}
+
 contextBridge.exposeInMainWorld('desktopAPI', desktopAPI);
 
-if (process.env.ONETOONE_DIAG === '1' && process.env.NODE_ENV !== 'production') {
+if (isDiag) {
   contextBridge.exposeInMainWorld('__ONETOONE_DIAG__', true);
+  contextBridge.exposeInMainWorld(
+    '__ONETOONE_DIAG_FORWARD__',
+    (checkpoint: string, data?: Record<string, unknown>) => {
+      try {
+        ipcRenderer.send(IPC_CHANNELS.DIAG_FORWARD, { checkpoint, data });
+      } catch {
+        // noop
+      }
+    }
+  );
 }
+

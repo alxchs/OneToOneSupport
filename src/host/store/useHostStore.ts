@@ -416,6 +416,13 @@ export const useHostStore = create<HostState>((set, get) => ({
     set({ tabState: proximoEstado });
 
     if (window.desktopAPI?.eventos && activeSessaoId) {
+      diagLog('gravar (IPC)', {
+        fase: 'inicio',
+        tipo: evento.tipo,
+        sessaoId: activeSessaoId,
+        abaId: activeAbaId,
+        autor: evento.autor,
+      });
       try {
         const res = await window.desktopAPI.eventos.gravar({
           sessao_id: activeSessaoId,
@@ -427,6 +434,13 @@ export const useHostStore = create<HostState>((set, get) => ({
         const isSuccess = Boolean(res && res.success);
         const errCode = res && !res.success ? res.error : undefined;
         const errMsg = res && !res.success ? res.message : undefined;
+        diagLog('gravar (IPC)', {
+          fase: 'retorno',
+          sucesso: isSuccess,
+          erro: errCode,
+          motivo: errMsg,
+          tipo: evento.tipo,
+        });
         diagLog('gravarEventoIPC', {
           sucesso: isSuccess,
           erro: errCode,
@@ -435,6 +449,13 @@ export const useHostStore = create<HostState>((set, get) => ({
         });
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
+        diagLog('gravar (IPC)', {
+          fase: 'retorno',
+          sucesso: false,
+          erro: 'EXCEPTION',
+          motivo: msg,
+          tipo: evento.tipo,
+        });
         diagLog('gravarEventoIPC', {
           sucesso: false,
           erro: 'EXCEPTION',
