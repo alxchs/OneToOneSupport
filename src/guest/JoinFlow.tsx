@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { GuestWsClient } from './ws/client';
 import { GuestRoom } from './GuestRoom';
 import { extractHostPublicKeyFromFragment } from '../shared/crypto/invite';
+import buildInfo from '../shared/build-info.json';
 
 export type JoinStep =
   | 'reading_url'
@@ -259,6 +260,18 @@ export const JoinFlow: React.FC = () => {
             </button>
           </div>
         )}
+        <div
+          id="guest-version-stamp"
+          style={{
+            marginTop: '1.25rem',
+            fontSize: '0.6875rem',
+            color: '#64748b',
+            fontFamily: 'monospace',
+            textAlign: 'center',
+          }}
+        >
+          {buildInfo.stamp}
+        </div>
       </div>
     </div>
   );

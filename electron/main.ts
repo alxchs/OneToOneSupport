@@ -3,7 +3,34 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { initDb } from './db/connection';
 import { registerIpcHandlers } from './ipc/router';
-import { IPC_CHANNELS } from '../src/shared/ipc-contract';
+import { IPC_CHANNELS, VersionInfoDTO } from '../src/shared/ipc-contract';
+import buildInfo from '../src/shared/build-info.json';
+
+export function getVersionInfo(): VersionInfoDTO {
+  const candidatePaths = [
+    path.resolve(__dirname, '../../dist/guest/version.json'),
+    path.resolve(__dirname, '../guest/version.json'),
+    path.resolve(process.cwd(), 'dist/guest/version.json'),
+  ];
+  let guestCommit: string | null = null;
+  let guestStamp: string | null = null;
+  for (const p of candidatePaths) {
+    if (fs.existsSync(p)) {
+      try {
+        const parsed = JSON.parse(fs.readFileSync(p, 'utf8'));
+        guestCommit = parsed.commit;
+        guestStamp = parsed.stamp;
+        break;
+      } catch {}
+    }
+  }
+  const guestOutdated = !guestCommit || guestCommit !== buildInfo.commit;
+  return {
+    hostStamp: buildInfo.stamp,
+    guestStamp: guestStamp || undefined,
+    guestOutdated,
+  };
+}
 
 function createWindow(): BrowserWindow {
   const primaryDisplay = screen.getPrimaryDisplay();
@@ -119,10 +146,20 @@ ipcMain.handle(IPC_CHANNELS.DESKTOP_GET_DISPLAY_METRICS, () => {
 });
 
 ipcMain.handle(IPC_CHANNELS.DESKTOP_GET_APP_VERSION, () => {
-  return app.getVersion();
+  return buildInfo.stamp;
+});
+
+ipcMain.handle(IPC_CHANNELS.DESKTOP_GET_VERSION_INFO, () => {
+  return getVersionInfo();
 });
 
 app.whenReady().then(() => {
+  console.log(`[Version] ${buildInfo.stamp}`);
+  const vInfo = getVersionInfo();
+  if (vInfo.guestOutdated) {
+    console.warn('[Version] Guest desatualizado: rode npm run build');
+  }
+
   // Inicializar banco de dados do Host
   try {
     initDb();

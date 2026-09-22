@@ -1,13 +1,21 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { GuestWsClient, GuestConnectionState } from './ws/client';
-import { WhiteboardEngine, WhiteboardTool } from '../shared/canvas/engine';
+import {
+  WhiteboardEngine,
+  WhiteboardTool,
+  CANONICAL_VIRTUAL_WIDTH,
+  CANONICAL_VIRTUAL_HEIGHT,
+} from '../shared/canvas/engine';
 import {
   TabState,
   createInitialTabState,
   reduceEvent,
+  getVisibleElements,
   WhiteboardEvent,
 } from '../shared/events/reducer';
 import { generateUUID } from '../shared/events/protocol';
+import { diagLog } from '../shared/diag';
+import buildInfo from '../shared/build-info.json';
 
 export interface GuestRoomProps {
   wsClient: GuestWsClient;
@@ -114,6 +122,12 @@ export const GuestRoom: React.FC<GuestRoomProps> = ({
           setTabStates((prev) => {
             const currentTabState = prev[targetAba] || createInitialTabState(targetAba);
             const updated = reduceEvent(currentTabState, ev);
+            diagLog('guestReceive', {
+              tipo: msg.type,
+              abaId: targetAba,
+              visiveisDepois: getVisibleElements(updated).length,
+              autor: msg.autor || 'host',
+            });
             return { ...prev, [targetAba]: updated };
           });
           break;
@@ -123,6 +137,11 @@ export const GuestRoom: React.FC<GuestRoomProps> = ({
           const targetAba = msg.abaId || 'default';
           const incomingState = msg.state || msg.payload?.state;
           if (incomingState) {
+            diagLog('guestReceive', {
+              tipo: 'TAB_STATE',
+              abaId: targetAba,
+              elementos: incomingState.elementOrder?.length || 0,
+            });
             setTabStates((prev) => ({
               ...prev,
               [targetAba]: incomingState,
@@ -165,12 +184,12 @@ export const GuestRoom: React.FC<GuestRoomProps> = ({
     if (!canvasRef.current || !containerRef.current) return;
 
     const rect = containerRef.current.getBoundingClientRect();
-    const initWidth = Math.max(360, Math.floor(rect.width) || 412);
-    const initHeight = Math.max(400, Math.floor(rect.height) || 600);
+    const displayWidth = Math.max(100, Math.floor(rect.width) || 412);
+    const displayHeight = Math.max(100, Math.floor(rect.height) || 600);
 
     const engine = new WhiteboardEngine(canvasRef.current, {
-      virtualWidth: initWidth,
-      virtualHeight: initHeight,
+      virtualWidth: CANONICAL_VIRTUAL_WIDTH,
+      virtualHeight: CANONICAL_VIRTUAL_HEIGHT,
       autor: 'guest',
       sessaoId,
       abaId: activeAbaId,
@@ -179,6 +198,12 @@ export const GuestRoom: React.FC<GuestRoomProps> = ({
         if (screenLocked) {
           return;
         }
+
+        diagLog('guestSend', {
+          tipo: evento.tipo,
+          abaId: activeAbaId,
+          autor: 'guest',
+        });
 
         // Aplica localmente no reducer
         setTabStates((prev) => {
@@ -205,6 +230,8 @@ export const GuestRoom: React.FC<GuestRoomProps> = ({
         setFerramenta(tool);
       },
     });
+
+    engine.setDimensions(displayWidth, displayHeight);
 
     engine.setStrokeColor(corAtual);
     engine.setStrokeWidth(espessuraAtual);
@@ -275,6 +302,7 @@ export const GuestRoom: React.FC<GuestRoomProps> = ({
   // Ação de Desfazer do Guest (desfaz sua própria última ação)
   const handleDesfazer = () => {
     if (screenLocked) return;
+    diagLog('guestSend', { tipo: 'UNDO', abaId: activeAbaId, autor: 'guest' });
     const ev: WhiteboardEvent = {
       id: generateUUID(),
       sessao_id: sessaoId,
@@ -308,6 +336,7 @@ export const GuestRoom: React.FC<GuestRoomProps> = ({
   // Ação de Refazer do Guest (refaz sua própria última ação)
   const handleRefazer = () => {
     if (screenLocked) return;
+    diagLog('guestSend', { tipo: 'REDO', abaId: activeAbaId, autor: 'guest' });
     const ev: WhiteboardEvent = {
       id: generateUUID(),
       sessao_id: sessaoId,
@@ -415,6 +444,17 @@ export const GuestRoom: React.FC<GuestRoomProps> = ({
             </span>
             <span style={{ fontSize: '0.6875rem', color: '#94a3b8' }}>
               {rotuloGuest} • Atendimento 1:1
+            </span>
+            <span
+              id="guest-version-stamp"
+              style={{
+                fontSize: '0.625rem',
+                color: '#64748b',
+                fontFamily: 'monospace',
+                marginTop: '1px',
+              }}
+            >
+              {buildInfo.stamp}
             </span>
           </div>
         </div>

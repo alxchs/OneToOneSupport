@@ -3,8 +3,14 @@ import react from '@vitejs/plugin-react';
 import path from 'path';
 import fs from 'fs';
 import { GUEST_CSP } from './src/shared/csp';
+import buildInfo from './src/shared/build-info.json';
 
 export default defineConfig({
+  define: {
+    'process.env.ONETOONE_DIAG': JSON.stringify(process.env.ONETOONE_DIAG || ''),
+    'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV || 'development'),
+    __APP_BUILD_INFO__: JSON.stringify(buildInfo),
+  },
   plugins: [
     react(),
     {
@@ -33,6 +39,8 @@ export default defineConfig({
         if (fs.existsSync(guestPath)) {
           fs.copyFileSync(guestPath, indexPath);
         }
+        const versionPath = path.resolve(__dirname, 'dist/guest/version.json');
+        fs.writeFileSync(versionPath, JSON.stringify(buildInfo, null, 2), 'utf8');
       },
     },
   ],

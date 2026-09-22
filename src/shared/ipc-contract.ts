@@ -35,6 +35,7 @@ export const IPC_CHANNELS = {
   DESKTOP_GET_SCALE_FACTOR: 'desktop:get-scale-factor',
   DESKTOP_GET_DISPLAY_METRICS: 'desktop:get-display-metrics',
   DESKTOP_GET_APP_VERSION: 'desktop:get-app-version',
+  DESKTOP_GET_VERSION_INFO: 'desktop:get-version-info',
 
   // Servidor e Sessão Remota (Fase 04 e 07)
   SERVER_START_SESSION: 'server:start-session',
@@ -182,10 +183,17 @@ export interface ObterEstadoAbaPayload {
   aba_id?: string;
 }
 
+export interface VersionInfoDTO {
+  hostStamp: string;
+  guestStamp?: string;
+  guestOutdated: boolean;
+}
+
 export interface DesktopAPI {
   getScaleFactor: () => Promise<number>;
   getDisplayMetrics: () => Promise<DisplayMetrics>;
   getAppVersion: () => Promise<string>;
+  getVersionInfo: () => Promise<VersionInfoDTO>;
 
   atendidos: {
     list: (filter?: ListAtendidosPayload) => Promise<IPCResult<AtendidoDTO[]>>;

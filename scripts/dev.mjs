@@ -8,6 +8,9 @@ const __dirname = path.dirname(__filename);
 const projectRoot = path.resolve(__dirname, '..');
 
 async function startDev() {
+  console.log('[Dev] Gerando carimbo de versão...');
+  execSync('node scripts/generate-build-info.mjs', { cwd: projectRoot, stdio: 'inherit' });
+
   console.log('[Dev] Compilando processo principal do Electron...');
   execSync('npx tsc -p tsconfig.electron.json', { cwd: projectRoot, stdio: 'inherit' });
 
