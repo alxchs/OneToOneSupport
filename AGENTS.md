@@ -40,6 +40,16 @@ Você é auditado por outra IA que **reexecuta tudo** e por ferramentas automát
 6. Escreva `docs/reviews/autoauditoria-NN.md`: cada critério → comando → saída real → PASS/FAIL, e a lista do que **NÃO foi verificado**. Sem evidência = FAIL.
 7. Só então atualize o HANDOFF, commite e pare.
 
+### Prova prometida = prova entregue, não uma mais fraca (checado por máquina)
+Quando uma ordem de serviço pede prova visual/pixel (palavras como "pixel", "amostragem", "captura de tela"), a
+autoauditoria PRECISA conter, perto do mesmo item (ID do cabeçalho, ex. `H3`, `C1`, `RT4`), uma evidência real de
+pixel (contagem de pixels, `getImageData`, captura de tela) — não uma checagem mais fácil e mais fraca (ex.: "a
+propriedade do objeto está configurada certo") apresentada como se cumprisse o pedido. `node tools/checar-provas.cjs
+--root .` roda isso automaticamente e agora faz parte de `tools/auditar.cjs`: reprova mesmo que a linha da
+autoauditoria diga PASS. Isso existe porque já aconteceu (Fase 07, borracha de trecho): pixel prometido, propriedade
+entregue, PASS marcado. Regra geral: nunca troque o método de prova pedido por um mais barato sem avisar
+explicitamente no relatório que a prova pedida NÃO foi feita.
+
 ### Regras de ouro contra invenção (aprendidas na prática)
 - **Não invente.** Todo evento, arquivo, função, branch, script ou comando que você citar na documentação precisa existir no código. `tools/verificar-afirmacoes.cjs` confere e reprova. Não prometa "será implementado na fase X" o que o plano não prevê.
 - **Divergência do plano = ADR.** Se você acrescentou/removeu algo em relação à ordem de serviço, registre em `docs/ADR/` e no HANDOFF. "Nenhuma divergência" só se for verdade.
