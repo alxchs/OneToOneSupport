@@ -744,3 +744,10 @@ PASS  V3: 4 direções e 7 ferramentas deixam pixels não-transparentes no Host
 PASS  V3: 4 direções e 7 ferramentas sincronizam pixels não-transparentes no Guest
 ```
 *(27/27 checagens PASS)*
+
+---
+
+## Investigação do Ciclo de `mouse:up` e Percepção Visual (2026-09-23)
+
+* **Conclusão Principal (Pista Encontrada e Confirmada):** Investigação detalhada em `docs/reviews/investigacao-mouseup.md` confirmou a causa-raiz arquitetural da queixa do dono ("apaga ao soltar" e "parece colar em cima"). Em `src/shared/canvas/engine.ts:475`, o listener de `path:created` invoca `this.canvas.remove(pathObj)`, removendo imediatamente o traço cru do canvas para esperar a projeção do Reducer (`renderState`). Embora o objeto reconstruído seja 100% vetorial (`new Path(...)` em `engine.ts:108`) e não haja nenhuma conversão para bitmap, a remoção síncrona somada ao ciclo assíncrono do `useEffect` do React gera uma janela (medida em ~1.5ms a 2.2ms no Host e potencialmente mais longa no Guest com tela de 120Hz e cifra WebAssembly) em que o canvas fica sem o traço no momento em que o navegador pinta o frame, provocando piscamento visual (flicker) e a sensação perceptiva de que o traço foi deletado e um novo objeto foi "colado" por cima.
+
