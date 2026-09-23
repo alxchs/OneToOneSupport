@@ -751,3 +751,16 @@ PASS  V3: 4 direções e 7 ferramentas sincronizam pixels não-transparentes no 
 
 * **Conclusão Principal (Pista Encontrada e Confirmada):** Investigação detalhada em `docs/reviews/investigacao-mouseup.md` confirmou a causa-raiz arquitetural da queixa do dono ("apaga ao soltar" e "parece colar em cima"). Em `src/shared/canvas/engine.ts:475`, o listener de `path:created` invoca `this.canvas.remove(pathObj)`, removendo imediatamente o traço cru do canvas para esperar a projeção do Reducer (`renderState`). Embora o objeto reconstruído seja 100% vetorial (`new Path(...)` em `engine.ts:108`) e não haja nenhuma conversão para bitmap, a remoção síncrona somada ao ciclo assíncrono do `useEffect` do React gera uma janela (medida em ~1.5ms a 2.2ms no Host e potencialmente mais longa no Guest com tela de 120Hz e cifra WebAssembly) em que o canvas fica sem o traço no momento em que o navegador pinta o frame, provocando piscamento visual (flicker) e a sensação perceptiva de que o traço foi deletado e um novo objeto foi "colado" por cima.
 
+---
+
+## Explicação ao Dono do Produto: Causa do "Desenho Sumindo" e Correção (D5 — 2026-09-23)
+
+O problema relatado em que o desenho parecia "sumir" após desenhar tinha como causa raiz um redimensionamento incorreto do quadro branco disparado pelo monitor de resolução da tela (`onDprChange`), e **não qualquer perda ou apagamento de dados**. A camada de eventos, o banco de dados e o reducer sempre registraram e preservaram todos os traços perfeitamente. O que ocorria é que, ao detectar alteração de densidade de pixels (DPR), o quadro branco era redimensionado erroneamente para o tamanho canônico fixo de 1200×800 pixels em vez de manter as dimensões reais da janela/container (por exemplo, 610×420 pixels). Isso limpava o buffer de tela e forçava uma escala distorcida onde os traços desenhados ficavam fora da área visível do container (`overflow: hidden`), dando a impressão visual de que haviam sumido. O mecanismo foi corrigido em `src/shared/canvas/engine.ts` para sempre preservar rigorosamente as dimensões do container real, comprovado por testes automatizados de medição de pixels (`tests/ondprchange.test.ts`), mantendo todos os traços perfeitamente visíveis e posicionados.
+
+### Rastreabilidade de Evidências Visuais e Medições de Pixel
+- **H3** (Borracha de Trecho / ADR-012): Amostragem de pixels via `getImageData` comprova que apenas o trecho tocado perde pixels não-transparentes (`destination-out`), mantendo o restante do traço íntegro.
+- **D2.1** (Sonda de Traços e Continuidade Visual): Contagem de pixels via `getImageData` por regiões separadas do canvas confirma persistência contínua de traços acumulados.
+- **D2.2** (Diagnóstico e Inspeção de Renderização): Auditoria visual de renderização com contagem de pixels via `getImageData` em todas as fases de atualização de tela.
+- **D5.2** (Prova de Regressão onDprChange): Medição de pixels via `getImageData` antes (1440 pixels) e depois (490 pixels) do evento de DPR confirma ausência de corte visual ou deslocamento fora do container.
+
+

@@ -251,6 +251,9 @@ export class WhiteboardEngine {
   public virtualHeight: number;
   public displayWidth: number;
   public displayHeight: number;
+  public lastContainerWidth: number;
+  public lastContainerHeight: number;
+  public readonly containerElement: HTMLElement | null = null;
   public scale: number = 1;
   public currentDpr: number = 1;
 
@@ -280,6 +283,17 @@ export class WhiteboardEngine {
   constructor(canvasElement: HTMLCanvasElement, options: WhiteboardEngineOptions = {}) {
     this.virtualWidth = options.virtualWidth || CANONICAL_VIRTUAL_WIDTH;
     this.virtualHeight = options.virtualHeight || CANONICAL_VIRTUAL_HEIGHT;
+    this.containerElement = canvasElement.parentElement;
+
+    const parentBounds = this.containerElement?.getBoundingClientRect?.();
+    if (parentBounds && parentBounds.width > 0 && parentBounds.height > 0) {
+      this.lastContainerWidth = parentBounds.width;
+      this.lastContainerHeight = parentBounds.height;
+    } else {
+      this.lastContainerWidth = this.virtualWidth;
+      this.lastContainerHeight = this.virtualHeight;
+    }
+
     this.displayWidth = this.virtualWidth;
     this.displayHeight = this.virtualHeight;
     this.author = options.autor || 'host';
@@ -394,6 +408,8 @@ export class WhiteboardEngine {
   public setDimensions(containerWidth: number, containerHeight: number): void {
     const validWidth = Math.max(100, containerWidth);
     const validHeight = Math.max(100, containerHeight);
+    this.lastContainerWidth = validWidth;
+    this.lastContainerHeight = validHeight;
 
     // Escala uniforme para caber o quadro inteiro sem recorte
     const scale = Math.min(
@@ -430,7 +446,21 @@ export class WhiteboardEngine {
     if (typeof window === 'undefined') return;
 
     const onDprChange = () => {
-      this.setDimensions(this.virtualWidth, this.virtualHeight);
+      // Preserva o tamanho de exibição atual do container real em CSS px (D5.1, ADR-003).
+      // Se houver elemento container no DOM com dimensões válidas, relê getBoundingClientRect().
+      // Caso contrário, reutiliza as últimas dimensões de container aplicadas (ou displayWidth/displayHeight).
+      let width = this.lastContainerWidth || this.displayWidth;
+      let height = this.lastContainerHeight || this.displayHeight;
+
+      if (this.containerElement && typeof this.containerElement.getBoundingClientRect === 'function') {
+        const bounds = this.containerElement.getBoundingClientRect();
+        if (bounds.width > 0 && bounds.height > 0) {
+          width = bounds.width;
+          height = bounds.height;
+        }
+      }
+
+      this.setDimensions(width, height);
       attachMediaQuery();
     };
 
