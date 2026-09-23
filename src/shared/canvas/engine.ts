@@ -294,6 +294,11 @@ export class WhiteboardEngine {
   private readonly repaintThrottleMs: number = 180;
   private pendingRepaintTimer: ReturnType<typeof setTimeout> | null = null;
 
+  // D8: checagem de CSS/DOM que poderia estar escondendo ou cobrindo o canvas mesmo com pixels corretos
+  private lastCssCheckTimestamp: number = 0;
+  private readonly cssCheckThrottleMs: number = 500;
+  private pendingCssCheckHandle: number | null = null;
+
   constructor(canvasElement: HTMLCanvasElement, options: WhiteboardEngineOptions = {}) {
     this.instanciaId = nextEngineInstanceId++;
     diagLog('engine_lifecycle', { evento: 'criado', instanciaId: this.instanciaId });
@@ -1099,6 +1104,7 @@ export class WhiteboardEngine {
 
     if (isDiagEnabled()) {
       this.schedulePixelDivergenceCheck();
+      this.scheduleCssVisibilityCheck();
     }
   }
 
@@ -1238,6 +1244,96 @@ export class WhiteboardEngine {
     }
   }
 
+  /**
+   * D8: Agenda checagem de que nada (CSS/DOM) está escondendo ou cobrindo o canvas visível,
+   * mesmo quando o buffer de pixels e o estado do Fabric estão corretos (ex.: exportação PNG
+   * do dono mostrou o desenho, mas a tela do app continuava em branco — descarta bug de pixel
+   * puro e investiga se é a APRESENTAÇÃO do elemento, não o conteúdo dele).
+   */
+  private scheduleCssVisibilityCheck(): void {
+    if (!isDiagEnabled()) return;
+    if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
+      return;
+    }
+    const now = Date.now();
+    if (now - this.lastCssCheckTimestamp < this.cssCheckThrottleMs) {
+      return;
+    }
+    if (this.pendingCssCheckHandle !== null) {
+      return;
+    }
+
+    this.pendingCssCheckHandle = window.requestAnimationFrame(() => {
+      this.pendingCssCheckHandle = window.requestAnimationFrame(() => {
+        this.pendingCssCheckHandle = null;
+        this.lastCssCheckTimestamp = Date.now();
+        this.checkCssVisibility();
+      });
+    });
+  }
+
+  /**
+   * D8: Lê o estado real de apresentação do canvas no DOM (bounding rect, display/visibility/opacity
+   * computados, e o que está de fato no topo da pilha de composição no ponto central do canvas).
+   * Registra SEMPRE que houver algo suspeito: dimensão zero, display none, visibility hidden,
+   * opacity baixa, ou um elemento diferente do canvas ocupando o centro dele.
+   */
+  public checkCssVisibility(): void {
+    if (!isDiagEnabled()) return;
+    if (typeof document === 'undefined' || typeof window === 'undefined') return;
+    if (!this.canvas) return;
+
+    try {
+      const lowerEl = this.canvas.lowerCanvasEl;
+      const upperEl = this.canvas.upperCanvasEl;
+      if (!lowerEl) return;
+
+      const rect = lowerEl.getBoundingClientRect();
+      const computed = window.getComputedStyle(lowerEl);
+      const parent = lowerEl.parentElement;
+      const parentComputed = parent ? window.getComputedStyle(parent) : null;
+
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height / 2;
+      const elementNoCentro =
+        typeof document.elementFromPoint === 'function'
+          ? document.elementFromPoint(centerX, centerY)
+          : null;
+
+      const suspeito =
+        rect.width <= 0 ||
+        rect.height <= 0 ||
+        computed.display === 'none' ||
+        computed.visibility === 'hidden' ||
+        parseFloat(computed.opacity || '1') < 0.5 ||
+        (parentComputed !== null &&
+          (parentComputed.display === 'none' || parentComputed.visibility === 'hidden')) ||
+        (elementNoCentro !== null &&
+          elementNoCentro !== lowerEl &&
+          elementNoCentro !== upperEl &&
+          !lowerEl.contains(elementNoCentro));
+
+      if (suspeito) {
+        diagLog('canvas_possivelmente_escondido', {
+          rectWidth: rect.width,
+          rectHeight: rect.height,
+          rectLeft: rect.left,
+          rectTop: rect.top,
+          display: computed.display,
+          visibility: computed.visibility,
+          opacity: computed.opacity,
+          parentDisplay: parentComputed?.display,
+          parentVisibility: parentComputed?.visibility,
+          elementoNoCentro: elementNoCentro
+            ? `${elementNoCentro.tagName}${(elementNoCentro as HTMLElement).id ? '#' + (elementNoCentro as HTMLElement).id : ''}${(elementNoCentro as HTMLElement).className ? '.' + String((elementNoCentro as HTMLElement).className).replace(/\s+/g, '.') : ''}`
+            : null,
+        });
+      }
+    } catch {
+      // Ignora falhas de leitura em contextos restritos ou mocks parciais
+    }
+  }
+
   public getLastRenderedState(): TabState | null {
     return this.lastRenderedState;
   }
@@ -1295,6 +1391,14 @@ export class WhiteboardEngine {
     if (this.pendingRepaintTimer !== null && typeof clearTimeout !== 'undefined') {
       clearTimeout(this.pendingRepaintTimer);
       this.pendingRepaintTimer = null;
+    }
+    if (
+      this.pendingCssCheckHandle !== null &&
+      typeof window !== 'undefined' &&
+      typeof window.cancelAnimationFrame === 'function'
+    ) {
+      window.cancelAnimationFrame(this.pendingCssCheckHandle);
+      this.pendingCssCheckHandle = null;
     }
     diagLog('engine_lifecycle', { evento: 'descartado', instanciaId: this.instanciaId });
 
