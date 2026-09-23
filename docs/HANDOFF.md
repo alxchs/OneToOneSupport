@@ -762,5 +762,20 @@ O problema relatado em que o desenho parecia "sumir" após desenhar tinha como c
 - **D2.1** (Sonda de Traços e Continuidade Visual): Contagem de pixels via `getImageData` por regiões separadas do canvas confirma persistência contínua de traços acumulados.
 - **D2.2** (Diagnóstico e Inspeção de Renderização): Auditoria visual de renderização com contagem de pixels via `getImageData` em todas as fases de atualização de tela.
 - **D5.2** (Prova de Regressão onDprChange): Medição de pixels via `getImageData` antes (1440 pixels) e depois (490 pixels) do evento de DPR confirma ausência de corte visual ou deslocamento fora do container.
+- **D6.1** (Diagnóstico de Divergência Estado-vs-Pixel): Monitoramento periódico sob `ONETOONE_DIAG=1` afere via `getImageData` se há objetos no Fabric com zero pixels na tela visível, emitindo alerta estruturado via IPC ao terminal.
+
+---
+
+## Diagnóstico da Camada de Pintura e Render Pipeline (D6 — 2026-09-23)
+
+### Instrução para o Alexandre (Dono do Produto)
+Se o desenho sumir de novo, cole o terminal — agora ele deve mostrar `[divergencia_estado_pixel]` se for um bug de pintura, ou nada de especial se for outra coisa.
+
+### Resumo Técnico das Investigações D6.1 a D6.4
+1. **D6.1 — Divergência Estado-vs-Pixel implementada:** `WhiteboardEngine.schedulePixelDivergenceCheck` compara os objetos do Fabric com os pixels reais do `lowerCanvasEl` com throttle de 500ms e atraso de 2 frames de animação. Se houver objetos no estado mas zero pixels pintados no canvas, registra `[DIAG-HOST] [divergencia_estado_pixel]` no terminal. Coberto por 4 testes automatizados em `tests/divergencia-pixel.test.ts`.
+2. **D6.2 — Ciclo de Vida e React.StrictMode:** Instrumentado via `engine_lifecycle` com `instanciaId`. No teste real em modo DEV com Vite, a tela gerou 2 criações e 1 descarte, com a árvore DOM mantendo exatamente 1 container, 1 upper-canvas e 1 lower-canvas. Nenhuma camada órfã remanescente.
+3. **D6.3 — Reprodução com Múltiplos Traços Cursivos Rápidos:** Testado com 5 traços cursivos rápidos em sequência (pausas de 60ms) em modo DEV e modo Produção via SendInput do Windows e automação de mouse em janela visível em primeiro plano. Em ambos os casos, os 5 traços acumularam normalmente (10.524 pixels não-transparentes, `badgeElementos: 5`). O ambiente automatizado não reproduziu a perda.
+4. **D6.4 — Composição Gráfica por Hardware vs Software (`--disable-gpu`):** O Electron foi iniciado com `--disable-gpu`. O desenho de traços cursivos apresentou comportamento equivalente (10.692 pixels acumulados).
+5. Relatório completo com saídas reais e evidências visuais: `docs/reviews/investigacao-render-pipeline.md`.
 
 

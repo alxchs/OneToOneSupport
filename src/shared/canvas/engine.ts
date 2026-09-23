@@ -16,7 +16,7 @@ import {
   getVisibleElements,
 } from '../events/reducer';
 import { generateUUID } from '../events/protocol';
-import { diagLog } from '../diag';
+import { diagLog, isDiagEnabled } from '../diag';
 
 export const CANONICAL_VIRTUAL_WIDTH = 1200;
 export const CANONICAL_VIRTUAL_HEIGHT = 800;
@@ -236,7 +236,10 @@ export interface WhiteboardEngineOptions {
 
 /**
  * Motor vetorial Fabric.js HiDPI para o Quadro Branco 1:1 (Mestre §12, Regra #2, ADR-003).
- *
+ */
+let nextEngineInstanceId = 1;
+
+/**
  * Princípios de Arquitetura:
  * - O engine NÃO decide regra de negócio: captura interações do usuário, converte coordenadas
  *   de cena sem offset e emite eventos append-only (DRAW_ADD, DRAW_HIDE, CLEAR_TAB).
@@ -246,6 +249,7 @@ export interface WhiteboardEngineOptions {
  * - Suporte completo a caneta/touch com Pointer Events e prevenção de rolagem/zoom acidental.
  */
 export class WhiteboardEngine {
+  public readonly instanciaId: number;
   public readonly canvas: Canvas;
   public virtualWidth: number;
   public virtualHeight: number;
@@ -280,7 +284,15 @@ export class WhiteboardEngine {
   // Cleanup de listeners de resolução e redimensionamento
   private cleanupFns: Array<() => void> = [];
 
+  // Diagnóstico de divergência estado-vs-pixel (D6.1)
+  private lastPixelCheckTimestamp: number = 0;
+  private readonly pixelCheckThrottleMs: number = 500;
+  private pendingPixelCheckHandle: number | null = null;
+
   constructor(canvasElement: HTMLCanvasElement, options: WhiteboardEngineOptions = {}) {
+    this.instanciaId = nextEngineInstanceId++;
+    diagLog('engine_lifecycle', { evento: 'criado', instanciaId: this.instanciaId });
+
     this.virtualWidth = options.virtualWidth || CANONICAL_VIRTUAL_WIDTH;
     this.virtualHeight = options.virtualHeight || CANONICAL_VIRTUAL_HEIGHT;
     this.containerElement = canvasElement.parentElement;
@@ -1074,6 +1086,77 @@ export class WhiteboardEngine {
     });
 
     this.canvas.requestRenderAll();
+
+    if (isDiagEnabled()) {
+      this.schedulePixelDivergenceCheck();
+    }
+  }
+
+  /**
+   * D6.1: Agenda checagem de divergência entre estado interno do Fabric e pixels no canvas (sob ONETOONE_DIAG=1).
+   * Aguarda 2 frames via requestAnimationFrame para que a renderização assíncrona do Fabric se complete.
+   * Aplica throttle de ~500ms para evitar sobrecarga no desenho interativo.
+   */
+  private schedulePixelDivergenceCheck(): void {
+    if (!isDiagEnabled()) return;
+    if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
+      return;
+    }
+    const now = Date.now();
+    if (now - this.lastPixelCheckTimestamp < this.pixelCheckThrottleMs) {
+      return;
+    }
+    if (this.pendingPixelCheckHandle !== null) {
+      return;
+    }
+
+    this.pendingPixelCheckHandle = window.requestAnimationFrame(() => {
+      this.pendingPixelCheckHandle = window.requestAnimationFrame(() => {
+        this.pendingPixelCheckHandle = null;
+        this.lastPixelCheckTimestamp = Date.now();
+        this.checkPixelDivergence();
+      });
+    });
+  }
+
+  /**
+   * D6.1: Compara a quantidade de objetos no Fabric com os pixels não-transparentes no canvas visível.
+   * Se houver objetos (length > 0) mas o canvas estiver em branco (zero pixels), registra advertência.
+   */
+  public checkPixelDivergence(): void {
+    if (!isDiagEnabled()) return;
+    if (!this.canvas) return;
+
+    const objects = this.canvas.getObjects();
+    const objetosNoFabric = objects.length;
+    if (objetosNoFabric === 0) return;
+
+    const lowerEl = this.canvas.lowerCanvasEl;
+    if (!lowerEl || lowerEl.width <= 0 || lowerEl.height <= 0) return;
+
+    try {
+      const ctx = lowerEl.getContext('2d');
+      if (!ctx) return;
+      const imgData = ctx.getImageData(0, 0, lowerEl.width, lowerEl.height);
+      const data = imgData.data;
+      let pixelsNoCanvas = 0;
+      for (let i = 3; i < data.length; i += 4) {
+        if (data[i] > 0) {
+          pixelsNoCanvas++;
+        }
+      }
+
+      if (pixelsNoCanvas === 0) {
+        diagLog('divergencia_estado_pixel', {
+          objetosNoFabric,
+          pixelsNoCanvas,
+          larguraCanvas: lowerEl.width,
+          alturaCanvas: lowerEl.height,
+        });
+      }
+    } catch {
+      // Ignora falhas de leitura em contextos restritos ou mocks parciais
+    }
   }
 
   public getLastRenderedState(): TabState | null {
@@ -1122,6 +1205,16 @@ export class WhiteboardEngine {
    * Destrói a instância liberando memória e listeners
    */
   public dispose(): void {
+    if (
+      this.pendingPixelCheckHandle !== null &&
+      typeof window !== 'undefined' &&
+      typeof window.cancelAnimationFrame === 'function'
+    ) {
+      window.cancelAnimationFrame(this.pendingPixelCheckHandle);
+      this.pendingPixelCheckHandle = null;
+    }
+    diagLog('engine_lifecycle', { evento: 'descartado', instanciaId: this.instanciaId });
+
     for (const cleanup of this.cleanupFns) {
       try {
         cleanup();

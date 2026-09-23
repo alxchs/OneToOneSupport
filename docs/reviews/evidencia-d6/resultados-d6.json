@@ -1,0 +1,61 @@
+{
+  "dev": {
+    "modo": "dev",
+    "domInspection": {
+      "hasContainer": true,
+      "canvasContainersCount": 1,
+      "upperCanvasesCount": 1,
+      "lowerCanvasesCount": 1,
+      "totalCanvasesInContainer": 2,
+      "engineDefined": true,
+      "engineInstanciaId": 2,
+      "lowerCanvasId": "canvas-quadro-branco",
+      "isLowerCanvasElementSameAsDOM": true,
+      "isUpperCanvasElementAttached": true
+    },
+    "lifecycleMatches": [
+      {
+        "evento": "criado",
+        "instanciaId": 1
+      },
+      {
+        "evento": "descartado",
+        "instanciaId": 1
+      },
+      {
+        "evento": "criado",
+        "instanciaId": 2
+      }
+    ],
+    "postDrawMeasurement": {
+      "badgeElementos": "Elementos Visíveis: 5",
+      "objetosNoFabric": 5,
+      "pixelsNoCanvas": 10524,
+      "canvasWidth": 1660,
+      "canvasHeight": 1107
+    },
+    "stdout": "\r\n[DB] Migração aplicada com sucesso: 001_init.sql\n[DB] Migração aplicada com sucesso: 002_eventos_append_only.sql\n\r\nDevTools listening on ws://127.0.0.1:9616/devtools/browser/a220b225-c570-4f54-9402-00add72f43e2\r\n[Version] dc4b6c7 (fase/07-homologacao-1) 2026-09-23T02:31:55.587Z\n[Main] Banco de dados SQLite inicializado com sucesso.\n[Main] Monitor primário detectado: 1706x960 @ 150% scale factor (Área útil de trabalho: 2560x1392)\n[DIAG-HOST] [2026-09-23T02:42:36.496Z] [engine_lifecycle] {\"evento\":\"criado\",\"instanciaId\":1}\n[DIAG-HOST] [2026-09-23T02:42:36.506Z] [renderState] {\"autor\":\"host\",\"totalVisiveis\":0,\"adicionados\":[],\"removidos\":[]}\n[DIAG-HOST] [2026-09-23T02:42:36.507Z] [renderState] {\"autor\":\"host\",\"totalVisiveis\":0,\"adicionados\":[],\"removidos\":[]}\n[DIAG-HOST] [2026-09-23T02:42:36.507Z] [engine_lifecycle] {\"evento\":\"descartado\",\"instanciaId\":1}\n[DIAG-HOST] [2026-09-23T02:42:36.509Z] [engine_lifecycle] {\"evento\":\"criado\",\"instanciaId\":2}\n[DIAG-HOST] [2026-09-23T02:42:36.522Z] [renderState] {\"autor\":\"host\",\"totalVisiveis\":0,\"adicionados\":[],\"removidos\":[]}\n[DIAG-HOST] [2026-09-23T02:42:36.523Z] [renderState] {\"autor\":\"host\",\"totalVisiveis\":0,\"adicionados\":[],\"removidos\":[]}\n[DIAG-HOST] [2026-09-23T02:42:43.489Z] [path:created] {\"tool\":\"pencil\",\"author\":\"host\",\"isEraser\":false,\"elementId\":\"dc20aa3a-0c75-4f73-b82a-e0875475db63\"}\n[DIAG-HOST] [2026-09-23T02:42:43.490Z] [emitEvent] {\"tipo\":\"DRAW_ADD\",\"autor\":\"host\",\"id\":\"8191fb6a-6588-4b14-bd73-58e2ca82dab9\",\"abaId\":\"default\",\"payloadId\":\"dc20aa3a-0c75-4f73-b82a-e0875475db63\"}\n[DIAG-HOST] [2026-09-23T02:42:43.490Z] [aplicarEventoQuadro] {\"tipo\":\"DRAW_ADD\",\"visiveisAntes\":0,\"visiveisDepois\":1,\"abaId\":\"default\",\"autor\":\"host\"}\n[DIAG-HOST] [2026-09-23T02:42:43.491Z] [gravar (IPC)] {\"fase\":\"inicio\",\"tipo\":\"DRAW_ADD\",\"sessaoId\":\"01e45ecd-6dad-45b7-abd6-3d1bdce38583\",\"abaId\":\"default\",\"autor\":\"host\"}\n[DIAG 2026-09-23T02:42:43.493Z] [serverDrop] {\"motivo\":\"ENVIO_GUEST_FALHOU_SEM_CONEXAO_CIFRADA\",\"tipo\":\"DRAW_ADD\"}\n[DIAG-SERVER] [2026-09-23T02:42:43.493Z] [serverDrop] {\"motivo\":\"ENVIO_GUEST_FALHOU_SEM_CONEXAO_CIFRADA\",\"tipo\":\"DRAW_ADD\"}\n[DIAG-SERVER] [2026-09-23T02:42:43.493Z] [descarte] {\"motivo\":\"ENVIO_GUEST_FALHOU_SEM_CONEXAO_CIFRADA\",\"tipo\":\"DRAW_ADD\"}\n[DIAG-SERVER] [2026-09-23T02:42:43.493Z] [broadcastToGuest] {\"sucesso\":false,\"tipo\":\"DRAW_ADD\",\"abaId\":\"default\",\"autor\":\"host\"}\n[DIAG-HOST] [2026-09-23T02:42:43.503Z] [renderState] {\"autor\":\"host\",\"totalVisiveis\":1,\"adicionados\":[\"dc20aa3a-0c75-4f73-b82a-e0875475db63\"],\"removidos\":[]}\n[DIAG-HOST] [2026-09-23T02:42:43.588Z] [gravar (IPC)] {\"fase\":\"retorno\",\"sucesso\":true,\"tipo\":\"DRAW_ADD\"}\n[DIAG-HOST] [2026-09-23T02:42:43.588Z] [gravarEventoIPC] {\"sucesso\":true,\"tipo\":\"DRAW_ADD\"}\n[DIAG-HOST] [2026-09-23T02:42:44.028Z] [path:created] {\"tool\":\"pencil\",\"author\":\"host\",\"isEraser\":false,\"elementId\":\"0f5aa25d-fa75-4afd-ac25-3d32af7a09cc\"}\n[DIAG-HOST] [2026-09-23T02:42:44.028Z] [emitEvent] {\"tipo\":\"DRAW_ADD\",\"autor\":\"host\",\"id\":\"1c33e413-105f-41b1-8f4c-367b7b19abf0\",\"abaId\":\"default\",\"payloadId\":\"0f5aa25d-fa75-4afd-ac25-3d32af7a09cc\"}\n[DIAG-HOST] [2026-09-23T02:42:44.029Z] [aplicarEventoQuadro] {\"tipo\":\"DRAW_ADD\",\"visiveisAntes\":1,\"visiveisDepois\":2,\"abaId\":\"default\",\"autor\":\"host\"}\n[DIAG-HOST] [2026-09-23T02:42:44.029Z] [gravar (IPC)] {\"fase\":\"inicio\",\"tipo\":\"DRAW_ADD\",\"sessaoId\":\"01e45ecd-6dad-45b7-abd6-3d1bdce38583\",\"abaId\":\"default\",\"autor\":\"host\"}\n[DIAG 2026-09-23T02:42:44.030Z] [serverDrop] {\"motivo\":\"ENVIO_GUEST_FALHOU_SEM_CONEXAO_CIFRADA\",\"tipo\":\"DRAW_ADD\"}\n[DIAG-SERVER] [2026-09-23T02:42:44.030Z] [serverDrop] {\"motivo\":\"ENVIO_GUEST_FALHOU_SEM_CONEXAO_CIFRADA\",\"tipo\":\"DRAW_ADD\"}\n[DIAG-SERVER] [2026-09-23T02:42:44.030Z] [descarte] {\"motivo\":\"ENVIO_GUEST_FALHOU_SEM_CONEXAO_CIFRADA\",\"tipo\":\"DRAW_ADD\"}\n[DIAG-SERVER] [2026-09-23T02:42:44.030Z] [broadcastToGuest] {\"sucesso\":false,\"tipo\":\"DRAW_ADD\",\"abaId\":\"default\",\"autor\":\"host\"}\n[DIAG-HOST] [2026-09-23T02:42:44.039Z] [renderState] {\"autor\":\"host\",\"totalVisiveis\":2,\"adicionados\":[\"0f5aa25d-fa75-4afd-ac25-3d32af7a09cc\"],\"removidos\":[]}\n[DIAG-HOST] [2026-09-23T02:42:44.039Z] [gravar (IPC)] {\"fase\":\"retorno\",\"sucesso\":true,\"tipo\":\"DRAW_ADD\"}\n[DIAG-HOST] [2026-09-23T02:42:44.039Z] [gravarEventoIPC] {\"sucesso\":true,\"tipo\":\"DRAW_ADD\"}\n[DIAG-HOST] [2026-09-23T02:42:44.524Z] [path:created] {\"tool\":\"pencil\",\"author\":\"host\",\"isEraser\":false,\"elementId\":\"aa93dea9-6d9b-415e-b278-ae6f566bc9c5\"}\n[DIAG-HOST] [2026-09-23T02:42:44.524Z] [emitEvent] {\"tipo\":\"DRAW_ADD\",\"autor\":\"host\",\"id\":\"87932740-4f40-4a60-9142-f96a668e5806\",\"abaId\":\"default\",\"payloadId\":\"aa93dea9-6d9b-415e-b278-ae6f566bc9c5\"}\n[DIAG-HOST] [2026-09-23T02:42:44.524Z] [aplicarEventoQuadro] {\"tipo\":\"DRAW_ADD\",\"visiveisAntes\":2,\"visiveisDepois\":3,\"abaId\":\"default\",\"autor\":\"host\"}\n[DIAG-HOST] [2026-09-23T02:42:44.524Z] [gravar (IPC)] {\"fase\":\"inicio\",\"tipo\":\"DRAW_ADD\",\"sessaoId\":\"01e45ecd-6dad-45b7-abd6-3d1bdce38583\",\"abaId\":\"default\",\"autor\":\"host\"}\n[DIAG 2026-09-23T02:42:44.525Z] [serverDrop] {\"motivo\":\"ENVIO_GUEST_FALHOU_SEM_CONEXAO_CIFRADA\",\"tipo\":\"DRAW_ADD\"}\n[DIAG-SERVER] [2026-09-23T02:42:44.525Z] [serverDrop] {\"motivo\":\"ENVIO_GUEST_FALHOU_SEM_CONEXAO_CIFRADA\",\"tipo\":\"DRAW_ADD\"}\n[DIAG-SERVER] [2026-09-23T02:42:44.525Z] [descarte] {\"motivo\":\"ENVIO_GUEST_FALHOU_SEM_CONEXAO_CIFRADA\",\"tipo\":\"DRAW_ADD\"}\n[DIAG-SERVER] [2026-09-23T02:42:44.525Z] [broadcastToGuest] {\"sucesso\":false,\"tipo\":\"DRAW_ADD\",\"abaId\":\"default\",\"autor\":\"host\"}\n[DIAG-HOST] [2026-09-23T02:42:44.534Z] [renderState] {\"autor\":\"host\",\"totalVisiveis\":3,\"adicionados\":[\"aa93dea9-6d9b-415e-b278-ae6f566bc9c5\"],\"removidos\":[]}\n[DIAG-HOST] [2026-09-23T02:42:44.535Z] [gravar (IPC)] {\"fase\":\"retorno\",\"sucesso\":true,\"tipo\":\"DRAW_ADD\"}\n[DIAG-HOST] [2026-09-23T02:42:44.535Z] [gravarEventoIPC] {\"sucesso\":true,\"tipo\":\"DRAW_ADD\"}\n[DIAG-HOST] [2026-09-23T02:42:45.022Z] [path:created] {\"tool\":\"pencil\",\"author\":\"host\",\"isEraser\":false,\"elementId\":\"cd5fbb08-d737-4964-b7c7-2aadaf93afa2\"}\n[DIAG-HOST] [2026-09-23T02:42:45.022Z] [emitEvent] {\"tipo\":\"DRAW_ADD\",\"autor\":\"host\",\"id\":\"e5798e8a-55fe-4ed1-8cbf-d61f003ae8b7\",\"abaId\":\"default\",\"payloadId\":\"cd5fbb08-d737-4964-b7c7-2aadaf93afa2\"}\n[DIAG-HOST] [2026-09-23T02:42:45.022Z] [aplicarEventoQuadro] {\"tipo\":\"DRAW_ADD\",\"visiveisAntes\":3,\"visiveisDepois\":4,\"abaId\":\"default\",\"autor\":\"host\"}\n[DIAG-HOST] [2026-09-23T02:42:45.022Z] [gravar (IPC)] {\"fase\":\"inicio\",\"tipo\":\"DRAW_ADD\",\"sessaoId\":\"01e45ecd-6dad-45b7-abd6-3d1bdce38583\",\"abaId\":\"default\",\"autor\":\"host\"}\n[DIAG 2026-09-23T02:42:45.022Z] [serverDrop] {\"motivo\":\"ENVIO_GUEST_FALHOU_SEM_CONEXAO_CIFRADA\",\"tipo\":\"DRAW_ADD\"}\n[DIAG-SERVER] [2026-09-23T02:42:45.022Z] [serverDrop] {\"motivo\":\"ENVIO_GUEST_FALHOU_SEM_CONEXAO_CIFRADA\",\"tipo\":\"DRAW_ADD\"}\n[DIAG-SERVER] [2026-09-23T02:42:45.023Z] [descarte] {\"motivo\":\"ENVIO_GUEST_FALHOU_SEM_CONEXAO_CIFRADA\",\"tipo\":\"DRAW_ADD\"}\n[DIAG-SERVER] [2026-09-23T02:42:45.023Z] [broadcastToGuest] {\"sucesso\":false,\"tipo\":\"DRAW_ADD\",\"abaId\":\"default\",\"autor\":\"host\"}\n[DIAG-HOST] [2026-09-23T02:42:45.030Z] [renderState] {\"autor\":\"host\",\"totalVisiveis\":4,\"adicionados\":[\"cd5fbb08-d737-4964-b7c7-2aadaf93afa2\"],\"removidos\":[]}\n[DIAG-HOST] [2026-09-23T02:42:45.030Z] [gravar (IPC)] {\"fase\":\"retorno\",\"sucesso\":true,\"tipo\":\"DRAW_ADD\"}\n[DIAG-HOST] [2026-09-23T02:42:45.030Z] [gravarEventoIPC] {\"sucesso\":true,\"tipo\":\"DRAW_ADD\"}\n[DIAG-HOST] [2026-09-23T02:42:45.550Z] [path:created] {\"tool\":\"pencil\",\"author\":\"host\",\"isEraser\":false,\"elementId\":\"c5837e0c-71ef-48b6-be4b-53eee90e6369\"}\n[DIAG-HOST] [2026-09-23T02:42:45.550Z] [emitEvent] {\"tipo\":\"DRAW_ADD\",\"autor\":\"host\",\"id\":\"f7fa04e4-18aa-4dcd-857a-af9b882290e0\",\"abaId\":\"default\",\"payloadId\":\"c5837e0c-71ef-48b6-be4b-53eee90e6369\"}\n[DIAG-HOST] [2026-09-23T02:42:45.550Z] [aplicarEventoQuadro] {\"tipo\":\"DRAW_ADD\",\"visiveisAntes\":4,\"visiveisDepois\":5,\"abaId\":\"default\",\"autor\":\"host\"}\n[DIAG-HOST] [2026-09-23T02:42:45.550Z] [gravar (IPC)] {\"fase\":\"inicio\",\"tipo\":\"DRAW_ADD\",\"sessaoId\":\"01e45ecd-6dad-45b7-abd6-3d1bdce38583\",\"abaId\":\"default\",\"autor\":\"host\"}\n[DIAG 2026-09-23T02:42:45.551Z] [serverDrop] {\"motivo\":\"ENVIO_GUEST_FALHOU_SEM_CONEXAO_CIFRADA\",\"tipo\":\"DRAW_ADD\"}\n[DIAG-SERVER] [2026-09-23T02:42:45.551Z] [serverDrop] {\"motivo\":\"ENVIO_GUEST_FALHOU_SEM_CONEXAO_CIFRADA\",\"tipo\":\"DRAW_ADD\"}\n[DIAG-SERVER] [2026-09-23T02:42:45.551Z] [descarte] {\"motivo\":\"ENVIO_GUEST_FALHOU_SEM_CONEXAO_CIFRADA\",\"tipo\":\"DRAW_ADD\"}\n[DIAG-SERVER] [2026-09-23T02:42:45.551Z] [broadcastToGuest] {\"sucesso\":false,\"tipo\":\"DRAW_ADD\",\"abaId\":\"default\",\"autor\":\"host\"}\n[DIAG-HOST] [2026-09-23T02:42:45.559Z] [renderState] {\"autor\":\"host\",\"totalVisiveis\":5,\"adicionados\":[\"c5837e0c-71ef-48b6-be4b-53eee90e6369\"],\"removidos\":[]}\n[DIAG-HOST] [2026-09-23T02:42:45.589Z] [gravar (IPC)] {\"fase\":\"retorno\",\"sucesso\":true,\"tipo\":\"DRAW_ADD\"}\n[DIAG-HOST] [2026-09-23T02:42:45.589Z] [gravarEventoIPC] {\"sucesso\":true,\"tipo\":\"DRAW_ADD\"}\n"
+  },
+  "prodGpu": {
+    "modo": "prod-gpu",
+    "postDrawMeasurement": {
+      "badgeElementos": "Elementos Visíveis: 5",
+      "objetosNoFabric": 5,
+      "pixelsNoCanvas": 10524,
+      "canvasWidth": 1660,
+      "canvasHeight": 1107
+    },
+    "stdout": "\r\n[DB] Migração aplicada com sucesso: 001_init.sql\n[DB] Migração aplicada com sucesso: 002_eventos_append_only.sql\n\r\nDevTools listening on ws://127.0.0.1:9720/devtools/browser/78e82fbd-2870-4f93-829f-3c100aaf2ff3\r\n[Version] dc4b6c7 (fase/07-homologacao-1) 2026-09-23T02:31:55.587Z\n[Main] Banco de dados SQLite inicializado com sucesso.\n[Main] Monitor primário detectado: 1706x960 @ 150% scale factor (Área útil de trabalho: 2560x1392)\n"
+  },
+  "prodNoGpu": {
+    "modo": "prod-disable-gpu",
+    "postDrawMeasurement": {
+      "badgeElementos": "Elementos Visíveis: 5",
+      "objetosNoFabric": 5,
+      "pixelsNoCanvas": 10692,
+      "canvasWidth": 1660,
+      "canvasHeight": 1107
+    },
+    "stdout": "\r\n[DB] Migração aplicada com sucesso: 001_init.sql\n[DB] Migração aplicada com sucesso: 002_eventos_append_only.sql\n\r\nDevTools listening on ws://127.0.0.1:9771/devtools/browser/f3649203-6f4e-4c6e-aa66-2891c1773dc1\r\n[Version] dc4b6c7 (fase/07-homologacao-1) 2026-09-23T02:31:55.587Z\n[Main] Banco de dados SQLite inicializado com sucesso.\n[Main] Monitor primário detectado: 1706x960 @ 150% scale factor (Área útil de trabalho: 2560x1392)\n"
+  }
+}
