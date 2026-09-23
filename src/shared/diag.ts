@@ -74,6 +74,39 @@ export function diagLog(checkpoint: string, data?: Record<string, unknown>): voi
 }
 
 /**
+ * Instala captura global de exceções não tratadas e promises rejeitadas sem catch, encaminhando
+ * para o mesmo canal de diagnóstico (D1) que já chega ao terminal onde tools\homologar.ps1 roda.
+ * Sem isso, uma exceção só aparece no console do DevTools (que o dono nunca abre) e pode
+ * silenciosamente interromper um fluxo assíncrono (ex.: o listener de path:created no meio do
+ * ciclo remove -> emitEvent -> renderState), fazendo um traço desenhado nunca ser readicionado
+ * ao canvas sem deixar rastro nenhum no terminal.
+ */
+export function installGlobalErrorForwarding(origem: 'host' | 'guest'): void {
+  if (typeof window === 'undefined') return;
+  if (!isDiagEnabled()) return;
+
+  window.addEventListener('error', (event: ErrorEvent) => {
+    diagLog('erro_nao_capturado', {
+      origem,
+      mensagem: event.message,
+      arquivo: event.filename,
+      linha: event.lineno,
+      coluna: event.colno,
+      stack: event.error && event.error.stack ? String(event.error.stack) : undefined,
+    });
+  });
+
+  window.addEventListener('unhandledrejection', (event: PromiseRejectionEvent) => {
+    const reason = event.reason;
+    diagLog('promise_rejeitada_sem_catch', {
+      origem,
+      mensagem: reason instanceof Error ? reason.message : String(reason),
+      stack: reason instanceof Error && reason.stack ? String(reason.stack) : undefined,
+    });
+  });
+}
+
+/**
  * Diagnóstico do Servidor (electron/server side) com prefixo [DIAG-SERVER] (D1)
  */
 export function diagServerLog(checkpoint: string, data?: Record<string, unknown>): void {

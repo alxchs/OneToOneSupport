@@ -1,3 +1,10 @@
+> **PAUSADA/SUPERADA (2026-09-23, ainda no mesmo dia):** o dono mandou um GIF real do teste. Inspecionado
+> quadro a quadro em `docs/reviews/diagnostico-sync-4-gif.md`, ele mostra perda **permanente** (>1s, nunca
+> volta), reproduzida 3/3 vezes — não a janela de ~2ms medida abaixo. A causa aqui descrita não está
+> refutada como POSSÍVEL problema real, mas não é (ou não é só) o que o dono está vendo. Não iniciar D3 sem
+> reler `docs/reviews/diagnostico-sync-4-gif.md` primeiro; o próximo passo é D4 (encaminhamento de exceções
+> JS, já implementado) rodar num novo teste real antes de qualquer correção de código.
+
 # Issues - correção do flicker de remoção/readição do traço (2026-09-23)
 
 - `ordem-correcao.md`: D3, ÚNICO objetivo — eliminar a janela em que o canvas fica sem o traço recém
