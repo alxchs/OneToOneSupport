@@ -289,6 +289,11 @@ export class WhiteboardEngine {
   private readonly pixelCheckThrottleMs: number = 500;
   private pendingPixelCheckHandle: number | null = null;
 
+  // Forçar repaint real da janela e reflow DOM (D7 - esta é uma correção experimental, não comprovada por automação)
+  private lastRepaintTimestamp: number = 0;
+  private readonly repaintThrottleMs: number = 180;
+  private pendingRepaintTimer: ReturnType<typeof setTimeout> | null = null;
+
   constructor(canvasElement: HTMLCanvasElement, options: WhiteboardEngineOptions = {}) {
     this.instanciaId = nextEngineInstanceId++;
     diagLog('engine_lifecycle', { evento: 'criado', instanciaId: this.instanciaId });
@@ -1087,9 +1092,83 @@ export class WhiteboardEngine {
 
     this.canvas.requestRenderAll();
 
+    // D7: Se novos elementos foram adicionados ou alterados no canvas, força repaint real (esta é uma correção experimental, não comprovada por automação)
+    if (idsAdicionados.length > 0 || idsRemovidos.length > 0) {
+      this.triggerRepaintReinforcement();
+    }
+
     if (isDiagEnabled()) {
       this.schedulePixelDivergenceCheck();
     }
+  }
+
+  /**
+   * D7: Correção experimental para forçar repaint da janela e reflow no DOM.
+   * Esta é uma correção experimental, não comprovada por automação - validação é o dono testando na máquina.
+   * Aplica throttle (~180ms) com trailing edge para não sobrecarregar e garantir
+   * que o último traço executado receba o repaint forçado.
+   */
+  public triggerRepaintReinforcement(): void {
+    const now = Date.now();
+    const elapsed = now - this.lastRepaintTimestamp;
+
+    if (elapsed < this.repaintThrottleMs) {
+      if (this.pendingRepaintTimer === null && typeof setTimeout !== 'undefined') {
+        this.pendingRepaintTimer = setTimeout(() => {
+          this.pendingRepaintTimer = null;
+          this.executeRepaintReinforcement();
+        }, this.repaintThrottleMs - elapsed);
+      }
+      return;
+    }
+
+    if (this.pendingRepaintTimer !== null && typeof clearTimeout !== 'undefined') {
+      clearTimeout(this.pendingRepaintTimer);
+      this.pendingRepaintTimer = null;
+    }
+
+    this.executeRepaintReinforcement();
+  }
+
+  /**
+   * Executa os mecanismos D7.1 (webContents.invalidate no Host via IPC)
+   * e D7.2 (reflow síncrono no DOM via offsetHeight no Host e Guest).
+   * Esta é uma correção experimental, não comprovada por automação.
+   */
+  private executeRepaintReinforcement(): void {
+    this.lastRepaintTimestamp = Date.now();
+
+    // D7.2: Reflow síncrono barato no DOM (funciona tanto no Host quanto no Guest)
+    try {
+      if (this.canvas) {
+        const lowerEl = this.canvas.lowerCanvasEl;
+        if (lowerEl && typeof lowerEl.offsetHeight === 'number') {
+          void lowerEl.offsetHeight; // força reflow síncrono no Chromium
+        }
+      }
+    } catch {
+      // Ignora erro em ambientes de teste sem DOM real
+    }
+
+    // D7.1: Invalidação de janela do Host via webContents.invalidate() (só Host/Electron)
+    if (
+      typeof window !== 'undefined' &&
+      window.desktopAPI?.canvas?.forceRepaint &&
+      typeof window.desktopAPI.canvas.forceRepaint === 'function'
+    ) {
+      try {
+        window.desktopAPI.canvas.forceRepaint().catch(() => {});
+      } catch {
+        // Ignora erro em caso de teardown
+      }
+    }
+  }
+
+  /**
+   * Método público para acionamento explícito de repaint reforçado (D7)
+   */
+  public forceRepaint(): void {
+    this.triggerRepaintReinforcement();
   }
 
   /**
@@ -1212,6 +1291,10 @@ export class WhiteboardEngine {
     ) {
       window.cancelAnimationFrame(this.pendingPixelCheckHandle);
       this.pendingPixelCheckHandle = null;
+    }
+    if (this.pendingRepaintTimer !== null && typeof clearTimeout !== 'undefined') {
+      clearTimeout(this.pendingRepaintTimer);
+      this.pendingRepaintTimer = null;
     }
     diagLog('engine_lifecycle', { evento: 'descartado', instanciaId: this.instanciaId });
 

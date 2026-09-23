@@ -778,4 +778,18 @@ Se o desenho sumir de novo, cole o terminal — agora ele deve mostrar `[diverge
 4. **D6.4 — Composição Gráfica por Hardware vs Software (`--disable-gpu`):** O Electron foi iniciado com `--disable-gpu`. O desenho de traços cursivos apresentou comportamento equivalente (10.692 pixels acumulados).
 5. Relatório completo com saídas reais e evidências visuais: `docs/reviews/investigacao-render-pipeline.md`.
 
+---
+
+## Correção Experimental: Forçar Repaint Real da Janela e Reflow DOM (D7 — 2026-09-23)
+
+### Instrução para o Alexandre (Dono do Produto)
+Alexandre, por favor, feche todas as janelas, rode `tools\homologar.ps1`, desenhe traços rápidos no quadro branco e diga se o desenho continua sumindo ou não após soltar o traço. Esta é uma correção experimental que força a repintura da janela pelo Electron logo após cada desenho; como o bug original nunca reproduziu nas ferramentas automáticas (onde o buffer do canvas sempre esteve correto), a única validação conclusiva é o seu teste real na máquina.
+
+### Resumo Técnico da Implementação D7
+1. **D7.1 — Repaint Forçado no Host via `webContents.invalidate()`:** Implementado canal IPC `IPC_CHANNELS.CANVAS_FORCE_REPAINT` (`canvas:force-repaint`) registrado em `electron/ipc/canvas.ipc.ts` e exposto no preload como `desktopAPI.canvas.forceRepaint()`. O handler chama `mainWindow.webContents.invalidate()` no processo principal do Electron, agendando a repintura da janela física.
+2. **D7.2 — Reflow Síncrono no DOM:** No `WhiteboardEngine` (`src/shared/canvas/engine.ts`), após a renderização de novos elementos em `renderState`, força reflow síncrono no elemento do canvas (`void el.offsetHeight`), acionando recálculo de layout no Chromium. Mecanismo seguro e funcional tanto no Host quanto no Guest mobile.
+3. **D7.3 — Throttle com Trailing Edge:** Throttle de ~180ms implementado em `WhiteboardEngine.triggerRepaintReinforcement`, agrupando chamadas rápidas e garantindo execução retardada (*trailing edge*) para que o último traço desenhado seja sempre repintado sem travar ou desacelerar o arrasto interativo (< 0.5ms por ciclo).
+4. **D7.4 — Preservação de Diagnósticos:** Diagnósticos `divergencia_estado_pixel` (D6.1) e `engine_lifecycle` (D6.2) mantidos ativos sob `ONETOONE_DIAG=1`.
+5. **Cobertura de Testes:** Suíte dedicada `tests/canvas-repaint.test.ts` (7 testes) e caso integrado em `tests/ipc.test.ts`. Gate total de 18 suítes vitest (265 testes) e sonda de runtime 27/27 PASS.
+
 

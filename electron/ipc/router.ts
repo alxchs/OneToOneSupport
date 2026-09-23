@@ -4,6 +4,7 @@ import { registerConfigIpc } from './config.ipc';
 import { registerServerIpc } from './server.ipc';
 import { registerEventoIpc } from './evento.ipc';
 import { registerDiagIpc } from './diag.ipc';
+import { registerCanvasIpc } from './canvas.ipc';
 
 /**
  * Registra todos os canais e rotas de IPC do Main Process.
@@ -15,6 +16,7 @@ export function registerIpcHandlers(): void {
   registerServerIpc();
   registerEventoIpc();
   registerDiagIpc();
+  registerCanvasIpc();
 }
 
 

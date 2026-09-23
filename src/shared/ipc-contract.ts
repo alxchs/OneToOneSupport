@@ -55,6 +55,9 @@ export const IPC_CHANNELS = {
 
   // Diagnóstico Forward (D1)
   DIAG_FORWARD: 'diag:forward',
+
+  // Forçar repaint da janela do Host (D7)
+  CANVAS_FORCE_REPAINT: 'canvas:force-repaint',
 } as const;
 
 export type IPCChannelName = typeof IPC_CHANNELS[keyof typeof IPC_CHANNELS];
@@ -238,6 +241,10 @@ export interface DesktopAPI {
   eventos: {
     gravar: (payload: GravarEventoPayload) => Promise<IPCResult<any>>;
     obterEstadoAba: (sessao_id: string, aba_id?: string) => Promise<IPCResult<any>>;
+  };
+
+  canvas?: {
+    forceRepaint: () => Promise<IPCResult<{ repainted: boolean }>>;
   };
 
   diagForward?: (checkpoint: string, data?: Record<string, unknown>) => void;
