@@ -5,6 +5,12 @@ ainda serve, então cada remoção precisa de justificativa e a suíte tem que c
 
 ## D14 — Tirar do produto o andaime da caçada, sem perder proteção
 
+### D14.0 — Custo já medido (use como base, não precisa remedir)
+O chefe mediu o item 3 abaixo (reforço de repaint do D7) com 60 traços, mesmo build, só ligando/desligando:
+com reforço 143 ms por traço (p50 137, p95 198); sem reforço 133 ms (p50 132, p95 147). Ou seja ~10 ms a
+mais na média e **+51 ms na cauda (p95)**, em todo desenho, em produção, para uma hipótese que o
+post-mortem derrubou. Detalhes em `docs/reviews/varredura-host-2026-09-24.md`.
+
 ### D14.1 — Classifique antes de mexer (escreva a tabela na autoauditoria)
 Para CADA item abaixo, decida REMOVER, MANTER SOB FLAG ou MANTER SEMPRE, com uma linha de motivo:
 1. `electron/experiments.ts` inteiro + uso em `electron/main.ts` (`ONETOONE_RENDER_EXPERIMENT`: `occlusion`,
