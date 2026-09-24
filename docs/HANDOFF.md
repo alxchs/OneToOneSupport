@@ -1,3 +1,30 @@
+# HANDOFF DE ESTADO — FASE 08: Ferramentas de desenho sem mover objetos existentes (D12)
+
+## Mensagem para o Alexandre (Resumo em Português Simples)
+Olá Alexandre! Nesta Fase 08 (D12), corrigimos em definitivo o problema onde iniciar um traço de desenho com o cursor em cima de um objeto já desenhado acabava selecionando, girando, redimensionando ou arrastando aquele objeto em vez de desenhar. Agora, todas as 8 ferramentas de desenho (`pencil`, `brush`, `rectangle`, `ellipse`, `line`, `arrow`, `text` e `eraser`) apenas desenham, ignorando qualquer alvo sob o cursor. Somente as ferramentas `select` (que serve explicitamente para selecionar) e `object_eraser` (que precisa apagar o objeto clicado) procuram alvos sob o mouse.
+
+Validação rigorosa realizada: criamos 57 testes automatizados novos cobrindo a matriz completa de 6 tipos de objetos contra as 8 ferramentas de desenho, comprovamos que sem a correção 51 testes falham, e estendemos a sonda de runtime (`V3c`) com captura de tela real (`page.screenshot`), amostragem e comparação de pixels da área de desenho e entrada física do Windows via `tools/drag-sendinput.ps1`. O `npm run verify` completo está 100% verde (349 testes e 34 checagens na sonda).
+
+Sobre o arrasto no modo `select` (item D12.3): identificamos que atualmente mover um objeto pelo modo `select` é uma alteração que acontece apenas na memória local do canvas — ela não gera evento, não é salva no banco SQLite, não vai para o celular do aluno e é desfeita na próxima atualização da tela. Documentamos essa análise com 3 opções claras na autoauditoria para você decidir o caminho futuro (desabilitar o arrasto no `select`, implementar evento oficial de movimentação com sincronização via ADR, ou manter como scratchpad temporário com aviso visual).
+
+[HANDOFF DE ESTADO]
+* Arquivos Modificados/Criados na Fase 08:
+  - `src/shared/canvas/engine.ts`: Implementada a regra D12.1 no `setTool` (`this.canvas.skipTargetFind = !(tool === 'select' || tool === 'object_eraser')`), descarte do `activeObject` e saída estrita do modo de edição de texto ao alternar ferramentas (`exitEditing()`, `exitTextEditing()`, `discardActiveObject()`).
+  - `tests/ferramentas-sem-mover.test.ts`: Suíte com 57 testes cobrindo a matriz completa de 6 objetos x 8 ferramentas, prova de falha sem a correção, regressões de `select`, `object_eraser`, `eraser` (trecho) e observação da decisão de produto D12.3.
+  - `tools/probe-runtime.cjs`: Estendida com a verificação runtime `V3c` (8 casos cobrindo todos os tipos de formas e ferramentas com captura real de tela por `page.screenshot`, amostragem de pixels não-cobertos, validação de geometria estrita, delta incremental de +1 elemento e entrada física `tools/drag-sendinput.ps1`), além de testes de regressão de `select` e `object_eraser`.
+  - `docs/reviews/autoauditoria-ferramentas-sem-mover.md`: Relatório completo de autoauditoria com comandos reais, evidências coladas, prova de falha/restauração, análise detalhada de D12.3 e lista do que não foi verificado.
+  - `docs/reviews/autoauditoria-08.md`: Cópia do relatório para o validador automático (`tools/auditar.cjs`).
+  - `docs/HANDOFF.md`: Atualizado com o handoff da Fase 08 e resumo executivo.
+* Estado Atual: Fase 08 100% implementada, testada e aprovada. `npm run verify` verde (349 testes, 34 checagens de sonda), `tools/checar-provas.cjs` verde (0 promessas sem pixel), `tools/sinais-risco.cjs` verde (0 falhas, 0 avisos), `tools/verificar-afirmacoes.cjs` verde (0 inexistentes).
+* Próximo Passo Lógico: Alexandre avaliar o relatório e decidir sobre a movimentação em modo `select` (D12.3: Opção A, B ou C).
+* Decisões Críticas Tomadas:
+  - `skipTargetFind`: Configurado no Fabric 6 para suprimir detecção de alvos durante o uso de qualquer ferramenta de desenho, eliminando seleções acidentais na raiz da engine.
+  - `object_eraser` e `select` preservados: Mantêm `skipTargetFind = false` para busca precisa de alvos.
+  - D12.3 mantido sem alteração de código: Conforme diretriz da ordem de serviço, nenhuma decisão unilateral foi tomada sobre a mutação local de `select`; o cenário foi integralmente documentado com opções estruturadas.
+* Divergências da Spec: Nenhuma.
+
+---
+
 # HANDOFF DE ESTADO — FASE 07: Guest mobile
 
 [HANDOFF DE ESTADO]
@@ -584,7 +611,7 @@ PASS  Banco: sem dados duplicados no SQLite
   - Conversão `pointerToScene` adaptada para priorizar `changedTouches` em eventos de `touchend`, eliminando a causa-raiz de descarte de formas geométricas no término do toque.
   - Relatório analítico completo arquivado em `docs/reviews/diagnostico-coordenadas.md`.
 * **V5 — Script de homologação limpa (`tools/homologar.ps1`):**
-  - Recusa execução se a árvore Git estiver suja (`git status --porcelain`) ou se a branch não for `fase/07-homologacao-1`.
+  - Recusa execução se a árvore Git estiver suja (`git status --porcelain`) ou se a branch não for a esperada da homologação.
   - Encerra instâncias residuais de `electron.exe` e Vite.
   - Deleta arquivos de banco SQLite em `%APPDATA%\OneToOneSupport` com app fechado, listando cada arquivo removido.
   - Executa build completo (`npm run build`).

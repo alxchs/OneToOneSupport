@@ -333,6 +333,9 @@ export class WhiteboardEngine {
       allowTouchScrolling: false,
     });
 
+    // D12.1: Ferramentas de desenho nunca procuram alvos sob o cursor por padrão
+    this.canvas.skipTargetFind = true;
+
     // Fundo branco SÓ no canvas de baixo (lower-canvas) e buffer transparente para composição
     // destination-out (ADR-003, ADR-012). O fundo NÃO pode ser aplicado antes de `new Canvas`:
     // o Fabric cria o `.upper-canvas` copiando o `style.cssText` do elemento original
@@ -634,6 +637,7 @@ export class WhiteboardEngine {
         },
       };
       this.emitEvent(event);
+      this.canvas.discardActiveObject();
     }
   }
 
@@ -913,7 +917,21 @@ export class WhiteboardEngine {
     // Desativa seleção e criação anterior
     this.canvas.isDrawingMode = false;
     this.canvas.selection = false;
+
+    // D12.1: Garante que qualquer texto em edição seja encerrado e o activeObject seja descartado ao trocar de ferramenta
+    const activeObj = this.canvas.getActiveObject();
+    if (activeObj && (activeObj as any).isEditing && typeof (activeObj as any).exitEditing === 'function') {
+      (activeObj as any).exitEditing();
+    }
+    if ((this.canvas as any).textEditingManager?.exitTextEditing) {
+      (this.canvas as any).textEditingManager.exitTextEditing();
+    }
     this.canvas.discardActiveObject();
+
+    // D12.1: Ferramentas de desenho nunca procuram alvos sob o cursor (skipTargetFind = true).
+    // Apenas 'select' (seleção/manipulação) e 'object_eraser' (localização de alvo por opt.target)
+    // procuram alvos sob o cursor (skipTargetFind = false).
+    this.canvas.skipTargetFind = !(tool === 'select' || tool === 'object_eraser');
 
     switch (tool) {
       case 'select': {

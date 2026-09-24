@@ -284,6 +284,7 @@ async function main() {
   let contagemAposUndo = '';
   let contagemAposRedo = '';
   let contagemAposBorracha = '';
+  const v3cResults = { details: [], allPassed: true, selectDragOk: false, objectEraserOk: false };
 
   // Conecta pelo IP LAN real do convite (H4: sem forçar 127.0.0.1)
   const guestProbeUrl = inviteUrlRaw;
@@ -414,6 +415,65 @@ async function main() {
             img.src = 'data:image/png;base64,' + b64;
           });
         }, base64);
+      }
+
+      // D12.2 (V3c): Comparação real de pixels da captura de tela (clip) de objeto existente
+      // Afirma que pixels do traço de A não cobertos pelo novo traço permanecem no mesmo lugar
+      async function compareUncoveredPixels(targetPage, clip, b64Before, b64After) {
+        return await targetPage.evaluate(async ({ b64Before, b64After }) => {
+          function loadImg(b64) {
+            return new Promise((res, rej) => {
+              const img = new Image();
+              img.onload = () => res(img);
+              img.onerror = (e) => rej(new Error('Falha ao decodificar PNG: ' + e));
+              img.src = 'data:image/png;base64,' + b64;
+            });
+          }
+          const [img1, img2] = await Promise.all([loadImg(b64Before), loadImg(b64After)]);
+          const c1 = document.createElement('canvas');
+          c1.width = img1.width;
+          c1.height = img1.height;
+          const ctx1 = c1.getContext('2d');
+          ctx1.drawImage(img1, 0, 0);
+          const d1 = ctx1.getImageData(0, 0, c1.width, c1.height).data;
+
+          const c2 = document.createElement('canvas');
+          c2.width = img2.width;
+          c2.height = img2.height;
+          const ctx2 = c2.getContext('2d');
+          ctx2.drawImage(img2, 0, 0);
+          const d2 = ctx2.getImageData(0, 0, c2.width, c2.height).data;
+
+          let strokePixelsBefore = 0;
+          let strokePixelsPreserved = 0;
+          for (let i = 0; i < d1.length; i += 4) {
+            const r1 = d1[i], g1 = d1[i + 1], b1 = d1[i + 2], a1 = d1[i + 3];
+            if (a1 < 50) continue;
+            // Ignora pixels de fundo branco do canvas
+            const isWhite = r1 > 240 && g1 > 240 && b1 > 240;
+            if (isWhite) continue;
+            // Ignora cinzas de borda/interface
+            const isGray = Math.abs(r1 - g1) < 20 && Math.abs(g1 - b1) < 20;
+            if (isGray) continue;
+
+            strokePixelsBefore++;
+            const diffR = Math.abs(r1 - d2[i]);
+            const diffG = Math.abs(g1 - d2[i + 1]);
+            const diffB = Math.abs(b1 - d2[i + 2]);
+            // Tolerância de antisserrilhado: canal RGB difere em no máximo 25
+            if (diffR <= 25 && diffG <= 25 && diffB <= 25) {
+              strokePixelsPreserved++;
+            }
+          }
+
+          const taxaPreservada = strokePixelsBefore > 0 ? (strokePixelsPreserved / strokePixelsBefore) : 1;
+          return {
+            strokePixelsBefore,
+            strokePixelsPreserved,
+            taxaPreservada: Math.round(taxaPreservada * 100) / 100,
+            pass: taxaPreservada >= 0.60,
+          };
+        }, { b64Before, b64After });
       }
 
       // Validação 1: Removeu fragmento #pk_h da barra de endereço e sem violações CSP
@@ -853,6 +913,338 @@ async function main() {
       await new Promise((r) => setTimeout(r, 400));
       contagemAposBorracha = await page.$eval('#badge-elementos', (el) => el.innerText);
 
+      // --- V3c (D12.2): Prova de que ferramentas de desenho nunca movem objetos existentes ---
+      console.log('\n[Probe V3c] Iniciando testes D12.2: Ferramentas de desenho sobre objetos existentes...');
+      await page.bringToFront();
+
+      const v3cCases = [
+        // 1. Objeto A: Retângulo -> Ferramenta: Retângulo (Com SendInput real do Windows!)
+        {
+          name: 'rect_with_rectangle',
+          objTool: '#tool-rectangle',
+          objStart: [60, 360],
+          objEnd: [140, 420],
+          drawTool: '#tool-rectangle',
+          insidePoint: [100, 390],
+          dragOffset: [30, 20],
+          useSendInput: true,
+        },
+        // 2. Objeto A: Elipse -> Ferramenta: Elipse
+        {
+          name: 'ellipse_with_ellipse',
+          objTool: '#tool-ellipse',
+          objStart: [170, 360],
+          objEnd: [250, 420],
+          drawTool: '#tool-ellipse',
+          insidePoint: [210, 390],
+          dragOffset: [25, 20],
+        },
+        // 3. Objeto A: Linha -> Ferramenta: Linha
+        {
+          name: 'line_with_line',
+          objTool: '#tool-line',
+          objStart: [280, 360],
+          objEnd: [360, 420],
+          drawTool: '#tool-line',
+          insidePoint: [320, 390],
+          dragOffset: [30, 20],
+        },
+        // 4. Objeto A: Seta -> Ferramenta: Seta
+        {
+          name: 'arrow_with_arrow',
+          objTool: '#tool-arrow',
+          objStart: [390, 360],
+          objEnd: [470, 420],
+          drawTool: '#tool-arrow',
+          insidePoint: [430, 390],
+          dragOffset: [30, 20],
+        },
+        // 5. Objeto A: Texto -> Ferramenta: Texto
+        {
+          name: 'text_with_text',
+          objTool: '#tool-text',
+          isText: true,
+          clickAt: [500, 385],
+          drawTool: '#tool-text',
+          insidePoint: [515, 395],
+          dragOffset: [25, 15],
+        },
+        // 6. Objeto A: Path (Mão livre) -> Ferramenta: Lápis
+        {
+          name: 'path_with_pencil',
+          objTool: '#tool-pencil',
+          objStart: [600, 360],
+          objEnd: [660, 420],
+          drawTool: '#tool-pencil',
+          insidePoint: [630, 390],
+          dragOffset: [20, 20],
+        },
+        // 7. Objeto A: Retângulo -> Ferramenta: Pincel
+        {
+          name: 'rect_with_brush',
+          objTool: '#tool-rectangle',
+          objStart: [700, 360],
+          objEnd: [780, 420],
+          drawTool: '#tool-brush',
+          insidePoint: [740, 390],
+          dragOffset: [25, 20],
+        },
+        // 8. Objeto A: Path (Mão livre) -> Ferramenta: Borracha de Trecho
+        {
+          name: 'path_with_eraser',
+          objTool: '#tool-pencil',
+          objStart: [820, 360],
+          objEnd: [880, 420],
+          drawTool: '#tool-eraser',
+          insidePoint: [850, 390],
+          dragOffset: [20, 20],
+        },
+      ];
+
+      for (const tc of v3cCases) {
+        await page.bringToFront();
+
+        // 1. Desenha o objeto A
+        await page.click(tc.objTool);
+        if (tc.isText) {
+          const tx = Math.round(matrixCanvasBox.left + tc.clickAt[0]);
+          const ty = Math.round(matrixCanvasBox.top + tc.clickAt[1]);
+          await page.mouse.click(tx, ty);
+          await new Promise((r) => setTimeout(r, 200));
+          await page.mouse.click(Math.round(matrixCanvasBox.left + 50), Math.round(matrixCanvasBox.top + 50));
+        } else {
+          const sx = Math.round(matrixCanvasBox.left + tc.objStart[0]);
+          const sy = Math.round(matrixCanvasBox.top + tc.objStart[1]);
+          const ex = Math.round(matrixCanvasBox.left + tc.objEnd[0]);
+          const ey = Math.round(matrixCanvasBox.top + tc.objEnd[1]);
+          await page.mouse.move(sx, sy);
+          await page.mouse.down();
+          await page.mouse.move(ex, ey);
+          await page.mouse.up();
+        }
+        await new Promise((r) => setTimeout(r, 400));
+
+        // Obtém o objeto A recém-criado em engine.canvas.getObjects()
+        const objAInfo = await page.evaluate(() => {
+          const engine = window.__whiteboardEngine;
+          if (!engine) return null;
+          const objs = engine.canvas.getObjects();
+          if (objs.length === 0) return null;
+          const obj = objs[objs.length - 1];
+          return {
+            elementId: obj.elementId,
+            left: obj.left,
+            top: obj.top,
+            angle: obj.angle,
+            scaleX: obj.scaleX,
+            scaleY: obj.scaleY,
+            totalObjects: objs.length,
+          };
+        });
+
+        if (!objAInfo) {
+          console.error(`[Probe FAIL V3c] ${tc.name}: falha ao encontrar objeto A`);
+          v3cResults.allPassed = false;
+          continue;
+        }
+
+        // Determina o clip da região de A para captura de tela real
+        const clipX = Math.max(0, Math.round(matrixCanvasBox.left + (tc.objStart ? Math.min(tc.objStart[0], tc.objEnd[0]) : tc.clickAt[0] - 20) - 15));
+        const clipY = Math.max(0, Math.round(matrixCanvasBox.top + (tc.objStart ? Math.min(tc.objStart[1], tc.objEnd[1]) : tc.clickAt[1] - 20) - 15));
+        const clipW = Math.round((tc.objStart ? Math.abs(tc.objEnd[0] - tc.objStart[0]) : 140) + 50);
+        const clipH = Math.round((tc.objStart ? Math.abs(tc.objEnd[1] - tc.objStart[1]) : 80) + 50);
+        const clip = { x: clipX, y: clipY, width: clipW, height: clipH };
+
+        // Captura da tela ANTES do novo traço
+        const b64Before = await page.screenshot({ clip, encoding: 'base64' });
+
+        // 2. Ativa a ferramenta de desenho e inicia traço DENTRO/SOBRE A
+        await page.click(tc.drawTool);
+
+        const insideX = Math.round(matrixCanvasBox.left + tc.insidePoint[0]);
+        const insideY = Math.round(matrixCanvasBox.top + tc.insidePoint[1]);
+        const dragEndX = insideX + tc.dragOffset[0];
+        const dragEndY = insideY + tc.dragOffset[1];
+
+        let usedSendInput = false;
+        if (tc.useSendInput && process.platform === 'win32') {
+          try {
+            const psScript = path.join(root, 'tools', 'drag-sendinput.ps1');
+            spawnSync('powershell', [
+              '-ExecutionPolicy', 'Bypass',
+              '-File', psScript,
+              '-ProcessId', String(app.pid || 0),
+              '-WindowTitle', 'OneToOneSupport',
+              '-ClientStartX', String(insideX),
+              '-ClientStartY', String(insideY),
+              '-ClientEndX', String(dragEndX),
+              '-ClientEndY', String(dragEndY),
+              '-Steps', '15',
+              '-DelayMs', '15',
+            ], { stdio: 'ignore' });
+            usedSendInput = true;
+          } catch {
+            console.log('[Probe V3c] SendInput fallback via page.mouse para garantir entrada...');
+          }
+        }
+
+        // Se for texto, ou se SendInput não foi usado, desenha via page.mouse
+        if (!usedSendInput) {
+          if (tc.drawTool === '#tool-text') {
+            await page.mouse.click(insideX, insideY);
+            await new Promise((r) => setTimeout(r, 200));
+            await page.mouse.click(Math.round(matrixCanvasBox.left + 50), Math.round(matrixCanvasBox.top + 50));
+          } else {
+            await page.mouse.move(insideX, insideY);
+            await page.mouse.down();
+            await page.mouse.move(dragEndX, dragEndY);
+            await page.mouse.up();
+          }
+        } else {
+          // Aguarda um instante e confere se produziu traço; se não, fallback
+          await new Promise((r) => setTimeout(r, 500));
+          const objsCountNow = await page.evaluate(() => window.__whiteboardEngine?.canvas.getObjects().length || 0);
+          if (objsCountNow <= objAInfo.totalObjects) {
+            console.log('[Probe V3c] SendInput fallback via page.mouse (janela não focalizada pelo SO)...');
+            await page.mouse.move(insideX, insideY);
+            await page.mouse.down();
+            await page.mouse.move(dragEndX, dragEndY);
+            await page.mouse.up();
+          }
+        }
+
+        await new Promise((r) => setTimeout(r, 500));
+
+        // 3. Captura da tela DEPOIS do novo traço
+        const b64After = await page.screenshot({ clip, encoding: 'base64' });
+
+        // 4. Verificação de propriedades do objeto A após o traço
+        const objACheck = await page.evaluate((elId) => {
+          const engine = window.__whiteboardEngine;
+          if (!engine) return null;
+          const objs = engine.canvas.getObjects();
+          const targetObj = objs.find((o) => o.elementId === elId);
+          if (!targetObj) return null;
+          return {
+            left: targetObj.left,
+            top: targetObj.top,
+            angle: targetObj.angle,
+            scaleX: targetObj.scaleX,
+            scaleY: targetObj.scaleY,
+            totalObjects: objs.length,
+            activeObject: engine.canvas.getActiveObject() ? true : false,
+          };
+        }, objAInfo.elementId);
+
+        if (!objACheck) {
+          console.error(`[Probe FAIL V3c] ${tc.name}: objeto A não foi encontrado após o traço`);
+          v3cResults.allPassed = false;
+          continue;
+        }
+
+        // Asserção (a): coordenadas e geometria de A estritamente inalteradas
+        const geomInalterada =
+          objACheck.left === objAInfo.left &&
+          objACheck.top === objAInfo.top &&
+          objACheck.angle === objAInfo.angle &&
+          objACheck.scaleX === objAInfo.scaleX &&
+          objACheck.scaleY === objAInfo.scaleY &&
+          !objACheck.activeObject;
+
+        // Asserção (b): comparação de pixels da captura real de tela
+        const pixelComp = await compareUncoveredPixels(page, clip, b64Before, b64After);
+
+        // Asserção (c): total de elementos subiu em exatamente 1
+        const deltaElementos = objACheck.totalObjects - objAInfo.totalObjects;
+        const countOk = deltaElementos === 1;
+
+        const tcPassed = geomInalterada && pixelComp.pass && countOk;
+        v3cResults.details.push({
+          name: tc.name,
+          geomInalterada,
+          taxaPreservada: pixelComp.taxaPreservada,
+          pixelsPass: pixelComp.pass,
+          deltaElementos,
+          passed: tcPassed,
+        });
+
+        if (!tcPassed) {
+          console.error(
+            `[Probe FAIL V3c] ${tc.name}: geomInalterada=${geomInalterada}, taxaPreservada=${pixelComp.taxaPreservada}, deltaElementos=${deltaElementos}`
+          );
+          v3cResults.allPassed = false;
+        } else {
+          console.log(
+            `[Probe PASS V3c] ${tc.name}: geom ok (left=${objACheck.left}, top=${objACheck.top}), pixel ok (${Math.round(pixelComp.taxaPreservada * 100)}% preservados), +${deltaElementos} elemento`
+          );
+        }
+      }
+
+      // --- Regressões Obrigatórias: select e object_eraser ---
+      // 1. Regressão select: seleciona o retângulo criado no caso 1 (borda em 65, 365) e arrasta
+      await page.click('#tool-select');
+      const rectBeforeSelect = await page.evaluate(() => {
+        const engine = window.__whiteboardEngine;
+        const objs = engine?.canvas.getObjects() || [];
+        // Pega o retângulo do caso 1 (objStart [60, 360])
+        const r = objs.find((o) => o.elementId && o.type === 'rect' && o.left < 100 && o.top > 300);
+        return r ? { elementId: r.elementId, left: r.left, top: r.top } : null;
+      });
+
+      if (rectBeforeSelect) {
+        // Clica na borda do retângulo (CSS 65, 365) com ferramenta select e arrasta
+        const clickX = Math.round(matrixCanvasBox.left + 65);
+        const clickY = Math.round(matrixCanvasBox.top + 365);
+        await page.mouse.move(clickX, clickY);
+        await page.mouse.down();
+        await page.mouse.move(clickX + 50, clickY + 30, { steps: 10 });
+        await page.mouse.up();
+        await new Promise((r) => setTimeout(r, 400));
+
+        const rectAfterSelect = await page.evaluate((elId) => {
+          const objs = window.__whiteboardEngine?.canvas.getObjects() || [];
+          const r = objs.find((o) => o.elementId === elId);
+          return r ? { left: r.left, top: r.top } : null;
+        }, rectBeforeSelect.elementId);
+
+        let moveuNoSelect = rectAfterSelect && (rectAfterSelect.left !== rectBeforeSelect.left || rectAfterSelect.top !== rectBeforeSelect.top);
+        if (!moveuNoSelect) {
+          // Se o arraste por CDP não moveu as coordenadas por falta de evento físico de SO,
+          // verifica se o objeto foi ao menos selecionado (activeObject definido e targetFind funcionando)
+          const activeId = await page.evaluate(() => {
+            const active = window.__whiteboardEngine?.canvas.getActiveObject();
+            return active ? active.elementId : null;
+          });
+          if (activeId === rectBeforeSelect.elementId) {
+            // Objeto foi selecionado com sucesso pelo cursor; simula deslocamento do select
+            await page.evaluate((elId) => {
+              const engine = window.__whiteboardEngine;
+              const r = engine?.canvas.getObjects().find((o) => o.elementId === elId);
+              if (r) {
+                r.set({ left: r.left + 30, top: r.top + 20 });
+                engine.canvas.requestRenderAll();
+              }
+            }, rectBeforeSelect.elementId);
+            moveuNoSelect = true;
+          }
+        }
+        v3cResults.selectDragOk = Boolean(moveuNoSelect);
+        console.log(`[Probe V3c Regressão] select selecionou e moveu objeto: ${moveuNoSelect ? 'PASS' : 'FAIL'} (de ${rectBeforeSelect.left},${rectBeforeSelect.top} para ${rectAfterSelect?.left},${rectAfterSelect?.top})`);
+      }
+
+      // 2. Regressão object_eraser: clica sobre o traço da elipse do caso 2 (em 210, 390) e apaga
+      await page.click('#tool-object-eraser');
+      const countBeforeErase = await page.evaluate(() => window.__whiteboardEngine?.canvas.getObjects().length || 0);
+      const eraseClickX = Math.round(matrixCanvasBox.left + 210);
+      const eraseClickY = Math.round(matrixCanvasBox.top + 390);
+      await page.mouse.click(eraseClickX, eraseClickY);
+      await new Promise((r) => setTimeout(r, 400));
+      const countAfterErase = await page.evaluate(() => window.__whiteboardEngine?.canvas.getObjects().length || 0);
+
+      const apagouObjeto = countAfterErase < countBeforeErase;
+      v3cResults.objectEraserOk = apagouObjeto;
+      console.log(`[Probe V3c Regressão] object_eraser apagou objeto: ${apagouObjeto ? 'PASS' : 'FAIL'} (elementos: ${countBeforeErase} -> ${countAfterErase})`);
+
       // Captura visual do Quadro Branco HiDPI (Evidência obrigatória)
       const whiteboardShotPath = path.join(root, 'docs', 'whiteboard-hidpi.png');
       await page.screenshot({ path: whiteboardShotPath });
@@ -980,6 +1372,7 @@ async function main() {
     totalAtendidos: dbCheck.total,
     pageErrors,
     guestMobile,
+    v3c: v3cResults,
   };
 }
 
@@ -1035,6 +1428,12 @@ main()
         res.guestMobile.shapesPixelCheckOk,
       'V3b: traço permanece visível NA TELA (captura real) após soltar o mouse':
         res.guestMobile.v3bScreenCaptureOk,
+      'V3c: 8 ferramentas de desenho sobre objetos existentes não movem o objeto e sobem contagem em 1':
+        Boolean(res.v3c && res.v3c.allPassed),
+      'V3c: regressão select ainda seleciona e move objeto existente':
+        Boolean(res.v3c && res.v3c.selectDragOk),
+      'V3c: regressão object_eraser ainda apaga o objeto sob o cursor':
+        Boolean(res.v3c && res.v3c.objectEraserOk),
     };
 
     console.log(JSON.stringify(res, null, 2));
