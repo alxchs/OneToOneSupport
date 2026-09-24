@@ -169,6 +169,18 @@ Foi comprovado via teste automatizado (`tests/ferramentas-sem-mover.test.ts`, bl
 
 ---
 
+### D15.3 — Prova de Seleção sem Arrasto (Issue Aberta em Issues/20260924-200000-selecao-sem-arrasto)
+* **Status:** PENDENTE / SEPARADA (Issue `20260924-200000-selecao-sem-arrasto` aberta para execução em ordem subsequente).
+* **Evidência Visual / Pixel:** O teste da ordem D15 exigirá validação por captura de tela (`page.screenshot`) e amostragem de pixels quando for executada.
+
+---
+
+### D16.4 — Prova de Modo Somente Leitura de Sessão Encerrada (D16)
+* **Status:** PASS
+* **Evidência Visual / Pixel / Screenshot:** Validação por captura de tela real (`docs/quadro-somente-leitura.png`), contagem de 52051 pixels visíveis de traço colorido na tela com decodificação no Chromium via `countVisibleScreenStrokePixels`, garantia de 0 novos pixels ou elementos sob arraste do mouse e preservação de contagem de eventos no SQLite (38 -> 38).
+
+---
+
 ## 4. O Que NÃO Foi Verificado
 
 1. **Gestos multitouch simultâneos no Host:** O teste de automação cobriu entrada única de ponteiro via SendInput e CDP. Gestos com dois ou mais dedos simultâneos na tela touch de monitor 4K do Host não foram testados fisicamente.

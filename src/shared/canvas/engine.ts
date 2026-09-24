@@ -232,6 +232,8 @@ export interface WhiteboardEngineOptions {
   abaId?: string;
   onEmitEvent?: (event: WhiteboardEvent) => void;
   onToolChange?: (tool: WhiteboardTool) => void;
+  somenteLeitura?: boolean;
+  readOnly?: boolean;
 }
 
 /**
@@ -251,6 +253,7 @@ let nextEngineInstanceId = 1;
 export class WhiteboardEngine {
   public readonly instanciaId: number;
   public readonly canvas: Canvas;
+  public readonly readOnly: boolean;
   public virtualWidth: number;
   public virtualHeight: number;
   public displayWidth: number;
@@ -323,11 +326,12 @@ export class WhiteboardEngine {
     this.abaId = options.abaId || 'default';
     this.onEmitEvent = options.onEmitEvent;
     this.onToolChange = options.onToolChange;
+    this.readOnly = Boolean(options.somenteLeitura || options.readOnly);
 
     this.canvas = new Canvas(canvasElement, {
       backgroundColor: 'transparent',
       enableRetinaScaling: true,
-      selection: true,
+      selection: !this.readOnly,
       stopContextMenu: true,
       fireRightClick: true,
       allowTouchScrolling: false,
@@ -344,6 +348,13 @@ export class WhiteboardEngine {
     this.canvas.lowerCanvasEl.style.backgroundColor = '#ffffff';
     this.canvas.upperCanvasEl.style.backgroundColor = 'transparent';
 
+    if (this.readOnly) {
+      this.canvas.isDrawingMode = false;
+      this.canvas.selection = false;
+      this.canvas.skipTargetFind = true;
+      this.activeTool = 'select';
+    }
+
     // Configura Pointer Events e previne rolagem acidental no canvas
     this.setupPointerAndTouchGuards(canvasElement);
 
@@ -356,8 +367,12 @@ export class WhiteboardEngine {
     // Reage a mudança de DPR (matchMedia) e redimensionamento da janela
     this.setupResolutionListeners();
 
-    // Ativa a ferramenta inicial
-    this.setTool('pencil');
+    // Ativa a ferramenta inicial (select no modo leitura, pencil no modo ativo)
+    if (this.readOnly) {
+      this.setTool('select');
+    } else {
+      this.setTool('pencil');
+    }
   }
 
   /**
@@ -527,6 +542,11 @@ export class WhiteboardEngine {
       const pathObj = opt.path;
       if (!pathObj) return;
 
+      if (this.readOnly) {
+        this.canvas.remove(pathObj);
+        return;
+      }
+
       const isEraser = this.activeTool === 'eraser';
       const elementId = generateUUID();
       const pathData = pathObj.toObject();
@@ -570,6 +590,7 @@ export class WhiteboardEngine {
 
     // 2. Interações com o mouse/ponteiro para formas, texto e borracha de objeto
     this.canvas.on('mouse:down', (opt: any) => {
+      if (this.readOnly) return;
       const e = opt.e;
       if (!e) return;
 
@@ -613,6 +634,7 @@ export class WhiteboardEngine {
     });
 
     this.canvas.on('mouse:move', (opt: any) => {
+      if (this.readOnly) return;
       const e = opt.e;
       if (!e) return;
 
@@ -627,6 +649,7 @@ export class WhiteboardEngine {
     });
 
     this.canvas.on('mouse:up', (opt: any) => {
+      if (this.readOnly) return;
       const e = opt.e;
       if (this.isCreatingShape && this.shapeOrigin) {
         this.finishShapeCreation(e);
@@ -851,6 +874,7 @@ export class WhiteboardEngine {
    * Criação de texto rotacionável no ponto clicado
    */
   private handleTextCreation(e: any): void {
+    if (this.readOnly) return;
     const pos = this.pointerToScene(e);
     const elementId = generateUUID();
 
@@ -934,6 +958,15 @@ export class WhiteboardEngine {
    * Define a ferramenta ativa e ajusta as propriedades do canvas Fabric
    */
   public setTool(tool: WhiteboardTool): void {
+    if (this.readOnly) {
+      this.activeTool = 'select';
+      this.canvas.isDrawingMode = false;
+      this.canvas.selection = false;
+      this.canvas.skipTargetFind = true;
+      this.canvas.defaultCursor = 'default';
+      return;
+    }
+
     this.activeTool = tool;
 
     // Desativa seleção e criação anterior
@@ -1036,6 +1069,11 @@ export class WhiteboardEngine {
    * Emite evento padronizado para o Reducer/Session Manager
    */
   private emitEvent(event: WhiteboardEvent): void {
+    if (this.readOnly) {
+      diagLog('emitEvent_blocked_readonly', { tipo: event.tipo, id: event.id });
+      return;
+    }
+
     diagLog('emitEvent', {
       tipo: event.tipo,
       autor: event.autor,
@@ -1052,6 +1090,8 @@ export class WhiteboardEngine {
    * Emite ação de Limpar Tela (CLEAR_TAB)
    */
   public clearTab(): void {
+    if (this.readOnly) return;
+
     const event: WhiteboardEvent = {
       id: generateUUID(),
       sessao_id: this.sessaoId,
@@ -1070,6 +1110,8 @@ export class WhiteboardEngine {
    * Emite ação de Desfazer (UNDO) para o respectivo autor
    */
   public undo(): void {
+    if (this.readOnly) return;
+
     const event: WhiteboardEvent = {
       id: generateUUID(),
       sessao_id: this.sessaoId,
@@ -1086,6 +1128,8 @@ export class WhiteboardEngine {
    * Emite ação de Refazer (REDO) para o respectivo autor
    */
   public redo(): void {
+    if (this.readOnly) return;
+
     const event: WhiteboardEvent = {
       id: generateUUID(),
       sessao_id: this.sessaoId,
@@ -1127,6 +1171,16 @@ export class WhiteboardEngine {
         if (fabricObj) {
           (fabricObj as any).elementId = el.id;
           (fabricObj as any).autor = el.autor;
+          if (this.readOnly) {
+            fabricObj.selectable = false;
+            fabricObj.evented = false;
+            fabricObj.lockMovementX = true;
+            fabricObj.lockMovementY = true;
+            fabricObj.lockRotation = true;
+            fabricObj.lockScalingX = true;
+            fabricObj.lockScalingY = true;
+            fabricObj.hasControls = false;
+          }
           this.canvas.add(fabricObj);
           this.objectsMap.set(el.id, fabricObj);
           idsAdicionados.push(el.id);

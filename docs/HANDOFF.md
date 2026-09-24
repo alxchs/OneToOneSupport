@@ -1,3 +1,35 @@
+# HANDOFF DE ESTADO — FASE 08: Modo Leitura de Sessão Encerrada (D16) e Ferramentas de Desenho (D12/D13)
+
+## Mensagem para o Alexandre (Resumo em Português Simples — D16)
+Olá Alexandre! Nesta intervenção (D16), implementamos a funcionalidade para você rever o quadro de qualquer atendimento já encerrado diretamente pela tela de detalhes do atendido. Cada sessão encerrada agora possui o botão "Ver quadro (somente leitura)", enquanto a sessão ativa permanece com seus botões normais.
+
+Para proteger rigorosamente a regra do histórico imutável (append-only), o modo leitura desabilita e esconde todas as ferramentas de desenho, borracha, texto, desfazer/refazer e controles de sala remota. Além disso, adicionamos travas no motor (`WhiteboardEngine`), na store e no serviço de backend para impedir qualquer nova gravação de evento em sessão encerrada. A tela traz avisos claros de que está em modo de leitura e você pode utilizar o botão "Exportar PNG HiDPI" normalmente para salvar a imagem final da sessão.
+
+Validamos tudo com 13 testes dedicados (unitários no motor/store e de banco no SQLite) e estendemos a sonda de automação com o teste `V4: sessão encerrada abre em leitura e não aceita desenho`, que encerra uma sessão de verdade, abre o quadro em leitura, afere os pixels na tela por captura real (`docs/quadro-somente-leitura.png`), tenta arrastar o mouse para desenhar e confirma que nenhum elemento ou evento é adicionado, testando também a exportação em PNG. Toda a suíte do projeto está 100% verde (367 testes passando e 35 verificações na sonda).
+
+[HANDOFF DE ESTADO — D16]
+* Arquivos Modificados/Criados no D16:
+  - `src/host/pages/DetalheAtendidoPage.tsx`: Adicionado botão `btn-rever-quadro-<id>` ("Ver quadro (somente leitura)") para sessões encerradas. Mantidos os controles de sessão ativa inalterados.
+  - `src/host/store/useHostStore.ts`: Adicionada propriedade `quadroSomenteLeitura: boolean`, ativada automaticamente ao abrir sessão encerrada via `abrirQuadroSessao(sessaoId, { somenteLeitura: true })`. Bloqueadas emissões de `aplicarEventoQuadro`, `desfazerQuadro`, `refazerQuadro` e `limparQuadro`.
+  - `src/shared/canvas/engine.ts`: Adicionado suporte a `somenteLeitura: true` no `WhiteboardEngine`. Inicializa com `selection = false`, `isDrawingMode = false`, `skipTargetFind = true`. No `renderState`, projeta todos os elementos existentes com `selectable = false`, `evented = false`, `lockMovement = true` e sem controles de vértice. Métodos de desenho, edição, texto, desfazer, refazer e emissão de eventos bloqueados.
+  - `src/host/pages/QuadroBrancoPage.tsx`: Integrado `quadroSomenteLeitura` da store, renderizando `#badge-somente-leitura` no cabeçalho e `#aviso-modo-leitura` no lugar da barra de ferramentas interativa. Ocultados controles de sala do servidor LAN. Botão `#btn-exportar-imagem` mantido funcional.
+  - `electron/services/evento.service.ts`: Em `gravarEvento`, rejeita com `{ sucesso: false, motivo: 'SESSAO_ENCERRADA' }` qualquer tentativa de gravar evento em sessão cujo status no SQLite seja `encerrada`.
+  - `tests/rever-sessao-encerrada.test.ts`: Suíte com 10 testes cobrindo interface, store e motor gráfico Fabric.js em modo somente leitura.
+  - `tests/rever-sessao-backend.test.ts`: Suíte com 3 testes validando a rejeição no backend SQLite e reconstrução do estado histórico.
+  - `tools/probe-runtime.cjs`: Estendida com a checagem runtime `V4: sessão encerrada abre em leitura e não aceita desenho`, com captura de tela real (`page.screenshot`), amostragem de 52051 pixels visíveis de traço colorido com `countVisibleScreenStrokePixels`, teste de arraste do mouse sem mutação de elementos e sem novos eventos no SQLite, e exportação de PNG.
+  - `docs/reviews/autoauditoria-rever-sessao.md`: Relatório completo de autoauditoria da ordem D16 com critérios, comandos, saídas reais e verificação visual.
+  - `docs/quadro-somente-leitura.png` e `Issues/20260924-210000-rever-sessao-encerrada/evidencia/quadro-somente-leitura.png`: Evidência visual da captura de tela real.
+* Estado Atual: D16 100% implementado, testado e verificado. `npm run verify` verde (367 testes, 35 checagens na sonda).
+* Observação D15.3: A ordem D15 (`Issues/20260924-200000-selecao-sem-arrasto/ordem-correcao.md`) permanece como issue aberta e separada para execução futura, com validação de captura de tela (`page.screenshot`) e amostragem de pixels prevista.
+* Observação D16.4: Prova de visualização e preservação de pixels atestada com 52051 pixels coloridos visíveis na captura de tela e zero eventos gerados sob arraste em modo somente leitura.
+* Próximo Passo Lógico: Alexandre avaliar as entregas para autorizar merge e push.
+* Decisões Críticas Tomadas:
+  - Reutilização de `desktopAPI.eventos.obterEstadoAba`: Nenhum novo canal IPC foi criado, mantendo a simplicidade e segurança do contrato IPC existente.
+  - Bloqueio em Múltiplas Camadas: O modo leitura é garantido simultaneamente na interface (remoção da barra de ferramentas), no motor gráfico (sem seleção, desenho ou controles), na store Zustand (bloqueio de mutação) e no backend SQLite (rejeição no EventoService).
+* Divergências da Spec: Nenhuma.
+
+---
+
 # HANDOFF DE ESTADO — FASE 08: Ferramenta Texto Utilizável (D13) e Ferramentas Sem Mover (D12)
 
 ## Mensagem para o Alexandre (Resumo em Português Simples — D13)

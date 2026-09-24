@@ -299,6 +299,83 @@ async function main() {
   ];
   const chromiumExe = browserCandidates.find((p) => p && fs.existsSync(p));
 
+  async function countNonTransparentPixels(targetPage, isHost = true) {
+    return await targetPage.evaluate((isHost) => {
+      const engine = isHost ? window.__whiteboardEngine : window.__guestEngine;
+      if (!engine) return 0;
+      const canvas = engine.canvas?.lowerCanvasEl;
+      if (!canvas) return 0;
+      const ctx = canvas.getContext('2d');
+      const d = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+      let nonZero = 0;
+      for (let i = 3; i < d.length; i += 4) {
+        if (d[i] > 0) nonZero++;
+      }
+      return nonZero;
+    }, isHost);
+  }
+
+  // D11.2: Captura real da tela (screenshot com clip) decodificada no Chromium
+  // Mede pixels coloridos (não-brancos, não-cinza de UI) na tela real apresentada ao usuário
+  async function countVisibleScreenStrokePixels(targetPage, clip) {
+    const clipX = Math.max(0, Math.round(clip.left !== undefined ? clip.left : clip.x));
+    const clipY = Math.max(0, Math.round(clip.top !== undefined ? clip.top : clip.y));
+    const clipW = Math.max(1, Math.round(clip.width));
+    const clipH = Math.max(1, Math.round(clip.height));
+
+    const base64 = await targetPage.screenshot({
+      clip: { x: clipX, y: clipY, width: clipW, height: clipH },
+      encoding: 'base64',
+    });
+
+    return await targetPage.evaluate(async (b64) => {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = async () => {
+          try {
+            let bitmap = null;
+            if (typeof createImageBitmap === 'function') {
+              bitmap = await createImageBitmap(img);
+            }
+            const c = document.createElement('canvas');
+            c.width = bitmap ? bitmap.width : (img.naturalWidth || img.width);
+            c.height = bitmap ? bitmap.height : (img.naturalHeight || img.height);
+            const ctx = c.getContext('2d');
+            if (bitmap) {
+              ctx.drawImage(bitmap, 0, 0);
+            } else {
+              ctx.drawImage(img, 0, 0);
+            }
+            const idata = ctx.getImageData(0, 0, c.width, c.height);
+            const d = idata.data;
+            let coloredPixels = 0;
+            for (let i = 0; i < d.length; i += 4) {
+              const r = d[i];
+              const g = d[i + 1];
+              const b = d[i + 2];
+              const a = d[i + 3];
+              if (a < 50) continue;
+              // Não-branco: se todos os canais forem > 240, é fundo branco do canvas
+              const isWhite = r > 240 && g > 240 && b > 240;
+              if (isWhite) continue;
+              // Não-cinza de UI: cinzas de borda/interface possuem baixa diferença entre canais RGB
+              const max = Math.max(r, g, b);
+              const min = Math.min(r, g, b);
+              const isGray = (max - min) < 20;
+              if (isGray) continue;
+              coloredPixels++;
+            }
+            resolve(coloredPixels);
+          } catch (err) {
+            reject(err);
+          }
+        };
+        img.onerror = (e) => reject(new Error('Falha ao decodificar captura PNG: ' + e));
+        img.src = 'data:image/png;base64,' + b64;
+      });
+    }, base64);
+  }
+
   if (chromiumExe) {
     console.log(`[Probe] Lançando Chromium emulado para Guest mobile: ${chromiumExe}`);
     const guestBrowser = await puppeteer.launch({
@@ -340,83 +417,6 @@ async function main() {
         hostVersionStamp.includes(guestStampText.split(' ')[0]) &&
         !avisoDesatualizado
       );
-
-      async function countNonTransparentPixels(targetPage, isHost = true) {
-        return await targetPage.evaluate((isHost) => {
-          const engine = isHost ? window.__whiteboardEngine : window.__guestEngine;
-          if (!engine) return 0;
-          const canvas = engine.canvas?.lowerCanvasEl;
-          if (!canvas) return 0;
-          const ctx = canvas.getContext('2d');
-          const d = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-          let nonZero = 0;
-          for (let i = 3; i < d.length; i += 4) {
-            if (d[i] > 0) nonZero++;
-          }
-          return nonZero;
-        }, isHost);
-      }
-
-      // D11.2: Captura real da tela (screenshot com clip) decodificada no Chromium
-      // Mede pixels coloridos (não-brancos, não-cinza de UI) na tela real apresentada ao usuário
-      async function countVisibleScreenStrokePixels(targetPage, clip) {
-        const clipX = Math.max(0, Math.round(clip.left !== undefined ? clip.left : clip.x));
-        const clipY = Math.max(0, Math.round(clip.top !== undefined ? clip.top : clip.y));
-        const clipW = Math.max(1, Math.round(clip.width));
-        const clipH = Math.max(1, Math.round(clip.height));
-
-        const base64 = await targetPage.screenshot({
-          clip: { x: clipX, y: clipY, width: clipW, height: clipH },
-          encoding: 'base64',
-        });
-
-        return await targetPage.evaluate(async (b64) => {
-          return new Promise((resolve, reject) => {
-            const img = new Image();
-            img.onload = async () => {
-              try {
-                let bitmap = null;
-                if (typeof createImageBitmap === 'function') {
-                  bitmap = await createImageBitmap(img);
-                }
-                const c = document.createElement('canvas');
-                c.width = bitmap ? bitmap.width : (img.naturalWidth || img.width);
-                c.height = bitmap ? bitmap.height : (img.naturalHeight || img.height);
-                const ctx = c.getContext('2d');
-                if (bitmap) {
-                  ctx.drawImage(bitmap, 0, 0);
-                } else {
-                  ctx.drawImage(img, 0, 0);
-                }
-                const idata = ctx.getImageData(0, 0, c.width, c.height);
-                const d = idata.data;
-                let coloredPixels = 0;
-                for (let i = 0; i < d.length; i += 4) {
-                  const r = d[i];
-                  const g = d[i + 1];
-                  const b = d[i + 2];
-                  const a = d[i + 3];
-                  if (a < 50) continue;
-                  // Não-branco: se todos os canais forem > 240, é fundo branco do canvas
-                  const isWhite = r > 240 && g > 240 && b > 240;
-                  if (isWhite) continue;
-                  // Não-cinza de UI: cinzas de borda/interface possuem baixa diferença entre canais RGB
-                  const max = Math.max(r, g, b);
-                  const min = Math.min(r, g, b);
-                  const isGray = (max - min) < 20;
-                  if (isGray) continue;
-                  coloredPixels++;
-                }
-                resolve(coloredPixels);
-              } catch (err) {
-                reject(err);
-              }
-            };
-            img.onerror = (e) => reject(new Error('Falha ao decodificar captura PNG: ' + e));
-            img.src = 'data:image/png;base64,' + b64;
-          });
-        }, base64);
-      }
 
       // D12.2 (V3c): Comparação real de pixels da captura de tela (clip) de objeto existente
       // Afirma que pixels do traço de A não cobertos pelo novo traço permanecem no mesmo lugar
@@ -1348,6 +1348,196 @@ async function main() {
   // Fecha o servidor LAN e desativa novamente para manter integridade
   await page.click('#btn-fechar-sala-servidor');
   await new Promise((r) => setTimeout(r, 600));
+
+  // --- V4 (D16): Sessão encerrada abre em modo leitura e não aceita desenho ---
+  console.log('\n[Probe V4] Iniciando teste D16: Modo somente leitura de sessão encerrada...');
+  const v4Results = {
+    sessaoEncerradaOk: false,
+    botaoReverExiste: false,
+    badgeSomenteLeituraOk: false,
+    avisoModoLeituraOk: false,
+    controlesDesenhoOcultos: false,
+    btnExportarExiste: false,
+    elementosPreservados: false,
+    screenPixelsVisiveis: 0,
+    nenhumElementoAdicionadoNoArrasto: false,
+    nenhumEventoGravadoNoSqlite: false,
+    exportPngOk: false,
+    pass: false,
+  };
+
+  // Helper para consultar contagem de eventos no SQLite diretamente
+  const getEventosCount = (sId) => {
+    try {
+      const checkSql = `
+        const Database = require('better-sqlite3');
+        const db = new Database(process.env.ONETOONE_DB_PATH);
+        const row = db.prepare('SELECT COUNT(*) as qtd FROM Eventos WHERE sessao_id = ?').get(${JSON.stringify(sId)});
+        process.stdout.write(JSON.stringify({ count: row ? row.qtd : 0 }));
+        db.close();
+      `;
+      const resSql = spawnSync(exe, ['-e', checkSql], {
+        cwd: root,
+        env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', ONETOONE_DB_PATH: probeDbPath },
+        encoding: 'utf8',
+      });
+      if (resSql.status === 0 && resSql.stdout) {
+        return JSON.parse(resSql.stdout).count;
+      }
+    } catch (e) {
+      console.error('[Probe V4] Erro ao consultar SQLite:', e);
+    }
+    return -1;
+  };
+
+  // 1. Identifica a sessão atual e encerra
+  await page.waitForSelector('[id^="btn-encerrar-sessao-"]', { timeout: 5000 });
+  const sessaoIdEncerrar = await page.evaluate(() => {
+    const btn = document.querySelector('[id^="btn-encerrar-sessao-"]');
+    return btn ? btn.id.replace('btn-encerrar-sessao-', '') : null;
+  });
+  console.log(`[Probe V4] ID da sessão para encerrar: ${sessaoIdEncerrar}`);
+
+  if (sessaoIdEncerrar) {
+    await page.waitForSelector(`#btn-encerrar-sessao-${sessaoIdEncerrar}`, { timeout: 5000 });
+    await page.click(`#btn-encerrar-sessao-${sessaoIdEncerrar}`);
+    await new Promise((r) => setTimeout(r, 1000));
+
+    // 2. Confirma que sessão foi encerrada e botão "Ver quadro (somente leitura)" apareceu
+    const btnReverId = `#btn-rever-quadro-${sessaoIdEncerrar}`;
+    await page.waitForSelector(btnReverId, { timeout: 5000 });
+    const btnReverText = await page.$eval(btnReverId, (el) => el.innerText.trim());
+    v4Results.sessaoEncerradaOk = true;
+    v4Results.botaoReverExiste = btnReverText.includes('Ver quadro (somente leitura)');
+    console.log(`[Probe V4] Botão de rever quadro encontrado: "${btnReverText}" (ok: ${v4Results.botaoReverExiste})`);
+
+    // Contagem de eventos no SQLite antes de abrir o quadro em leitura
+    const eventosBeforeV4 = getEventosCount(sessaoIdEncerrar);
+    console.log(`[Probe V4] Contagem de eventos no SQLite antes de abrir em leitura: ${eventosBeforeV4}`);
+
+    // 3. Abre o quadro em modo somente leitura
+    await page.click(btnReverId);
+    await page.waitForSelector('#pagina-quadro-branco', { timeout: 8000 });
+    await page.waitForSelector('#canvas-quadro-branco', { timeout: 8000 });
+    await new Promise((r) => setTimeout(r, 1000));
+
+    // 4. Valida elementos de interface e estado do motor
+    const readOnlyUiState = await page.evaluate(() => {
+      const badgeSomenteLeitura = document.getElementById('badge-somente-leitura');
+      const avisoModoLeitura = document.getElementById('aviso-modo-leitura');
+      const badgeFerramenta = document.getElementById('badge-ferramenta');
+      const btnExportar = document.getElementById('btn-exportar-imagem');
+
+      // Ferramentas de desenho devem estar ausentes
+      const toolPencil = document.getElementById('tool-pencil');
+      const toolRect = document.getElementById('tool-rectangle');
+      const toolText = document.getElementById('tool-text');
+      const btnUndo = document.getElementById('btn-undo');
+      const btnRedo = document.getElementById('btn-redo');
+      const btnClear = document.getElementById('btn-clear-tab');
+
+      // Controles de sala de servidor devem estar ausentes
+      const btnLockGuest = document.getElementById('btn-lock-guest-screen');
+
+      const engine = window.__whiteboardEngine;
+      const isEngineReadOnly = Boolean(engine && engine.readOnly);
+      const objectsCount = engine ? engine.canvas.getObjects().length : 0;
+
+      return {
+        hasBadgeSomenteLeitura: Boolean(badgeSomenteLeitura && badgeSomenteLeitura.innerText.includes('Somente leitura')),
+        hasAvisoModoLeitura: Boolean(avisoModoLeitura && avisoModoLeitura.innerText.includes('Somente leitura')),
+        badgeFerramentaText: badgeFerramenta?.innerText || '',
+        hasBtnExportar: Boolean(btnExportar),
+        noDrawingTools: !toolPencil && !toolRect && !toolText && !btnUndo && !btnRedo && !btnClear,
+        noServerControls: !btnLockGuest,
+        isEngineReadOnly,
+        objectsCount,
+      };
+    });
+
+    v4Results.badgeSomenteLeituraOk = readOnlyUiState.hasBadgeSomenteLeitura;
+    v4Results.avisoModoLeituraOk = readOnlyUiState.hasAvisoModoLeitura;
+    v4Results.controlesDesenhoOcultos = readOnlyUiState.noDrawingTools && readOnlyUiState.noServerControls && readOnlyUiState.isEngineReadOnly;
+    v4Results.btnExportarExiste = readOnlyUiState.hasBtnExportar;
+    v4Results.elementosPreservados = readOnlyUiState.objectsCount > 0;
+    console.log(`[Probe V4] UI somente leitura: badge=${v4Results.badgeSomenteLeituraOk}, aviso=${v4Results.avisoModoLeituraOk}, ferramentasOcultas=${v4Results.controlesDesenhoOcultos}, objetosPreservados=${v4Results.elementosPreservados} (${readOnlyUiState.objectsCount})`);
+
+    // 5. Captura de tela real e contagem de pixels de traço visíveis
+    const readOnlyCanvasBox = await page.$eval('#canvas-quadro-branco', (el) => {
+      const r = el.getBoundingClientRect();
+      return { left: r.left, top: r.top, width: r.width, height: r.height };
+    });
+
+    const shotReadOnlyPath = path.join(root, 'docs', 'quadro-somente-leitura.png');
+    await page.screenshot({ path: shotReadOnlyPath });
+    try {
+      const issuesEvidDir = path.join(root, 'Issues', '20260924-210000-rever-sessao-encerrada', 'evidencia');
+      fs.mkdirSync(issuesEvidDir, { recursive: true });
+      fs.copyFileSync(shotReadOnlyPath, path.join(issuesEvidDir, 'quadro-somente-leitura.png'));
+    } catch {}
+
+    const screenPixels = await countVisibleScreenStrokePixels(page, readOnlyCanvasBox);
+    v4Results.screenPixelsVisiveis = screenPixels;
+    console.log(`[Probe V4] Captura de tela salva em ${shotReadOnlyPath} | Pixels visíveis de traço na tela: ${screenPixels}`);
+
+    // 6. Tentar desenhar arrastando o mouse sobre o canvas
+    const dragStartX = Math.round(readOnlyCanvasBox.left + 150);
+    const dragStartY = Math.round(readOnlyCanvasBox.top + 150);
+    const dragEndX = Math.round(readOnlyCanvasBox.left + 350);
+    const dragEndY = Math.round(readOnlyCanvasBox.top + 350);
+
+    await page.mouse.move(dragStartX, dragStartY);
+    await page.mouse.down();
+    await page.mouse.move(dragEndX, dragEndY, { steps: 5 });
+    await page.mouse.up();
+    await new Promise((r) => setTimeout(r, 600));
+
+    // Afirmação: nenhum elemento foi adicionado
+    const objectsCountAfterDrag = await page.evaluate(() => window.__whiteboardEngine?.canvas.getObjects().length || 0);
+    v4Results.nenhumElementoAdicionadoNoArrasto = (objectsCountAfterDrag === readOnlyUiState.objectsCount);
+
+    // Afirmação: nenhum evento novo foi gravado no SQLite para a sessão
+    const eventosAfterV4 = getEventosCount(sessaoIdEncerrar);
+    v4Results.nenhumEventoGravadoNoSqlite = (eventosAfterV4 === eventosBeforeV4 && eventosBeforeV4 > 0);
+    console.log(`[Probe V4] Arrasto do mouse em somente leitura: objetos (${readOnlyUiState.objectsCount} -> ${objectsCountAfterDrag}), eventos SQLite (${eventosBeforeV4} -> ${eventosAfterV4})`);
+
+    // 7. Testa exportação PNG
+    const exportResult = await page.evaluate(() => {
+      const engine = window.__whiteboardEngine;
+      if (!engine) return null;
+      try {
+        const url = engine.toDataURL({ multiplier: 1 });
+        return {
+          valid: typeof url === 'string' && url.startsWith('data:image/png;base64,'),
+          length: url.length,
+        };
+      } catch (e) {
+        return { valid: false, error: String(e) };
+      }
+    });
+    v4Results.exportPngOk = Boolean(exportResult && exportResult.valid && exportResult.length > 500);
+    await page.click('#btn-exportar-imagem');
+    console.log(`[Probe V4] Teste exportar PNG: ${v4Results.exportPngOk ? 'PASS' : 'FAIL'} (tamanho base64: ${exportResult?.length || 0})`);
+
+    v4Results.pass = Boolean(
+      v4Results.sessaoEncerradaOk &&
+      v4Results.botaoReverExiste &&
+      v4Results.badgeSomenteLeituraOk &&
+      v4Results.avisoModoLeituraOk &&
+      v4Results.controlesDesenhoOcultos &&
+      v4Results.btnExportarExiste &&
+      v4Results.elementosPreservados &&
+      v4Results.screenPixelsVisiveis > 0 &&
+      v4Results.nenhumElementoAdicionadoNoArrasto &&
+      v4Results.nenhumEventoGravadoNoSqlite &&
+      v4Results.exportPngOk
+    );
+
+    // Retorna para a tela de detalhes do atendido
+    await page.click('#btn-voltar-sessao');
+    await page.waitForSelector(btnReverId, { timeout: 8000 });
+    await new Promise((r) => setTimeout(r, 600));
+  }
   await page.click('#btn-status-detalhe');
   await new Promise((r) => setTimeout(r, 600));
 
@@ -1450,6 +1640,7 @@ async function main() {
     guestMobile,
     v3c: v3cResults,
     v3d: v3dResults,
+    v4: v4Results,
   };
 }
 
@@ -1513,6 +1704,8 @@ main()
         Boolean(res.v3c && res.v3c.objectEraserOk),
       'V3d: texto digitado aparece na tela e vira elemento':
         Boolean(res.v3d && res.v3d.pass),
+      'V4: sessão encerrada abre em leitura e não aceita desenho':
+        Boolean(res.v4 && res.v4.pass),
     };
 
     console.log(JSON.stringify(res, null, 2));

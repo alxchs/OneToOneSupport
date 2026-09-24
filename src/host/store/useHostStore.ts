@@ -56,11 +56,12 @@ interface HostState {
   selecionarIpServidor: (ip: string) => Promise<boolean>;
   carregarStatusServidor: () => Promise<void>;
 
-  // Quadro Branco HiDPI (Fase 06 e 07)
+  // Quadro Branco HiDPI (Fase 06 e 07, D16)
   activeSessaoId: string | null;
   activeAbaId: string;
   tabState: TabState;
-  abrirQuadroSessao: (sessaoId: string) => Promise<void>;
+  quadroSomenteLeitura: boolean;
+  abrirQuadroSessao: (sessaoId: string, options?: { somenteLeitura?: boolean }) => Promise<void>;
   aplicarEventoQuadro: (evento: WhiteboardEvent) => Promise<void>;
   desfazerQuadro: () => Promise<void>;
   refazerQuadro: () => Promise<void>;
@@ -91,8 +92,15 @@ export const useHostStore = create<HostState>((set, get) => ({
   activeSessaoId: null,
   activeAbaId: 'default',
   tabState: createInitialTabState('default'),
+  quadroSomenteLeitura: false,
 
-  setView: (view) => set({ view, mensagemAlerta: null, erroDuplicado: null }),
+  setView: (view) =>
+    set((state) => ({
+      view,
+      quadroSomenteLeitura: view === 'quadro' ? state.quadroSomenteLeitura : false,
+      mensagemAlerta: null,
+      erroDuplicado: null,
+    })),
 
   setFiltroBusca: (busca) => {
     set({ filtroBusca: busca });
@@ -383,8 +391,17 @@ export const useHostStore = create<HostState>((set, get) => ({
     }
   },
 
-  abrirQuadroSessao: async (sessaoId: string) => {
-    set({ activeSessaoId: sessaoId, activeAbaId: 'default', carregando: true });
+  abrirQuadroSessao: async (sessaoId: string, options?: { somenteLeitura?: boolean }) => {
+    const { sessoes } = get();
+    const sessao = sessoes.find((s) => s.id === sessaoId);
+    const isEncerrada = sessao?.status === 'encerrada';
+    const somenteLeitura = Boolean(options?.somenteLeitura || isEncerrada);
+    set({
+      activeSessaoId: sessaoId,
+      activeAbaId: 'default',
+      quadroSomenteLeitura: somenteLeitura,
+      carregando: true,
+    });
     let state = createInitialTabState('default');
     if (window.desktopAPI?.eventos) {
       try {
@@ -400,7 +417,17 @@ export const useHostStore = create<HostState>((set, get) => ({
   },
 
   aplicarEventoQuadro: async (evento: WhiteboardEvent) => {
-    const { tabState, activeSessaoId, activeAbaId } = get();
+    const { tabState, activeSessaoId, activeAbaId, quadroSomenteLeitura } = get();
+    if (quadroSomenteLeitura) {
+      diagLog('aplicarEventoQuadro_bloqueado_readonly', {
+        tipo: evento.tipo,
+        abaId: activeAbaId,
+        sessaoId: activeSessaoId,
+      });
+      console.warn('[HostStore] Modo somente leitura: emissão de evento bloqueada.');
+      return;
+    }
+
     const visiveisAntes = getVisibleElements(tabState).length;
     const proximoEstado = reduceEvent(tabState, evento);
     const visiveisDepois = getVisibleElements(proximoEstado).length;
@@ -468,6 +495,7 @@ export const useHostStore = create<HostState>((set, get) => ({
   },
 
   desfazerQuadro: async () => {
+    if (get().quadroSomenteLeitura) return;
     const { aplicarEventoQuadro, activeSessaoId, activeAbaId } = get();
     const ev: WhiteboardEvent = {
       id: generateUUID(),
@@ -482,6 +510,7 @@ export const useHostStore = create<HostState>((set, get) => ({
   },
 
   refazerQuadro: async () => {
+    if (get().quadroSomenteLeitura) return;
     const { aplicarEventoQuadro, activeSessaoId, activeAbaId } = get();
     const ev: WhiteboardEvent = {
       id: generateUUID(),
@@ -496,6 +525,7 @@ export const useHostStore = create<HostState>((set, get) => ({
   },
 
   limparQuadro: async () => {
+    if (get().quadroSomenteLeitura) return;
     const { aplicarEventoQuadro, activeSessaoId, activeAbaId } = get();
     const ev: WhiteboardEvent = {
       id: generateUUID(),
@@ -510,6 +540,7 @@ export const useHostStore = create<HostState>((set, get) => ({
   },
 
   bloquearTelaGuest: async (locked: boolean) => {
+    if (get().quadroSomenteLeitura) return false;
     if (!window.desktopAPI?.serverSession) return false;
     const res = await window.desktopAPI.serverSession.lockScreen(locked);
     if (res.success && res.data) {
@@ -520,6 +551,7 @@ export const useHostStore = create<HostState>((set, get) => ({
   },
 
   liberarMidiaGuest: async (unlocked: boolean) => {
+    if (get().quadroSomenteLeitura) return false;
     if (!window.desktopAPI?.serverSession) return false;
     const res = await window.desktopAPI.serverSession.unlockMedia(unlocked);
     if (res.success && res.data) {
