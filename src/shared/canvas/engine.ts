@@ -324,8 +324,6 @@ export class WhiteboardEngine {
     this.onEmitEvent = options.onEmitEvent;
     this.onToolChange = options.onToolChange;
 
-    // Fundo branco no elemento HTML e buffer transparente para composição destination-out (ADR-003, ADR-012)
-    canvasElement.style.backgroundColor = '#ffffff';
     this.canvas = new Canvas(canvasElement, {
       backgroundColor: 'transparent',
       enableRetinaScaling: true,
@@ -334,6 +332,14 @@ export class WhiteboardEngine {
       fireRightClick: true,
       allowTouchScrolling: false,
     });
+
+    // Fundo branco SÓ no canvas de baixo (lower-canvas) e buffer transparente para composição
+    // destination-out (ADR-003, ADR-012). O fundo NÃO pode ser aplicado antes de `new Canvas`:
+    // o Fabric cria o `.upper-canvas` copiando o `style.cssText` do elemento original
+    // (CanvasDOMManager.createUpperCanvas), e um upper-canvas branco e opaco cobre todos os traços
+    // já desenhados assim que o traço ao vivo é limpo (bug "o desenho some ao soltar o mouse").
+    this.canvas.lowerCanvasEl.style.backgroundColor = '#ffffff';
+    this.canvas.upperCanvasEl.style.backgroundColor = 'transparent';
 
     // Configura Pointer Events e previne rolagem acidental no canvas
     this.setupPointerAndTouchGuards(canvasElement);
