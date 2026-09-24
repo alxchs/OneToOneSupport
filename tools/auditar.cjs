@@ -70,6 +70,11 @@ if (cl.code === 0) {
     const j = JSON.parse(vc.out.trim().split('\n').pop());
     add('afirmações da documentação existem no código', j.missing.length === 0 || vc.code === 0, `${j.verificados} verificadas` + (j.missing.length ? `; ${j.missing.length} inexistente(s): ` + j.missing.slice(0, 4).map((m) => `${m.tipo} ${m.token}`).join('; ') : ''));
   } catch { add('afirmações da documentação existem no código', false, 'não executou: ' + vc.out.slice(0, 160)); }
+  const cprv = run(`node ${q(path.join(__dirname, 'checar-provas.cjs'))} --root ${q(tmp)} --json`, tmp);
+  try {
+    const j = JSON.parse(cprv.out.trim().split('\n').pop());
+    add('prova prometida (pixel/visual) tem evidência de pixel', j.findings.length === 0, j.findings.length ? j.findings.map((f) => `[${f.id}] ${f.status}`).join('; ') : '');
+  } catch { add('prova prometida (pixel/visual) tem evidência de pixel', false, 'não executou: ' + cprv.out.slice(0, 160)); }
   const commits = run(`git rev-list --count origin/${C.baseBranch}..HEAD`, tmp).out.trim();
   const diff = run(`git diff --shortstat origin/${C.baseBranch}...HEAD`, tmp).out.trim();
   add('commits novos desde a base', Number(commits) > 0, `${commits} commits; ${diff}`);

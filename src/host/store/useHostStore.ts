@@ -10,8 +10,11 @@ import {
   TabState,
   createInitialTabState,
   reduceEvent,
+  getVisibleElements,
   WhiteboardEvent,
 } from '../../shared/events/reducer';
+import { generateUUID } from '../../shared/events/protocol';
+import { diagLog } from '../../shared/diag';
 
 export type HostView = 'lista' | 'form' | 'detalhes' | 'configuracoes' | 'quadro';
 
@@ -336,7 +339,7 @@ export const useHostStore = create<HostState>((set, get) => ({
 
   iniciarServidorSessao: async (sessaoId: string, atendidoId: string, preferredIp?: string) => {
     if (!window.desktopAPI?.serverSession) return false;
-    set({ carregando: true });
+    set({ carregando: true, activeSessaoId: sessaoId, activeAbaId: 'default' });
     const res = await window.desktopAPI.serverSession.start({
       sessaoId,
       atendidoId,
@@ -344,7 +347,7 @@ export const useHostStore = create<HostState>((set, get) => ({
     });
     set({ carregando: false });
     if (res.success) {
-      set({ activeServerSession: res.data });
+      set({ activeServerSession: res.data, activeSessaoId: sessaoId, activeAbaId: 'default' });
       return true;
     } else {
       set({ mensagemAlerta: { tipo: 'alerta', texto: res.message } });
@@ -398,19 +401,67 @@ export const useHostStore = create<HostState>((set, get) => ({
 
   aplicarEventoQuadro: async (evento: WhiteboardEvent) => {
     const { tabState, activeSessaoId, activeAbaId } = get();
+    const visiveisAntes = getVisibleElements(tabState).length;
     const proximoEstado = reduceEvent(tabState, evento);
+    const visiveisDepois = getVisibleElements(proximoEstado).length;
+
+    diagLog('aplicarEventoQuadro', {
+      tipo: evento.tipo,
+      visiveisAntes,
+      visiveisDepois,
+      abaId: activeAbaId,
+      autor: evento.autor,
+    });
+
     set({ tabState: proximoEstado });
 
     if (window.desktopAPI?.eventos && activeSessaoId) {
+      diagLog('gravar (IPC)', {
+        fase: 'inicio',
+        tipo: evento.tipo,
+        sessaoId: activeSessaoId,
+        abaId: activeAbaId,
+        autor: evento.autor,
+      });
       try {
-        await window.desktopAPI.eventos.gravar({
+        const res = await window.desktopAPI.eventos.gravar({
           sessao_id: activeSessaoId,
           aba_id: activeAbaId,
           tipo: evento.tipo,
           payload: evento.payload,
           autor: evento.autor,
         });
-      } catch (err) {
+        const isSuccess = Boolean(res && res.success);
+        const errCode = res && !res.success ? res.error : undefined;
+        const errMsg = res && !res.success ? res.message : undefined;
+        diagLog('gravar (IPC)', {
+          fase: 'retorno',
+          sucesso: isSuccess,
+          erro: errCode,
+          motivo: errMsg,
+          tipo: evento.tipo,
+        });
+        diagLog('gravarEventoIPC', {
+          sucesso: isSuccess,
+          erro: errCode,
+          motivo: errMsg,
+          tipo: evento.tipo,
+        });
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        diagLog('gravar (IPC)', {
+          fase: 'retorno',
+          sucesso: false,
+          erro: 'EXCEPTION',
+          motivo: msg,
+          tipo: evento.tipo,
+        });
+        diagLog('gravarEventoIPC', {
+          sucesso: false,
+          erro: 'EXCEPTION',
+          motivo: msg,
+          tipo: evento.tipo,
+        });
         console.error('[HostStore] Erro ao persistir evento no SQLite:', err);
       }
     }
@@ -419,7 +470,7 @@ export const useHostStore = create<HostState>((set, get) => ({
   desfazerQuadro: async () => {
     const { aplicarEventoQuadro, activeSessaoId, activeAbaId } = get();
     const ev: WhiteboardEvent = {
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       sessao_id: activeSessaoId || undefined,
       aba_id: activeAbaId,
       tipo: 'UNDO',
@@ -433,7 +484,7 @@ export const useHostStore = create<HostState>((set, get) => ({
   refazerQuadro: async () => {
     const { aplicarEventoQuadro, activeSessaoId, activeAbaId } = get();
     const ev: WhiteboardEvent = {
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       sessao_id: activeSessaoId || undefined,
       aba_id: activeAbaId,
       tipo: 'REDO',
@@ -447,7 +498,7 @@ export const useHostStore = create<HostState>((set, get) => ({
   limparQuadro: async () => {
     const { aplicarEventoQuadro, activeSessaoId, activeAbaId } = get();
     const ev: WhiteboardEvent = {
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       sessao_id: activeSessaoId || undefined,
       aba_id: activeAbaId,
       tipo: 'CLEAR_TAB',

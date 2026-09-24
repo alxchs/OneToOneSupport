@@ -11,6 +11,14 @@ import {
   ProtocolMessageType,
 } from '../../src/shared/events/protocol';
 import { CryptoError } from '../../src/shared/crypto/types';
+import { EventoService } from '../services/evento.service';
+import { diagLog, diagServerLog } from '../../src/shared/diag';
+
+function logServerDrop(motivo: string, extra?: Record<string, unknown>): void {
+  diagLog('serverDrop', { motivo, ...extra });
+  diagServerLog('serverDrop', { motivo, ...extra });
+  diagServerLog('descarte', { motivo, ...extra });
+}
 
 export type WsConnectionStage =
   | 'AWAITING_AUTH'
@@ -107,6 +115,7 @@ export function createWebSocketServer(options: WsServerOptions): WsServerHandle 
     ws.on('message', (raw: RawData, isBinary: boolean) => {
       // 1. Mensagens binárias diretas são rejeitadas (o protocolo v1 usa envelopes JSON)
       if (isBinary) {
+        logServerDrop('MENSAGEM_BINARIA_REJEITADA', { stage: conn.stage });
         conn.stage = 'TERMINATED';
         ws.terminate();
         connections.delete(connId);
@@ -119,6 +128,7 @@ export function createWebSocketServer(options: WsServerOptions): WsServerHandle 
       // 2. Rate Limiting por conexão (janela deslizante de 1 segundo)
       conn.messageTimestamps = conn.messageTimestamps.filter((ts) => now - ts < 1000);
       if (conn.messageTimestamps.length >= maxMessagesPerSecond) {
+        logServerDrop('RATE_LIMIT_EXCEDIDO', { stage: conn.stage, msgsNoSegundo: conn.messageTimestamps.length });
         conn.stage = 'TERMINATED';
         ws.terminate();
         connections.delete(connId);
@@ -130,6 +140,7 @@ export function createWebSocketServer(options: WsServerOptions): WsServerHandle 
       // 3. Validação do tamanho da carga útil
       const dataStr = raw.toString();
       if (dataStr.length > MAX_MESSAGE_SIZE_BYTES) {
+        logServerDrop('TAMANHO_MAXIMO_EXCEDIDO', { stage: conn.stage, tamanhoBytes: dataStr.length });
         conn.stage = 'TERMINATED';
         ws.terminate();
         connections.delete(connId);
@@ -143,6 +154,7 @@ export function createWebSocketServer(options: WsServerOptions): WsServerHandle 
         const parsed = JSON.parse(dataStr);
         envelope = validateEnvelope(parsed);
       } catch {
+        logServerDrop('ENVELOPE_INVALIDO', { stage: conn.stage });
         conn.stage = 'TERMINATED';
         ws.terminate();
         connections.delete(connId);
@@ -181,6 +193,7 @@ export function createWebSocketServer(options: WsServerOptions): WsServerHandle 
       case 'AWAITING_AUTH': {
         // Apenas AUTH ou RECONNECT são permitidos nesta etapa
         if (envelope.type !== 'AUTH' && envelope.type !== 'RECONNECT') {
+          logServerDrop('TIPO_INVALIDO_AWAITING_AUTH', { tipo: envelope.type, stage: conn.stage });
           conn.stage = 'TERMINATED';
           ws.terminate();
           connections.delete(conn.id);
@@ -191,6 +204,7 @@ export function createWebSocketServer(options: WsServerOptions): WsServerHandle 
         if (envelope.type === 'AUTH') {
           const authPayload = envelope.payload as { token?: string };
           if (!authPayload || typeof authPayload.token !== 'string') {
+            logServerDrop('PAYLOAD_AUTH_INVALIDO', { stage: conn.stage });
             conn.stage = 'TERMINATED';
             ws.terminate();
             connections.delete(conn.id);
@@ -199,6 +213,7 @@ export function createWebSocketServer(options: WsServerOptions): WsServerHandle 
 
           const authRes = sessionManager.authenticateInitialJoin(authPayload.token, conn.id);
           if (!authRes.valid) {
+            logServerDrop('FALHA_AUTENTICACAO_TOKEN', { codigo: authRes.code });
             const errEnvelope = createEnvelope('ERROR', {
               code: authRes.code || 'AUTH_FAILED',
               message: authRes.message || 'Falha na autenticação do convite.',
@@ -222,6 +237,7 @@ export function createWebSocketServer(options: WsServerOptions): WsServerHandle 
         if (envelope.type === 'RECONNECT') {
           const reconnectPayload = envelope.payload as { token?: string };
           if (!reconnectPayload || typeof reconnectPayload.token !== 'string') {
+            logServerDrop('PAYLOAD_RECONNECT_INVALIDO', { stage: conn.stage });
             conn.stage = 'TERMINATED';
             ws.terminate();
             connections.delete(conn.id);
@@ -230,6 +246,7 @@ export function createWebSocketServer(options: WsServerOptions): WsServerHandle 
 
           const recRes = sessionManager.authenticateReconnect(reconnectPayload.token, conn.id);
           if (!recRes.valid) {
+            logServerDrop('FALHA_RECONEXAO_TOKEN', { codigo: recRes.code });
             const errEnvelope = createEnvelope('ERROR', {
               code: recRes.code || 'AUTH_FAILED',
               message: recRes.message || 'Falha na reconexão.',
@@ -255,6 +272,7 @@ export function createWebSocketServer(options: WsServerOptions): WsServerHandle 
       case 'AWAITING_HANDSHAKE': {
         // Apenas HANDSHAKE_INIT é permitido nesta etapa
         if (envelope.type !== 'HANDSHAKE_INIT') {
+          logServerDrop('TIPO_INVALIDO_AWAITING_HANDSHAKE', { tipo: envelope.type, stage: conn.stage });
           conn.stage = 'TERMINATED';
           ws.terminate();
           connections.delete(conn.id);
@@ -264,6 +282,7 @@ export function createWebSocketServer(options: WsServerOptions): WsServerHandle 
 
         const hsPayload = envelope.payload as { clientPublicKey?: string };
         if (!hsPayload || typeof hsPayload.clientPublicKey !== 'string') {
+          logServerDrop('PAYLOAD_HANDSHAKE_INVALIDO', { stage: conn.stage });
           conn.stage = 'TERMINATED';
           ws.terminate();
           connections.delete(conn.id);
@@ -297,6 +316,25 @@ export function createWebSocketServer(options: WsServerOptions): WsServerHandle 
           const encrypted = cipher.encrypt(sessionReadyPayload);
           const responseEnvelope = createEnvelope('ENCRYPTED', encrypted);
           ws.send(JSON.stringify(responseEnvelope));
+
+          // Sincronização inicial do estado da aba ativa no quadro branco para o Guest conectado
+          try {
+            const eventoService = new EventoService();
+            const initialTabState = eventoService.reconstruirEstadoAba(sessionManager.sessaoId, 'default');
+            if (initialTabState && initialTabState.elementOrder.length > 0) {
+              const tabStatePayload = JSON.stringify({
+                type: 'TAB_STATE',
+                abaId: 'default',
+                state: initialTabState,
+                sessaoId: sessionManager.sessaoId,
+                ts: Date.now(),
+              });
+              const encryptedState = cipher.encrypt(tabStatePayload);
+              ws.send(JSON.stringify(createEnvelope('ENCRYPTED', encryptedState)));
+            }
+          } catch (err) {
+            console.warn('[WsServer] Aviso ao sincronizar estado inicial da aba no handshake:', err);
+          }
         } catch {
           conn.stage = 'TERMINATED';
           ws.terminate();
@@ -309,6 +347,7 @@ export function createWebSocketServer(options: WsServerOptions): WsServerHandle 
       case 'ENCRYPTED': {
         // REGRA CRÍTICA: Qualquer mensagem em claro ou fora de ordem pós-handshake derruba a conexão
         if (envelope.type !== 'ENCRYPTED') {
+          logServerDrop('ENVELOPE_NAO_CIFRADO_POS_HANDSHAKE', { tipo: envelope.type, stage: conn.stage });
           conn.stage = 'TERMINATED';
           ws.terminate();
           connections.delete(conn.id);
@@ -318,6 +357,7 @@ export function createWebSocketServer(options: WsServerOptions): WsServerHandle 
 
         const cipher = sessionManager.getCipher();
         if (!cipher) {
+          logServerDrop('CIFRA_AUSENTE_NO_ESTADO_ENCRYPTED', { stage: conn.stage });
           conn.stage = 'TERMINATED';
           ws.terminate();
           connections.delete(conn.id);
@@ -330,6 +370,7 @@ export function createWebSocketServer(options: WsServerOptions): WsServerHandle 
           const encPayload = envelope.payload as EncryptedPayload;
           decryptedBytes = cipher.decrypt(encPayload);
         } catch (err: unknown) {
+          logServerDrop('FALHA_DECIFRAGEM', { stage: conn.stage });
           // Adulteração, replay, reordenação ou nonce inválido: falha limpa sem vazar segredos
           if (err instanceof CryptoError) {
             // Em caso de adulteração ou replay grave, derruba a conexão imediatamente
@@ -352,6 +393,7 @@ export function createWebSocketServer(options: WsServerOptions): WsServerHandle 
           const text = new TextDecoder('utf-8').decode(decryptedBytes);
           innerMessage = JSON.parse(text);
         } catch {
+          logServerDrop('JSON_DECIFRADO_INVALIDO');
           conn.stage = 'TERMINATED';
           ws.terminate();
           connections.delete(conn.id);
@@ -361,8 +403,14 @@ export function createWebSocketServer(options: WsServerOptions): WsServerHandle 
 
         const innerType = innerMessage.type as ProtocolMessageType;
         if (!innerType) {
+          logServerDrop('MENSAGEM_SEM_CAMPO_TYPE');
           return;
         }
+
+        diagServerLog('guestEventReceived', {
+          tipo: innerType,
+          abaId: innerMessage.abaId,
+        });
 
         // Suporte especial para medição de latência de eco cifrado (Echo Request)
         if (innerType === ('ECHO_PING' as unknown as ProtocolMessageType)) {
@@ -380,7 +428,13 @@ export function createWebSocketServer(options: WsServerOptions): WsServerHandle 
 
         // Validação da Matriz de Autoridade do Host
         const actionCheck = sessionManager.canGuestExecute(innerType);
+        diagServerLog('autoridade', {
+          tipo: innerType,
+          permitido: actionCheck.allowed,
+          motivo: actionCheck.reason,
+        });
         if (!actionCheck.allowed) {
+          logServerDrop('ACAO_GUEST_BLOQUEADA', { tipo: innerType, razao: actionCheck.reason });
           // Rejeita ação não autorizada com erro cifrado
           const errorMsg = cipher.encrypt(
             JSON.stringify({
@@ -435,6 +489,7 @@ export function createWebSocketServer(options: WsServerOptions): WsServerHandle 
   function sendEncryptedToGuest(innerEvent: Record<string, unknown>): boolean {
     const cipher = sessionManager.getCipher();
     if (!cipher || !sessionManager.isGuestConnected()) {
+      logServerDrop('ENVIO_GUEST_FALHOU_SEM_CONEXAO_CIFRADA', { tipo: innerEvent?.type as string });
       return false;
     }
 
@@ -445,7 +500,22 @@ export function createWebSocketServer(options: WsServerOptions): WsServerHandle 
         try {
           const encryptedPayload = cipher.encrypt(JSON.stringify(innerEvent));
           const envelope = createEnvelope('ENCRYPTED', encryptedPayload);
-          conn.ws.send(JSON.stringify(envelope));
+          conn.ws.send(JSON.stringify(envelope), (err) => {
+            if (!err) {
+              diagServerLog('chegada no Guest', {
+                transporte: 'tcp_flushed',
+                tipo: innerEvent?.type,
+                connId: conn.id,
+              });
+              diagServerLog('chegadaNoGuest', {
+                transporte: 'tcp_flushed',
+                tipo: innerEvent?.type,
+                connId: conn.id,
+              });
+            } else {
+              logServerDrop('FALHA_ENVIO_SOCKET', { erro: err.message });
+            }
+          });
           sent = true;
         } catch (err) {
           console.error('[WsServer] Falha ao cifrar/enviar evento para o Guest:', err);

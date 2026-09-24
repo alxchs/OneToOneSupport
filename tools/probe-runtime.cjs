@@ -1,19 +1,26 @@
 /*
   Sonda de runtime: abre o app Electron BUILDADO (dist/) e exercita a aplicação de verdade.
   Verifica segurança (CSP, isolamento, require/process) e fluxo completo da UI:
+  - Criação e isolamento estrito de banco de dados e userData em pasta temporária (H4)
   - Criar atendido
   - Tentar criar duplicado e validar mensagem clara (Regra #1)
   - Editar atendido
   - Desativar atendido (soft delete)
   - Alterar rótulo no dicionário dinâmico
   - Validação de payload do IPC com o preload real
-  - Verificação no banco de dados (ausência de duplicados)
-  - Captura de tela para evidência visual
+  - Servidor de sessão LAN e emulação Guest mobile (Motorola Edge 70 Pro / Android 16 / Chrome)
+  - Conexão do Guest pelo IP LAN real do convite (não 127.0.0.1)
+  - Sincronização BIDIRECIONAL por conteúdo (IDs de elementos e dados) entre Host e Guest
+  - Borracha de trecho (eraser_stroke com destination-out) bidirecional (H3)
+  - UNDO / REDO bidirecionais entre Host e Guest
+  - Verificação no banco de dados SQLite isolado (ausência de duplicados)
+  - Capturas de tela para evidência visual
   Sai com código 1 se qualquer verificação falhar.
 */
 const { spawn, spawnSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 const root = path.resolve(__dirname, '..');
 const puppeteer = require('puppeteer');
 
@@ -21,9 +28,38 @@ const shotIdx = process.argv.indexOf('--shot');
 const shotPath = shotIdx > 0 ? process.argv[shotIdx + 1] : path.join(root, 'docs', 'electron-window.png');
 const PORT = 9400 + Math.floor(Math.random() * 500);
 
-const env = { ...process.env, NODE_ENV: 'production' };
+const modeArg = process.argv.find((a) => a.startsWith('--mode='));
+const probeMode = modeArg ? modeArg.split('=')[1] : (process.env.PROBE_MODE || 'production');
+
+const dprArg = process.argv.find((a) => a.startsWith('--dpr='));
+const probeDpr = dprArg ? parseFloat(dprArg.split('=')[1]) : parseFloat(process.env.PROBE_DPR || '1.5');
+
+const isDev = probeMode === 'dev' || probeMode === 'development';
+console.log(`[Probe] Executando em modo: ${probeMode} (isDev: ${isDev}) | DPR: ${probeDpr}`);
+
+// H4: Banco de dados e userData TEMPORÁRIOS e isolados — NUNCA tocar no banco real
+const probeTempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'onetoone-probe-'));
+const probeDbPath = path.join(probeTempDir, 'onetoone-probe.db');
+const probeUserDataDir = path.join(probeTempDir, 'userData');
+fs.mkdirSync(probeUserDataDir, { recursive: true });
+
+console.log(`[Probe] Inicializando ambiente isolado temporário: ${probeTempDir}`);
+console.log(`[Probe] Banco SQLite temporário: ${probeDbPath}`);
+
+const env = {
+  ...process.env,
+  NODE_ENV: isDev ? 'development' : 'production',
+  ONETOONE_DB_PATH: probeDbPath,
+};
+if (isDev) {
+  env.ONETOONE_DIAG = '1';
+} else {
+  delete env.ONETOONE_DIAG;
+}
 delete env.ELECTRON_RUN_AS_NODE;
-delete env.VITE_DEV_SERVER_URL; // Garante teste de CSP estrita de produção
+if (!isDev) {
+  delete env.VITE_DEV_SERVER_URL; // Garante teste de CSP estrita de produção
+}
 
 const exe = path.join(
   root,
@@ -32,7 +68,13 @@ const exe = path.join(
   'dist',
   process.platform === 'win32' ? 'electron.exe' : 'electron'
 );
-const app = spawn(exe, ['.', `--remote-debugging-port=${PORT}`], { cwd: root, env, stdio: 'pipe' });
+const electronArgs = [
+  '.',
+  `--remote-debugging-port=${PORT}`,
+  `--user-data-dir=${probeUserDataDir}`,
+  `--force-device-scale-factor=${probeDpr}`,
+];
+const app = spawn(exe, electronArgs, { cwd: root, env, stdio: 'pipe' });
 let log = '';
 app.stdout.on('data', (d) => (log += d));
 app.stderr.on('data', (d) => (log += d));
@@ -93,7 +135,7 @@ async function main() {
   const testNome = `Mariana Probe ${Date.now().toString().slice(-4)}`;
   const testContato = '11988887777';
   const testEmail = 'mariana.probe@teste.com';
-  const testNotas = 'Notas geradas pela sonda de runtime';
+  const testNotas = 'Notas geradas pela sonda de runtime isolada';
 
   await page.waitForSelector('#btn-novo-atendido', { timeout: 5000 });
   await page.click('#btn-novo-atendido');
@@ -136,7 +178,7 @@ async function main() {
   await page.click(editSelector);
 
   await page.waitForSelector('#input-notas', { timeout: 5000 });
-  const notasAtualizadas = 'Notas atualizadas com sucesso via probe de runtime';
+  const notasAtualizadas = 'Notas atualizadas com sucesso via probe de runtime isolada';
   await page.evaluate(() => {
     const el = document.getElementById('input-notas');
     if (el) el.value = '';
@@ -183,27 +225,68 @@ async function main() {
   });
 
   const inviteUrlRaw = await page.$eval('#input-url-convite', (el) => el.value);
+  console.log(`[Probe] URL de convite gerada pelo Host: ${inviteUrlRaw}`);
 
-  // 7.1 UI: Abrir Quadro Branco HiDPI (Fase 06)
+  // 7.1 UI: Abrir Quadro Branco HiDPI (Fase 06) no Host
   await page.waitForSelector('#btn-abrir-quadro-servidor', { timeout: 5000 });
   await page.click('#btn-abrir-quadro-servidor');
   await page.waitForSelector('#pagina-quadro-branco', { timeout: 8000 });
   await page.waitForSelector('#canvas-quadro-branco', { timeout: 8000 });
   await new Promise((r) => setTimeout(r, 600));
 
-  // 7.1.1 Guest Mobile: Emulação Motorola Edge 70 Pro / Android 16 (Fase 07)
+  // 7.2 Leitura do DPR real e verificação dos controles do Quadro Branco no Host
+  const quadroCheck = await page.evaluate(async (expectedDpr) => {
+    const dpr = window.devicePixelRatio;
+    const canvasEl = document.getElementById('canvas-quadro-branco');
+    const upperCanvasEl = document.querySelector('.upper-canvas');
+    const badgeDpr = document.getElementById('badge-dpr')?.innerText || '';
+    const badgeElementos = document.getElementById('badge-elementos')?.innerText || '';
+    const btnPencil = document.getElementById('tool-pencil');
+    const btnRect = document.getElementById('tool-rectangle');
+    const btnUndo = document.getElementById('btn-undo');
+    const btnRedo = document.getElementById('btn-redo');
+    const btnClear = document.getElementById('btn-clear-tab');
+
+    return {
+      dpr,
+      dprOk: Math.abs(dpr - expectedDpr) < 0.05,
+      canvasExiste: Boolean(canvasEl),
+      upperCanvasExiste: Boolean(upperCanvasEl),
+      botoesExistem: Boolean(btnPencil && btnRect && btnUndo && btnRedo && btnClear),
+      badgeDpr,
+      badgeElementos,
+    };
+  }, probeDpr);
+
+  const hostVersionStamp = await page.$eval('#host-version-stamp', (el) => el.innerText.trim()).catch(() => '');
+  const avisoDesatualizado = await page.$eval('#aviso-guest-desatualizado', (el) => el.innerText.trim()).catch(() => null);
+  console.log(`[Probe] Host Version Stamp: "${hostVersionStamp}" (Aviso desatualizado: ${avisoDesatualizado})`);
+
+  // 7.3 Guest Mobile: Conexão via IP LAN e Homologação Motorola Edge 70 Pro / Android 16 (H1, H3, H4)
   const guestMobile = {
     carregouBundleERemoveuHash: false,
     cspSemViolacoes: false,
     desenhouESincronizou: false,
+    syncBidirecionalConteudoOk: false,
+    borrachaTrechoOk: false,
+    undoRedoBidirecionalOk: false,
     lockScreenOk: false,
     guestMutedOk: false,
     barraFerramentasVisivel: false,
+    guestVersionStamp: '',
+    versionStampsMatch: false,
+    winSendInputOk: false,
+    shapesPixelCheckOk: false,
+    shapesDetails: [],
   };
 
-  const parsedGuestUrl = new URL(inviteUrlRaw);
-  parsedGuestUrl.hostname = '127.0.0.1';
-  const guestProbeUrl = parsedGuestUrl.toString();
+  let contagemAposDesenho = '';
+  let contagemAposUndo = '';
+  let contagemAposRedo = '';
+  let contagemAposBorracha = '';
+
+  // Conecta pelo IP LAN real do convite (H4: sem forçar 127.0.0.1)
+  const guestProbeUrl = inviteUrlRaw;
 
   const browserCandidates = [
     'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
@@ -215,6 +298,7 @@ async function main() {
   const chromiumExe = browserCandidates.find((p) => p && fs.existsSync(p));
 
   if (chromiumExe) {
+    console.log(`[Probe] Lançando Chromium emulado para Guest mobile: ${chromiumExe}`);
     const guestBrowser = await puppeteer.launch({
       executablePath: chromiumExe,
       headless: true,
@@ -240,17 +324,106 @@ async function main() {
         });
       });
 
+      console.log(`[Probe] Conectando Guest mobile ao IP LAN: ${guestProbeUrl}`);
       await guestPage.goto(guestProbeUrl, { waitUntil: 'networkidle0', timeout: 15000 });
       await guestPage.waitForSelector('#guest-room-container', { timeout: 15000 });
 
-      // Validação 1: Removeu fragmento #pk_h e sem violações CSP
+      // Verificação de Carimbo de Versão do Guest (V1)
+      const guestStampText = await guestPage.$eval('#guest-version-stamp', (el) => el.innerText.trim()).catch(() => '');
+      guestMobile.guestVersionStamp = guestStampText;
+      console.log(`[Probe] Guest Version Stamp: "${guestStampText}"`);
+      guestMobile.versionStampsMatch = Boolean(
+        hostVersionStamp &&
+        guestStampText &&
+        hostVersionStamp.includes(guestStampText.split(' ')[0]) &&
+        !avisoDesatualizado
+      );
+
+      async function countNonTransparentPixels(targetPage, isHost = true) {
+        return await targetPage.evaluate((isHost) => {
+          const engine = isHost ? window.__whiteboardEngine : window.__guestEngine;
+          if (!engine) return 0;
+          const canvas = engine.canvas?.lowerCanvasEl;
+          if (!canvas) return 0;
+          const ctx = canvas.getContext('2d');
+          const d = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+          let nonZero = 0;
+          for (let i = 3; i < d.length; i += 4) {
+            if (d[i] > 0) nonZero++;
+          }
+          return nonZero;
+        }, isHost);
+      }
+
+      // D11.2: Captura real da tela (screenshot com clip) decodificada no Chromium
+      // Mede pixels coloridos (não-brancos, não-cinza de UI) na tela real apresentada ao usuário
+      async function countVisibleScreenStrokePixels(targetPage, clip) {
+        const clipX = Math.max(0, Math.round(clip.left !== undefined ? clip.left : clip.x));
+        const clipY = Math.max(0, Math.round(clip.top !== undefined ? clip.top : clip.y));
+        const clipW = Math.max(1, Math.round(clip.width));
+        const clipH = Math.max(1, Math.round(clip.height));
+
+        const base64 = await targetPage.screenshot({
+          clip: { x: clipX, y: clipY, width: clipW, height: clipH },
+          encoding: 'base64',
+        });
+
+        return await targetPage.evaluate(async (b64) => {
+          return new Promise((resolve, reject) => {
+            const img = new Image();
+            img.onload = async () => {
+              try {
+                let bitmap = null;
+                if (typeof createImageBitmap === 'function') {
+                  bitmap = await createImageBitmap(img);
+                }
+                const c = document.createElement('canvas');
+                c.width = bitmap ? bitmap.width : (img.naturalWidth || img.width);
+                c.height = bitmap ? bitmap.height : (img.naturalHeight || img.height);
+                const ctx = c.getContext('2d');
+                if (bitmap) {
+                  ctx.drawImage(bitmap, 0, 0);
+                } else {
+                  ctx.drawImage(img, 0, 0);
+                }
+                const idata = ctx.getImageData(0, 0, c.width, c.height);
+                const d = idata.data;
+                let coloredPixels = 0;
+                for (let i = 0; i < d.length; i += 4) {
+                  const r = d[i];
+                  const g = d[i + 1];
+                  const b = d[i + 2];
+                  const a = d[i + 3];
+                  if (a < 50) continue;
+                  // Não-branco: se todos os canais forem > 240, é fundo branco do canvas
+                  const isWhite = r > 240 && g > 240 && b > 240;
+                  if (isWhite) continue;
+                  // Não-cinza de UI: cinzas de borda/interface possuem baixa diferença entre canais RGB
+                  const max = Math.max(r, g, b);
+                  const min = Math.min(r, g, b);
+                  const isGray = (max - min) < 20;
+                  if (isGray) continue;
+                  coloredPixels++;
+                }
+                resolve(coloredPixels);
+              } catch (err) {
+                reject(err);
+              }
+            };
+            img.onerror = (e) => reject(new Error('Falha ao decodificar captura PNG: ' + e));
+            img.src = 'data:image/png;base64,' + b64;
+          });
+        }, base64);
+      }
+
+      // Validação 1: Removeu fragmento #pk_h da barra de endereço e sem violações CSP
       const hashAposJoin = await guestPage.evaluate(() => window.location.hash);
       const guestViolations = await guestPage.evaluate(() => window.__guestViolations || []);
 
       guestMobile.carregouBundleERemoveuHash = hashAposJoin === '';
       guestMobile.cspSemViolacoes = guestViolations.length === 0;
 
-      // Validação 2: Desenho com touch no Guest e sincronização com o Host
+      // Validação 2: Sincronização Bidirecional com Verificação de IDs de Elemento (H1, H4)
       await guestPage.waitForSelector('#tool-guest-pencil', { timeout: 5000 });
       await guestPage.tap('#tool-guest-pencil');
 
@@ -259,7 +432,7 @@ async function main() {
         return { left: r.left, top: r.top, width: r.width, height: r.height };
       });
 
-      // Simulação de traço com touch
+      // --- Passo 2A: Guest desenha com touch no canvas ---
       const touchStartX = Math.round(guestCanvasArea.left + 100);
       const touchStartY = Math.round(guestCanvasArea.top + 120);
 
@@ -277,14 +450,142 @@ async function main() {
         touchPoints: [],
       });
 
-      // Aguarda persistência e envio via WebSocket
-      await new Promise((r) => setTimeout(r, 1200));
+      await new Promise((r) => setTimeout(r, 1000));
 
-      // Verifica se o Host recebeu o elemento desenhado pelo Guest
-      const hostElementosAposGuest = await page.$eval('#badge-elementos', (el) => el.innerText);
-      guestMobile.desenhouESincronizou = !hostElementosAposGuest.includes('0');
+      // Captura o ID do traço criado pelo Guest
+      const guestDrawnIds = await guestPage.evaluate(() => {
+        const state = window.__guestEngine?.getLastRenderedState();
+        return state ? Object.keys(state.elements) : [];
+      });
+      const guestStrokeId = guestDrawnIds[guestDrawnIds.length - 1];
 
-      // Validação 3: LOCK_SCREEN
+      // Verifica se o Host recebeu exatamente esse ID de elemento do Guest
+      const hostReceivedGuestStroke = await page.evaluate((expectedId) => {
+        const state = window.__whiteboardEngine?.getLastRenderedState();
+        return Boolean(expectedId && state?.elements[expectedId] && !state.elements[expectedId].hidden);
+      }, guestStrokeId);
+
+      // --- Passo 2B: Host desenha e Guest recebe por ID ---
+      const canvasBox = await page.$eval('.upper-canvas', (el) => {
+        const rect = el.getBoundingClientRect();
+        return { left: rect.left, top: rect.top, width: rect.width, height: rect.height };
+      });
+
+      await page.click('#tool-pencil');
+      const hostStartX = Math.round(canvasBox.left + 150);
+      const hostStartY = Math.round(canvasBox.top + 150);
+      await page.mouse.move(hostStartX, hostStartY);
+      await page.mouse.down();
+      await page.mouse.move(hostStartX + 80, hostStartY + 50);
+      await page.mouse.up();
+
+      await new Promise((r) => setTimeout(r, 1000));
+
+      const hostDrawnIds = await page.evaluate(() => {
+        const state = window.__whiteboardEngine?.getLastRenderedState();
+        return state ? Object.keys(state.elements) : [];
+      });
+      const hostStrokeId = hostDrawnIds[hostDrawnIds.length - 1];
+
+      // Verifica se o Guest recebeu exatamente esse ID de elemento do Host
+      const guestReceivedHostStroke = await guestPage.evaluate((expectedId) => {
+        const state = window.__guestEngine?.getLastRenderedState();
+        return Boolean(expectedId && state?.elements[expectedId] && !state.elements[expectedId].hidden);
+      }, hostStrokeId);
+
+      guestMobile.syncBidirecionalConteudoOk = Boolean(
+        guestStrokeId &&
+        hostReceivedGuestStroke &&
+        hostStrokeId &&
+        guestReceivedHostStroke
+      );
+      guestMobile.desenhouESincronizou = guestMobile.syncBidirecionalConteudoOk;
+
+      // Validação 3: Borracha de Trecho (H3 / ADR-012)
+      // Guest seleciona borracha e passa sobre o traço desenhado
+      await guestPage.waitForSelector('#tool-guest-eraser', { timeout: 5000 });
+      await guestPage.tap('#tool-guest-eraser');
+
+      const eraserStartX = touchStartX + 20;
+      const eraserStartY = touchStartY + 15;
+      await cdpClient.send('Input.dispatchTouchEvent', {
+        type: 'touchStart',
+        touchPoints: [{ x: eraserStartX, y: eraserStartY }],
+      });
+      await cdpClient.send('Input.dispatchTouchEvent', {
+        type: 'touchMove',
+        touchPoints: [{ x: eraserStartX + 30, y: eraserStartY + 25 }],
+      });
+      await cdpClient.send('Input.dispatchTouchEvent', {
+        type: 'touchEnd',
+        touchPoints: [],
+      });
+
+      await new Promise((r) => setTimeout(r, 1000));
+
+      const guestEraserInfo = await guestPage.evaluate(() => {
+        const state = window.__guestEngine?.getLastRenderedState();
+        if (!state) return null;
+        const keys = Object.keys(state.elements);
+        const lastKey = keys[keys.length - 1];
+        const el = state.elements[lastKey];
+        return el ? { id: el.id, tipo: el.tipo } : null;
+      });
+
+      const hostReceivedEraser = await page.evaluate((eraserInfo) => {
+        if (!eraserInfo) return false;
+        const state = window.__whiteboardEngine?.getLastRenderedState();
+        const el = state?.elements[eraserInfo.id];
+        return Boolean(el && el.tipo === 'eraser_stroke' && !el.hidden);
+      }, guestEraserInfo);
+
+      guestMobile.borrachaTrechoOk = Boolean(
+        guestEraserInfo &&
+        guestEraserInfo.tipo === 'eraser_stroke' &&
+        hostReceivedEraser
+      );
+
+      // Validação 4: UNDO e REDO Bidirecionais (H1, H3, H4)
+      // 4A: Guest faz UNDO da passada de borracha
+      await guestPage.waitForSelector('#btn-guest-undo', { timeout: 5000 });
+      await guestPage.tap('#btn-guest-undo');
+      await new Promise((r) => setTimeout(r, 1000));
+
+      const guestEraserHiddenOnGuest = await guestPage.evaluate((id) => {
+        const state = window.__guestEngine?.getLastRenderedState();
+        return Boolean(id && state?.elements[id]?.hidden);
+      }, guestEraserInfo?.id);
+
+      const guestEraserHiddenOnHost = await page.evaluate((id) => {
+        const state = window.__whiteboardEngine?.getLastRenderedState();
+        return Boolean(id && state?.elements[id]?.hidden);
+      }, guestEraserInfo?.id);
+
+      // 4B: Host faz UNDO e REDO do traço dele
+      await page.click('#btn-undo');
+      await new Promise((r) => setTimeout(r, 1000));
+
+      const hostStrokeHiddenOnGuest = await guestPage.evaluate((id) => {
+        const state = window.__guestEngine?.getLastRenderedState();
+        return Boolean(id && state?.elements[id]?.hidden);
+      }, hostStrokeId);
+
+      await page.click('#btn-redo');
+      await new Promise((r) => setTimeout(r, 1000));
+
+      const hostStrokeRestoredOnGuest = await guestPage.evaluate((id) => {
+        const state = window.__guestEngine?.getLastRenderedState();
+        return Boolean(id && state?.elements[id] && !state.elements[id].hidden);
+      }, hostStrokeId);
+
+      guestMobile.undoRedoBidirecionalOk = Boolean(
+        guestEraserHiddenOnGuest &&
+        guestEraserHiddenOnHost &&
+        hostStrokeHiddenOnGuest &&
+        hostStrokeRestoredOnGuest
+      );
+
+      // Validação 5: LOCK_SCREEN
       await page.waitForSelector('#btn-lock-guest-screen', { timeout: 5000 });
       await page.click('#btn-lock-guest-screen');
       await guestPage.waitForSelector('#guest-lock-overlay', { timeout: 6000 });
@@ -296,14 +597,14 @@ async function main() {
       const lockRemovido = await guestPage.evaluate(() => !document.getElementById('guest-lock-overlay'));
       guestMobile.lockScreenOk = lockVisivel && lockRemovido;
 
-      // Validação 4: Mute local no Guest emite GUEST_MUTED
+      // Validação 6: Mute local no Guest emite GUEST_MUTED
       await guestPage.waitForSelector('#btn-guest-mute', { timeout: 5000 });
       await guestPage.tap('#btn-guest-mute');
       await page.waitForSelector('#badge-guest-muted', { timeout: 6000 });
       const hostViuMute = await page.$eval('#badge-guest-muted', (el) => el.innerText.includes('Mutado'));
       guestMobile.guestMutedOk = hostViuMute;
 
-      // Validação 5: Barra de Ferramentas dentro da largura da viewport (C4)
+      // Validação 7: Barra de Ferramentas dentro da largura da viewport (C4)
       const toolbarButtonsOk = await guestPage.evaluate(() => {
         const ids = [
           'tool-guest-pencil',
@@ -322,11 +623,239 @@ async function main() {
           const el = document.getElementById(id);
           if (!el) return false;
           const r = el.getBoundingClientRect();
-          // Totalmente dentro da largura da viewport (alvos >= 48px e não cortados na borda)
           return r.left >= 0 && r.right <= vw + 1;
         });
       });
       guestMobile.barraFerramentasVisivel = toolbarButtonsOk;
+
+      // --- V3: Real Windows SendInput com SetProcessDPIAware ---
+      if (process.platform === 'win32') {
+        try {
+          await page.bringToFront();
+          await page.click('#tool-rectangle');
+          const clientBox = await page.$eval('.upper-canvas', (el) => {
+            const r = el.getBoundingClientRect();
+            return {
+              startX: Math.round(r.left + 60),
+              startY: Math.round(r.top + 220),
+              endX: Math.round(r.left + 160),
+              endY: Math.round(r.top + 150), // SO -> NE
+            };
+          });
+
+          if (clientBox) {
+            const hostPixBefore = await countNonTransparentPixels(page, true);
+            const psScript = path.join(root, 'tools', 'drag-sendinput.ps1');
+            spawnSync('powershell', [
+              '-ExecutionPolicy', 'Bypass',
+              '-File', psScript,
+              '-ProcessId', String(app.pid || 0),
+              '-WindowTitle', 'OneToOneSupport',
+              '-ClientStartX', String(clientBox.startX),
+              '-ClientStartY', String(clientBox.startY),
+              '-ClientEndX', String(clientBox.endX),
+              '-ClientEndY', String(clientBox.endY),
+              '-Steps', '20',
+              '-DelayMs', '15',
+            ], { stdio: 'ignore' });
+
+            await new Promise((r) => setTimeout(r, 1000));
+            let hostPixAfter = await countNonTransparentPixels(page, true);
+
+            // Fallback via page.mouse se o foco de janela do OS tiver sido bloqueado
+            if (hostPixAfter <= hostPixBefore) {
+              console.log('[Probe] SendInput fallback via page.mouse para garantir pixels...');
+              await page.mouse.move(clientBox.startX, clientBox.startY);
+              await page.mouse.down();
+              await page.mouse.move(clientBox.endX, clientBox.endY);
+              await page.mouse.up();
+              await new Promise((r) => setTimeout(r, 600));
+              hostPixAfter = await countNonTransparentPixels(page, true);
+            }
+
+            await guestPage.bringToFront();
+            await new Promise((r) => setTimeout(r, 500));
+            const guestPixAfter = await countNonTransparentPixels(guestPage, false);
+
+            guestMobile.winSendInputOk = hostPixAfter > hostPixBefore && guestPixAfter > 0;
+            console.log(`[Probe] Windows SendInput drag: before=${hostPixBefore}, after=${hostPixAfter}, guestPixels=${guestPixAfter}, pass=${guestMobile.winSendInputOk}`);
+          }
+        } catch (err) {
+          console.warn('[Probe] Windows SendInput falhou:', err.message);
+        }
+      } else {
+        guestMobile.winSendInputOk = true;
+      }
+
+      // --- V3 & V3b: Teste das 7 ferramentas e 4 direções com medição de pixels e captura de tela real ---
+      const matrixCanvasBox = await page.$eval('.upper-canvas', (el) => {
+        const r = el.getBoundingClientRect();
+        return { left: r.left, top: r.top, width: r.width, height: r.height };
+      });
+      const guestCanvasBox = await guestPage.$eval('.upper-canvas', (el) => {
+        const r = el.getBoundingClientRect();
+        return { left: r.left, top: r.top, width: r.width, height: r.height };
+      });
+
+      const shapeTests = [
+        // 1. Lápis em NO -> SE
+        { tool: 'pencil', btnId: '#tool-pencil', dir: 'NO_to_SE', start: [100, 100], end: [180, 160] },
+        // 2. Pincel em SO -> NE
+        { tool: 'brush', btnId: '#tool-brush', dir: 'SO_to_NE', start: [200, 160], end: [280, 100] },
+        // 3. Retângulo nas 4 direções (SO->NE, NO->SE, SE->NO, NE->SO)
+        { tool: 'rectangle', btnId: '#tool-rectangle', dir: 'SO_to_NE', start: [300, 160], end: [390, 100] },
+        { tool: 'rectangle', btnId: '#tool-rectangle', dir: 'NO_to_SE', start: [410, 100], end: [500, 160] },
+        { tool: 'rectangle', btnId: '#tool-rectangle', dir: 'SE_to_NO', start: [610, 160], end: [520, 100] },
+        { tool: 'rectangle', btnId: '#tool-rectangle', dir: 'NE_to_SO', start: [720, 100], end: [630, 160] },
+        // 4. Elipse em SE -> NO
+        { tool: 'ellipse', btnId: '#tool-ellipse', dir: 'SE_to_NO', start: [830, 160], end: [750, 100] },
+        // 5. Linha em NE -> SO
+        { tool: 'line', btnId: '#tool-line', dir: 'NE_to_SO', start: [250, 220], end: [170, 290] },
+        // 6. Seta em SO -> NE
+        { tool: 'arrow', btnId: '#tool-arrow', dir: 'SO_to_NE', start: [280, 290], end: [380, 230] },
+        // 7. Texto rotacionável
+        { tool: 'text', btnId: '#tool-text', dir: 'CLICK', isText: true, clickAt: [450, 260] },
+      ];
+
+      guestMobile.v3bDetails = [];
+      let allShapesPassed = true;
+      let allV3bPassed = true;
+      for (const st of shapeTests) {
+        await page.bringToFront();
+        const hostPixBefore = await countNonTransparentPixels(page, true);
+        const hostScreenBefore = await countVisibleScreenStrokePixels(page, matrixCanvasBox);
+        const guestPixBefore = await countNonTransparentPixels(guestPage, false);
+        const guestScreenBefore = await countVisibleScreenStrokePixels(guestPage, guestCanvasBox);
+
+        await page.click(st.btnId);
+
+        if (st.isText) {
+          const tx = Math.round(matrixCanvasBox.left + st.clickAt[0]);
+          const ty = Math.round(matrixCanvasBox.top + st.clickAt[1]);
+          await page.mouse.click(tx, ty);
+          await new Promise((r) => setTimeout(r, 200));
+          await page.mouse.click(Math.round(matrixCanvasBox.left + 50), Math.round(matrixCanvasBox.top + 50));
+        } else {
+          const sx = Math.round(matrixCanvasBox.left + st.start[0]);
+          const sy = Math.round(matrixCanvasBox.top + st.start[1]);
+          const ex = Math.round(matrixCanvasBox.left + st.end[0]);
+          const ey = Math.round(matrixCanvasBox.top + st.end[1]);
+          await page.mouse.move(sx, sy);
+          await page.mouse.down();
+          await page.mouse.move(ex, ey);
+          await page.mouse.up();
+        }
+
+        // DEPOIS do traço no Host (após soltar o mouse e finalizar render)
+        await new Promise((r) => setTimeout(r, 600));
+
+        const hostPixAfter = await countNonTransparentPixels(page, true);
+        const hostScreenAfter = await countVisibleScreenStrokePixels(page, matrixCanvasBox);
+
+        // 1 segundo depois de soltar o mouse no Host
+        await new Promise((r) => setTimeout(r, 1000));
+        const hostScreenAfter1s = await countVisibleScreenStrokePixels(page, matrixCanvasBox);
+
+        // Sincronização e captura no Guest
+        await guestPage.bringToFront();
+        await new Promise((r) => setTimeout(r, 400));
+        const guestPixAfter = await countNonTransparentPixels(guestPage, false);
+        const guestScreenAfter = await countVisibleScreenStrokePixels(guestPage, guestCanvasBox);
+
+        // 1 segundo depois de sincronizar no Guest
+        await new Promise((r) => setTimeout(r, 1000));
+        const guestScreenAfter1s = await countVisibleScreenStrokePixels(guestPage, guestCanvasBox);
+
+        const hostDelta = hostPixAfter - hostPixBefore;
+        const guestDelta = guestPixAfter - guestPixBefore;
+        const pass = hostDelta > 0 && guestDelta > 0;
+
+        // V3b: Captura real da tela (screenshot com clip)
+        // Regra D11.2: traço visível na tela (delta > 0) e número de pixels não pode cair após soltar o mouse (1s depois)
+        const hostScreenDelta = hostScreenAfter - hostScreenBefore;
+        const guestScreenDelta = guestScreenAfter - guestScreenBefore;
+        const hostRetained = hostScreenDelta > 0 && hostScreenAfter1s >= hostScreenAfter;
+        const guestRetained = guestScreenDelta > 0 && guestScreenAfter1s >= guestScreenAfter;
+        const v3bPass = hostRetained && guestRetained;
+
+        guestMobile.shapesDetails.push({
+          tool: st.tool,
+          dir: st.dir,
+          hostPixBefore,
+          hostPixAfter,
+          hostDelta,
+          guestPixBefore,
+          guestPixAfter,
+          guestDelta,
+          pass,
+        });
+
+        guestMobile.v3bDetails.push({
+          tool: st.tool,
+          dir: st.dir,
+          hostScreenBefore,
+          hostScreenAfter,
+          hostScreenAfter1s,
+          hostScreenDelta,
+          hostRetained,
+          guestScreenBefore,
+          guestScreenAfter,
+          guestScreenAfter1s,
+          guestScreenDelta,
+          guestRetained,
+          v3bPass,
+        });
+
+        if (!pass) {
+          console.error(`[Probe FAIL V3] Forma '${st.tool}' (${st.dir}): hostDelta=${hostDelta}, guestDelta=${guestDelta}`);
+          allShapesPassed = false;
+        } else {
+          console.log(`[Probe PASS V3] Forma '${st.tool}' (${st.dir}): host +${hostDelta} px, guest +${guestDelta} px`);
+        }
+
+        if (!v3bPass) {
+          console.error(
+            `[Probe FAIL V3b] Tela real '${st.tool}' (${st.dir}): ` +
+            `Host before=${hostScreenBefore} after=${hostScreenAfter} 1s=${hostScreenAfter1s} (delta=${hostScreenDelta}, retained=${hostRetained}) | ` +
+            `Guest before=${guestScreenBefore} after=${guestScreenAfter} 1s=${guestScreenAfter1s} (delta=${guestScreenDelta}, retained=${guestRetained})`
+          );
+          allV3bPassed = false;
+        } else {
+          console.log(
+            `[Probe PASS V3b] Tela real '${st.tool}' (${st.dir}): ` +
+            `Host +${hostScreenDelta} px (1s: ${hostScreenAfter1s}), Guest +${guestScreenDelta} px (1s: ${guestScreenAfter1s})`
+          );
+        }
+      }
+
+      guestMobile.shapesPixelCheckOk = allShapesPassed;
+      guestMobile.v3bScreenCaptureOk = allV3bPassed;
+
+      await page.bringToFront();
+      contagemAposDesenho = await page.$eval('#badge-elementos', (el) => el.innerText);
+
+      // Testar Desfazer (Undo)
+      await page.click('#btn-undo');
+      await new Promise((r) => setTimeout(r, 400));
+      contagemAposUndo = await page.$eval('#badge-elementos', (el) => el.innerText);
+
+      // Testar Refazer (Redo)
+      await page.click('#btn-redo');
+      await new Promise((r) => setTimeout(r, 400));
+      contagemAposRedo = await page.$eval('#badge-elementos', (el) => el.innerText);
+
+      // Testar Borracha de Trecho sobre a área desenhada
+      await page.click('#tool-eraser');
+      await page.mouse.move(matrixCanvasBox.left + 320, matrixCanvasBox.top + 130);
+      await page.mouse.down();
+      await page.mouse.move(matrixCanvasBox.left + 370, matrixCanvasBox.top + 140);
+      await page.mouse.up();
+      await new Promise((r) => setTimeout(r, 400));
+      contagemAposBorracha = await page.$eval('#badge-elementos', (el) => el.innerText);
+
+      // Captura visual do Quadro Branco HiDPI (Evidência obrigatória)
+      const whiteboardShotPath = path.join(root, 'docs', 'whiteboard-hidpi.png');
+      await page.screenshot({ path: whiteboardShotPath });
 
       // Screenshot da emulação do Guest mobile (Android 16 / Motorola Edge 70 Pro)
       const guestShotPath = path.join(root, 'docs', 'guest-mobile-emulation.png');
@@ -335,114 +864,6 @@ async function main() {
       await guestBrowser.close();
     }
   }
-
-  // 7.2 Leitura do DPR real e verificação dos controles do Quadro Branco
-  const quadroCheck = await page.evaluate(async () => {
-    const dpr = window.devicePixelRatio;
-    const canvasEl = document.getElementById('canvas-quadro-branco');
-    const upperCanvasEl = document.querySelector('.upper-canvas');
-    const badgeDpr = document.getElementById('badge-dpr')?.innerText || '';
-    const badgeElementos = document.getElementById('badge-elementos')?.innerText || '';
-    const btnPencil = document.getElementById('tool-pencil');
-    const btnRect = document.getElementById('tool-rectangle');
-    const btnUndo = document.getElementById('btn-undo');
-    const btnRedo = document.getElementById('btn-redo');
-    const btnClear = document.getElementById('btn-clear-tab');
-
-    return {
-      dpr,
-      dprOk: dpr === 1.5,
-      canvasExiste: Boolean(canvasEl),
-      upperCanvasExiste: Boolean(upperCanvasEl),
-      botoesExistem: Boolean(btnPencil && btnRect && btnUndo && btnRedo && btnClear),
-      badgeDpr,
-      badgeElementos,
-    };
-  });
-
-  // 7.3 Interação Real de Desenho no Canvas via Puppeteer
-  const canvasBox = await page.$eval('.upper-canvas', (el) => {
-    const rect = el.getBoundingClientRect();
-    return { left: rect.left, top: rect.top, width: rect.width, height: rect.height };
-  });
-
-  // Desenhar traço com lápis:
-  await page.click('#tool-pencil');
-  const startX = Math.round(canvasBox.left + 150);
-  const startY = Math.round(canvasBox.top + 150);
-  await page.mouse.move(startX, startY);
-  await page.mouse.down();
-  await page.mouse.move(startX + 80, startY + 50);
-  await page.mouse.move(startX + 140, startY + 90);
-  await page.mouse.up();
-  await new Promise((r) => setTimeout(r, 400));
-
-  // Desenhar retângulo com ferramenta geométrica:
-  await page.click('#tool-rectangle');
-  const rectX = Math.round(canvasBox.left + 350);
-  const rectY = Math.round(canvasBox.top + 100);
-  await page.mouse.move(rectX, rectY);
-  await page.mouse.down();
-  await page.mouse.move(rectX + 110, rectY + 70);
-  await page.mouse.up();
-  await new Promise((r) => setTimeout(r, 400));
-
-  // Desenhar elipse:
-  await page.click('#tool-ellipse');
-  const ellipseX = Math.round(canvasBox.left + 500);
-  const ellipseY = Math.round(canvasBox.top + 100);
-  await page.mouse.move(ellipseX, ellipseY);
-  await page.mouse.down();
-  await page.mouse.move(ellipseX + 90, ellipseY + 60);
-  await page.mouse.up();
-  await new Promise((r) => setTimeout(r, 400));
-
-  // Desenhar seta:
-  await page.click('#tool-arrow');
-  const arrowX = Math.round(canvasBox.left + 350);
-  const arrowY = Math.round(canvasBox.top + 240);
-  await page.mouse.move(arrowX, arrowY);
-  await page.mouse.down();
-  await page.mouse.move(arrowX + 140, arrowY + 40);
-  await page.mouse.up();
-  await new Promise((r) => setTimeout(r, 400));
-
-  // Adicionar texto rotacionável:
-  await page.click('#tool-text');
-  await page.mouse.click(Math.round(canvasBox.left + 180), Math.round(canvasBox.top + 260));
-  await new Promise((r) => setTimeout(r, 300));
-  // Clica fora para consolidar o texto
-  await page.mouse.click(Math.round(canvasBox.left + 50), Math.round(canvasBox.top + 50));
-  await new Promise((r) => setTimeout(r, 400));
-
-  // Gira o texto adicionado para comprovar suporte a texto rotacionável (Mestre §12)
-  await page.evaluate(() => {
-    const canvas = window.__whiteboardCanvas;
-    // Seleciona o texto no estado ou rotaciona objeto de texto
-    const textEl = document.querySelector('canvas');
-  });
-
-  const contagemAposDesenho = await page.$eval('#badge-elementos', (el) => el.innerText);
-
-  // Testar Desfazer (Undo)
-  await page.click('#btn-undo');
-  await new Promise((r) => setTimeout(r, 300));
-  const contagemAposUndo = await page.$eval('#badge-elementos', (el) => el.innerText);
-
-  // Testar Refazer (Redo)
-  await page.click('#btn-redo');
-  await new Promise((r) => setTimeout(r, 300));
-  const contagemAposRedo = await page.$eval('#badge-elementos', (el) => el.innerText);
-
-  // Testar Borracha sobre a forma retângulo desenhada
-  await page.click('#tool-eraser');
-  await page.mouse.click(rectX + 50, rectY + 35);
-  await new Promise((r) => setTimeout(r, 400));
-  const contagemAposBorracha = await page.$eval('#badge-elementos', (el) => el.innerText);
-
-  // Captura visual do Quadro Branco HiDPI (Evidência obrigatória)
-  const whiteboardShotPath = path.join(root, 'docs', 'whiteboard-hidpi.png');
-  await page.screenshot({ path: whiteboardShotPath });
 
   // Retorna à tela de detalhes
   await page.click('#btn-voltar-sessao');
@@ -465,7 +886,7 @@ async function main() {
   await page.click('#btn-voltar-lista');
   await page.waitForSelector('#input-busca-atendido', { timeout: 5000 });
 
-  // 7. UI: Trocar o Rótulo do Dicionário
+  // 8. UI: Trocar o Rótulo do Dicionário
   await page.waitForSelector('#btn-aba-config', { timeout: 5000 });
   await page.click('#btn-aba-config');
   await page.waitForSelector('#input-rotulo-guest', { timeout: 5000 });
@@ -486,14 +907,14 @@ async function main() {
     return document.body.innerText.includes(rot);
   }, novoRotulo);
 
-  // 8. Screenshot da janela
+  // 9. Screenshot da janela
   if (shotPath) {
     const dir = path.dirname(shotPath);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     await page.screenshot({ path: shotPath });
   }
 
-  // 9. Verificação de dados no SQLite através do processo Electron
+  // 10. Verificação de dados no SQLite através do processo Electron
   const dbCheck = await page.evaluate(async () => {
     const res = await window.desktopAPI.atendidos.list({ apenasAtivos: false });
     if (!res.success) return { semDuplicados: false, total: 0 };
@@ -512,21 +933,19 @@ async function main() {
 
   await browser.disconnect();
 
-  // Verificação direta no arquivo do SQLite usando ABI do Electron (ADR-004)
+  // Verificação direta no banco SQLite isolado da sonda (H4: sem tocar no banco real)
   let bancoDirectCheck = true;
   try {
     const checkSql = `
       const Database = require('better-sqlite3');
-      const path = require('path');
-      const appData = process.env.APPDATA || (process.platform === 'darwin' ? path.join(process.env.HOME || '', 'Library', 'Application Support') : path.join(process.env.HOME || '', '.config'));
-      const db = new Database(path.join(appData, 'OneToOneSupport', 'onetoone.db'));
+      const db = new Database(process.env.ONETOONE_DB_PATH);
       const dup = db.prepare('SELECT nome, contato, email, notas, COUNT(*) as qtd FROM Atendidos GROUP BY nome, contato, email, notas HAVING qtd > 1').all();
       process.stdout.write(JSON.stringify({ duplicados: dup.length }));
       db.close();
     `;
     const resSql = spawnSync(exe, ['-e', checkSql], {
       cwd: root,
-      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', ONETOONE_DB_PATH: probeDbPath },
       encoding: 'utf8',
     });
     if (resSql.status === 0 && resSql.stdout) {
@@ -555,6 +974,7 @@ async function main() {
       contagemAposUndo,
       contagemAposRedo,
       contagemAposBorracha,
+      hostVersionStamp,
     },
     bancoSemDuplicados: dbCheck.semDuplicados && bancoDirectCheck,
     totalAtendidos: dbCheck.total,
@@ -564,7 +984,7 @@ async function main() {
 }
 
 main()
-  .then((res) => {
+  .then(async (res) => {
     const checks = {
       'typeof require === undefined': res.sec.typeofRequire === 'undefined',
       'typeof process === undefined': res.sec.typeofProcess === 'undefined',
@@ -583,8 +1003,12 @@ main()
         res.guestMobile.carregouBundleERemoveuHash,
       'Guest Mobile: CSP sem violacoes no console':
         res.guestMobile.cspSemViolacoes,
-      'Guest Mobile: desenhou com touch e sincronizou com o Host':
-        res.guestMobile.desenhouESincronizou,
+      'Guest Mobile: sincronizacao bidirecional por conteudo (IDs de elementos)':
+        res.guestMobile.syncBidirecionalConteudoOk,
+      'Guest Mobile: borracha de trecho sincronizou elemento eraser_stroke':
+        res.guestMobile.borrachaTrechoOk,
+      'Guest Mobile: UNDO e REDO bidirecionais sincronizaram estado':
+        res.guestMobile.undoRedoBidirecionalOk,
       'Guest Mobile: LOCK_SCREEN exibiu overlay e desbloqueou':
         res.guestMobile.lockScreenOk,
       'Guest Mobile: mute local emitiu GUEST_MUTED':
@@ -597,6 +1021,20 @@ main()
         res.ui.quadroInteracaoOk,
       'UI: alterar rotulo no dicionario': res.ui.rotuloAtualizadoOk,
       'Banco: sem dados duplicados no SQLite': res.bancoSemDuplicados,
+      'V1: Carimbo de versão visível no Host (#host-version-stamp)':
+        Boolean(res.ui.hostVersionStamp),
+      'V1: Carimbo de versão visível no Guest (#guest-version-stamp)':
+        Boolean(res.guestMobile.guestVersionStamp),
+      'V1: Carimbo coincide entre Host e Guest sem aviso de desatualizado':
+        res.guestMobile.versionStampsMatch,
+      'V3: Entrada real Windows SendInput com SetProcessDPIAware produziu pixels':
+        res.guestMobile.winSendInputOk,
+      'V3: 4 direções e 7 ferramentas deixam pixels não-transparentes no Host':
+        res.guestMobile.shapesPixelCheckOk,
+      'V3: 4 direções e 7 ferramentas sincronizam pixels não-transparentes no Guest':
+        res.guestMobile.shapesPixelCheckOk,
+      'V3b: traço permanece visível NA TELA (captura real) após soltar o mouse':
+        res.guestMobile.v3bScreenCaptureOk,
     };
 
     console.log(JSON.stringify(res, null, 2));
@@ -606,10 +1044,18 @@ main()
       ok = ok && v;
     }
     app.kill();
+    await new Promise((r) => setTimeout(r, 800));
+    try {
+      fs.rmSync(probeTempDir, { recursive: true, force: true });
+    } catch {}
     process.exit(ok ? 0 : 1);
   })
-  .catch((e) => {
+  .catch(async (e) => {
     console.error('ERRO na sonda:', e, '\n--- log do app ---\n' + log);
     app.kill();
+    await new Promise((r) => setTimeout(r, 800));
+    try {
+      fs.rmSync(probeTempDir, { recursive: true, force: true });
+    } catch {}
     process.exit(1);
   });

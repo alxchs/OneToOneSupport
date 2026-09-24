@@ -7,17 +7,30 @@ import { ConfiguracoesPage } from './pages/ConfiguracoesPage';
 import { QuadroBrancoPage } from './pages/QuadroBrancoPage';
 import { useHostStore } from './store/useHostStore';
 import { reduceEvent, WhiteboardEvent } from '../shared/events/reducer';
+import { generateUUID } from '../shared/events/protocol';
+import type { VersionInfoDTO } from '../shared/ipc-contract';
+import buildInfo from '../shared/build-info.json';
 
 export const HostApp: React.FC = () => {
   const { view, mensagemAlerta, limparMensagens, carregarDicionario } = useHostStore();
   const [scaleFactor, setScaleFactor] = useState(1.5);
-  const [appVersion, setAppVersion] = useState('1.0.0');
+  const [appVersion, setAppVersion] = useState(buildInfo.stamp);
+  const [versionInfo, setVersionInfo] = useState<VersionInfoDTO | null>(null);
 
   useEffect(() => {
+    console.log(`[Version] Host: ${buildInfo.stamp}`);
     carregarDicionario();
     if (window.desktopAPI) {
       window.desktopAPI.getScaleFactor().then(setScaleFactor).catch(console.error);
       window.desktopAPI.getAppVersion().then(setAppVersion).catch(console.error);
+      if (window.desktopAPI.getVersionInfo) {
+        window.desktopAPI.getVersionInfo().then((info) => {
+          setVersionInfo(info);
+          if (info.guestOutdated) {
+            console.warn('[Version] Guest desatualizado: rode npm run build');
+          }
+        }).catch(console.error);
+      }
     }
 
     // Escuta eventos em tempo real enviados pelo Guest
@@ -37,17 +50,19 @@ export const HostApp: React.FC = () => {
         if (
           event.type === 'DRAW_ADD' ||
           event.type === 'DRAW_HIDE' ||
-          event.type === 'CLEAR_TAB'
+          event.type === 'CLEAR_TAB' ||
+          event.type === 'UNDO' ||
+          event.type === 'REDO'
         ) {
           const rawPayload = event.payload;
           const parsedPayload =
             typeof rawPayload === 'string' ? JSON.parse(rawPayload) : rawPayload;
           const ev: WhiteboardEvent = {
-            id: event.id || (window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : `ev-${Date.now()}`),
+            id: event.id || generateUUID(),
             sessao_id: useHostStore.getState().activeSessaoId || undefined,
             aba_id: event.abaId || 'default',
             tipo: event.type,
-            payload: parsedPayload,
+            payload: parsedPayload || {},
             autor: 'guest',
             criado_em: event.ts || Date.now(),
           };
@@ -119,6 +134,7 @@ export const HostApp: React.FC = () => {
       </main>
 
       <footer
+        id="host-footer"
         style={{
           padding: '1.25rem 2rem',
           backgroundColor: '#0c1322',
@@ -128,9 +144,32 @@ export const HostApp: React.FC = () => {
           textAlign: 'center',
         }}
       >
-        <span>
+        <div>
           OneToOneSupport Host • Electron 30 • SQLite WAL • Target 3840x2160 @150% • Zero regra de negócio no Renderer
-        </span>
+        </div>
+        <div
+          id="host-version-stamp"
+          style={{ marginTop: '0.25rem', color: '#94a3b8', fontSize: '0.75rem' }}
+        >
+          Build: {versionInfo?.hostStamp || appVersion}
+        </div>
+        {versionInfo?.guestOutdated && (
+          <div
+            id="aviso-guest-desatualizado"
+            style={{
+              marginTop: '0.5rem',
+              color: '#f59e0b',
+              fontWeight: 'bold',
+              backgroundColor: '#451a03',
+              border: '1px solid #b45309',
+              borderRadius: '0.375rem',
+              padding: '0.5rem 1rem',
+              display: 'inline-block',
+            }}
+          >
+            ⚠️ Guest desatualizado: rode npm run build
+          </div>
+        )}
       </footer>
     </div>
   );

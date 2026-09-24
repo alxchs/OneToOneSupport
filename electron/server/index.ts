@@ -5,6 +5,7 @@ import { createWebSocketServer, WsServerHandle } from './ws';
 import { getLanInterfaces, getDefaultLanIp, LanInterface } from './network';
 import { buildInviteUrl } from '../../src/shared/crypto/invite';
 import { EventoService, isValidId } from '../services/evento.service';
+import { diagServerLog } from '../../src/shared/diag';
 
 export interface ServerSessionInfo {
   sessaoId: string;
@@ -78,6 +79,8 @@ export class ServerSessionController {
 
   private handleGuestEvent(envelope: any): void {
     if (!envelope || typeof envelope !== 'object') {
+      diagServerLog('serverDrop', { motivo: 'ENVELOPE_NULO_OU_NAO_OBJETO' });
+      diagServerLog('descarte', { motivo: 'ENVELOPE_NULO_OU_NAO_OBJETO' });
       return;
     }
 
@@ -85,6 +88,14 @@ export class ServerSessionController {
     // Se abaId for enviado, valida estritamente. Se inválido, descarta e NÃO repassa ao Host.
     const candidateAbaId = envelope.payload?.abaId ?? envelope.abaId;
     if (candidateAbaId !== undefined && candidateAbaId !== null && !isValidId(candidateAbaId)) {
+      diagServerLog('pathTraversal', {
+        motivo: 'ABA_ID_INVALIDO',
+        abaId: candidateAbaId,
+      });
+      diagServerLog('descarte', {
+        motivo: 'PATH_TRAVERSAL_DETECTED',
+        abaId: candidateAbaId,
+      });
       console.warn('[ServerSessionController] Descartando evento do Guest com abaId inválido:', candidateAbaId);
       return;
     }
@@ -94,12 +105,17 @@ export class ServerSessionController {
     if (
       envelope.type === 'DRAW_ADD' ||
       envelope.type === 'DRAW_HIDE' ||
-      envelope.type === 'CLEAR_TAB'
+      envelope.type === 'CLEAR_TAB' ||
+      envelope.type === 'UNDO' ||
+      envelope.type === 'REDO'
     ) {
       try {
         const eventoService = new EventoService();
-        const payloadData = envelope.payload?.data ?? envelope.payload;
-        const payloadStr = typeof payloadData === 'string' ? payloadData : JSON.stringify(payloadData);
+        // Preserva o payload estruturado completo com id, tipo e data
+        const payloadStr =
+          typeof envelope.payload === 'string'
+            ? envelope.payload
+            : JSON.stringify(envelope.payload || {});
         const res = eventoService.gravarEvento(
           {
             sessao_id: this.sessionManager?.sessaoId || '',
@@ -112,10 +128,34 @@ export class ServerSessionController {
         );
 
         if (!res.sucesso) {
+          diagServerLog('serverDrop', {
+            motivo: 'GRAVAR_EVENTO_REJEITADO',
+            tipo: envelope.type,
+            razao: res.motivo,
+          });
+          diagServerLog('descarte', {
+            motivo: 'GRAVAR_EVENTO_REJEITADO',
+            tipo: envelope.type,
+            razao: res.motivo,
+          });
           console.warn('[ServerSessionController] Evento do guest rejeitado por gravarEvento:', res.motivo);
           return; // Retorno de falha: NÃO repassa ao Host (C3)!
         }
+        diagServerLog('guestEventPersisted', {
+          tipo: envelope.type,
+          abaId,
+        });
       } catch (err) {
+        diagServerLog('serverDrop', {
+          motivo: 'GRAVAR_EVENTO_EXCECAO',
+          tipo: envelope.type,
+          erro: err instanceof Error ? err.message : String(err),
+        });
+        diagServerLog('descarte', {
+          motivo: 'GRAVAR_EVENTO_EXCECAO',
+          tipo: envelope.type,
+          erro: err instanceof Error ? err.message : String(err),
+        });
         console.error('[ServerSessionController] Erro ao gravar evento do guest no SQLite:', err);
         return; // Lançou exceção: NÃO repassa ao Host (C3)!
       }
@@ -282,8 +322,22 @@ export class ServerSessionController {
    * Envia uma mensagem cifrada para o Guest conectado
    */
   public broadcastToGuest(innerEvent: Record<string, unknown>): boolean {
-    if (!this.wsHandle) return false;
-    return this.wsHandle.sendEncryptedToGuest(innerEvent);
+    if (!this.wsHandle) {
+      diagServerLog('broadcastToGuest', {
+        sucesso: false,
+        motivo: 'WS_HANDLE_AUSENTE',
+        tipo: innerEvent?.type,
+      });
+      return false;
+    }
+    const res = this.wsHandle.sendEncryptedToGuest(innerEvent);
+    diagServerLog('broadcastToGuest', {
+      sucesso: res,
+      tipo: innerEvent?.type,
+      abaId: innerEvent?.abaId,
+      autor: innerEvent?.autor,
+    });
+    return res;
   }
 
   /**
@@ -324,11 +378,26 @@ export class ServerSessionController {
    * Notifica troca sincronizada de aba ativa para o Guest
    */
   public switchTab(abaId: string): boolean {
-    return this.broadcastToGuest({
+    const res = this.broadcastToGuest({
       type: 'TAB_SWITCH',
       abaId,
       ts: Date.now(),
     });
+    try {
+      if (this.sessionManager) {
+        const eventoService = new EventoService();
+        const tabState = eventoService.reconstruirEstadoAba(this.sessionManager.sessaoId, abaId);
+        this.broadcastToGuest({
+          type: 'TAB_STATE',
+          abaId,
+          state: tabState,
+          ts: Date.now(),
+        });
+      }
+    } catch (err) {
+      console.warn('[ServerSessionController] Aviso ao sincronizar estado da aba após switchTab:', err);
+    }
+    return res;
   }
 }
 

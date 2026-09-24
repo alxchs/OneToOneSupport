@@ -1,12 +1,21 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { GuestWsClient, GuestConnectionState } from './ws/client';
-import { WhiteboardEngine, WhiteboardTool } from '../shared/canvas/engine';
+import {
+  WhiteboardEngine,
+  WhiteboardTool,
+  CANONICAL_VIRTUAL_WIDTH,
+  CANONICAL_VIRTUAL_HEIGHT,
+} from '../shared/canvas/engine';
 import {
   TabState,
   createInitialTabState,
   reduceEvent,
+  getVisibleElements,
   WhiteboardEvent,
 } from '../shared/events/reducer';
+import { generateUUID } from '../shared/events/protocol';
+import { diagLog } from '../shared/diag';
+import buildInfo from '../shared/build-info.json';
 
 export interface GuestRoomProps {
   wsClient: GuestWsClient;
@@ -92,18 +101,20 @@ export const GuestRoom: React.FC<GuestRoomProps> = ({
 
         case 'DRAW_ADD':
         case 'DRAW_HIDE':
-        case 'CLEAR_TAB': {
+        case 'CLEAR_TAB':
+        case 'UNDO':
+        case 'REDO': {
           const rawPayload = msg.payload ?? msg;
           const parsedPayload =
             typeof rawPayload === 'string' ? JSON.parse(rawPayload) : rawPayload;
           const targetAba = msg.abaId || 'default';
 
           const ev: WhiteboardEvent = {
-            id: msg.id || (window.crypto?.randomUUID ? window.crypto.randomUUID() : `ev-${Date.now()}`),
+            id: msg.id || generateUUID(),
             sessao_id: sessaoId,
             aba_id: targetAba,
             tipo: msg.type,
-            payload: parsedPayload,
+            payload: parsedPayload || {},
             autor: msg.autor || 'host',
             criado_em: msg.ts || Date.now(),
           };
@@ -111,8 +122,31 @@ export const GuestRoom: React.FC<GuestRoomProps> = ({
           setTabStates((prev) => {
             const currentTabState = prev[targetAba] || createInitialTabState(targetAba);
             const updated = reduceEvent(currentTabState, ev);
+            diagLog('guestReceive', {
+              tipo: msg.type,
+              abaId: targetAba,
+              visiveisDepois: getVisibleElements(updated).length,
+              autor: msg.autor || 'host',
+            });
             return { ...prev, [targetAba]: updated };
           });
+          break;
+        }
+
+        case 'TAB_STATE': {
+          const targetAba = msg.abaId || 'default';
+          const incomingState = msg.state || msg.payload?.state;
+          if (incomingState) {
+            diagLog('guestReceive', {
+              tipo: 'TAB_STATE',
+              abaId: targetAba,
+              elementos: incomingState.elementOrder?.length || 0,
+            });
+            setTabStates((prev) => ({
+              ...prev,
+              [targetAba]: incomingState,
+            }));
+          }
           break;
         }
 
@@ -150,12 +184,12 @@ export const GuestRoom: React.FC<GuestRoomProps> = ({
     if (!canvasRef.current || !containerRef.current) return;
 
     const rect = containerRef.current.getBoundingClientRect();
-    const initWidth = Math.max(360, Math.floor(rect.width) || 412);
-    const initHeight = Math.max(400, Math.floor(rect.height) || 600);
+    const displayWidth = Math.max(100, Math.floor(rect.width) || 412);
+    const displayHeight = Math.max(100, Math.floor(rect.height) || 600);
 
     const engine = new WhiteboardEngine(canvasRef.current, {
-      virtualWidth: initWidth,
-      virtualHeight: initHeight,
+      virtualWidth: CANONICAL_VIRTUAL_WIDTH,
+      virtualHeight: CANONICAL_VIRTUAL_HEIGHT,
       autor: 'guest',
       sessaoId,
       abaId: activeAbaId,
@@ -164,6 +198,12 @@ export const GuestRoom: React.FC<GuestRoomProps> = ({
         if (screenLocked) {
           return;
         }
+
+        diagLog('guestSend', {
+          tipo: evento.tipo,
+          abaId: activeAbaId,
+          autor: 'guest',
+        });
 
         // Aplica localmente no reducer
         setTabStates((prev) => {
@@ -191,11 +231,16 @@ export const GuestRoom: React.FC<GuestRoomProps> = ({
       },
     });
 
+    engine.setDimensions(displayWidth, displayHeight);
+
     engine.setStrokeColor(corAtual);
     engine.setStrokeWidth(espessuraAtual);
     engine.setTool(ferramenta);
 
     engineRef.current = engine;
+    if (typeof window !== 'undefined') {
+      (window as any).__guestEngine = engine;
+    }
 
     const currentTabState = tabStates[activeAbaId] || createInitialTabState(activeAbaId);
     engine.renderState(currentTabState);
@@ -216,6 +261,9 @@ export const GuestRoom: React.FC<GuestRoomProps> = ({
     return () => {
       window.removeEventListener('resize', handleResize);
       window.removeEventListener('orientationchange', handleResize);
+      if (typeof window !== 'undefined') {
+        delete (window as any).__guestEngine;
+      }
       engine.dispose();
       engineRef.current = null;
     };
@@ -254,8 +302,9 @@ export const GuestRoom: React.FC<GuestRoomProps> = ({
   // Ação de Desfazer do Guest (desfaz sua própria última ação)
   const handleDesfazer = () => {
     if (screenLocked) return;
+    diagLog('guestSend', { tipo: 'UNDO', abaId: activeAbaId, autor: 'guest' });
     const ev: WhiteboardEvent = {
-      id: window.crypto?.randomUUID ? window.crypto.randomUUID() : `ev-${Date.now()}`,
+      id: generateUUID(),
       sessao_id: sessaoId,
       aba_id: activeAbaId,
       tipo: 'UNDO',
@@ -281,6 +330,40 @@ export const GuestRoom: React.FC<GuestRoomProps> = ({
       });
     } catch (err) {
       console.error('[GuestRoom] Erro ao enviar desfazer:', err);
+    }
+  };
+
+  // Ação de Refazer do Guest (refaz sua própria última ação)
+  const handleRefazer = () => {
+    if (screenLocked) return;
+    diagLog('guestSend', { tipo: 'REDO', abaId: activeAbaId, autor: 'guest' });
+    const ev: WhiteboardEvent = {
+      id: generateUUID(),
+      sessao_id: sessaoId,
+      aba_id: activeAbaId,
+      tipo: 'REDO',
+      autor: 'guest',
+      payload: {},
+      criado_em: Date.now(),
+    };
+
+    setTabStates((prev) => {
+      const currentTab = prev[activeAbaId] || createInitialTabState(activeAbaId);
+      const updated = reduceEvent(currentTab, ev);
+      return { ...prev, [activeAbaId]: updated };
+    });
+
+    try {
+      wsClient.sendEncrypted({
+        type: 'REDO',
+        payload: {},
+        abaId: activeAbaId,
+        sessaoId,
+        autor: 'guest',
+        ts: Date.now(),
+      });
+    } catch (err) {
+      console.error('[GuestRoom] Erro ao enviar refazer:', err);
     }
   };
 
@@ -361,6 +444,17 @@ export const GuestRoom: React.FC<GuestRoomProps> = ({
             </span>
             <span style={{ fontSize: '0.6875rem', color: '#94a3b8' }}>
               {rotuloGuest} • Atendimento 1:1
+            </span>
+            <span
+              id="guest-version-stamp"
+              style={{
+                fontSize: '0.625rem',
+                color: '#64748b',
+                fontFamily: 'monospace',
+                marginTop: '1px',
+              }}
+            >
+              {buildInfo.stamp}
             </span>
           </div>
         </div>
@@ -697,6 +791,21 @@ export const GuestRoom: React.FC<GuestRoomProps> = ({
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M3 7v6h6"></path>
                 <path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"></path>
+              </svg>
+            </button>
+
+            {/* Refazer (Ação do Guest) */}
+            <button
+              id="btn-guest-redo"
+              onClick={handleRefazer}
+              disabled={screenLocked}
+              className="touch-btn"
+              aria-label="Refazer"
+              title="Refazer ação desfeita"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M21 7v6h-6"></path>
+                <path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3L21 13"></path>
               </svg>
             </button>
 

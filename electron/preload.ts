@@ -34,6 +34,7 @@ const IPC_CHANNELS = {
   DESKTOP_GET_SCALE_FACTOR: 'desktop:get-scale-factor',
   DESKTOP_GET_DISPLAY_METRICS: 'desktop:get-display-metrics',
   DESKTOP_GET_APP_VERSION: 'desktop:get-app-version',
+  DESKTOP_GET_VERSION_INFO: 'desktop:get-version-info',
 
   SERVER_START_SESSION: 'server:start-session',
   SERVER_STOP_SESSION: 'server:stop-session',
@@ -48,6 +49,12 @@ const IPC_CHANNELS = {
 
   EVENTO_GRAVAR: 'evento:gravar',
   EVENTO_OBTER_ESTADO: 'evento:obter-estado',
+
+  // Diagnóstico Forward (D1)
+  DIAG_FORWARD: 'diag:forward',
+
+  // Forçar repaint da janela do Host (D7)
+  CANVAS_FORCE_REPAINT: 'canvas:force-repaint',
 } as const;
 
 export type { DisplayMetrics, DesktopAPI };
@@ -56,6 +63,7 @@ const desktopAPI: DesktopAPI = {
   getScaleFactor: () => ipcRenderer.invoke(IPC_CHANNELS.DESKTOP_GET_SCALE_FACTOR),
   getDisplayMetrics: () => ipcRenderer.invoke(IPC_CHANNELS.DESKTOP_GET_DISPLAY_METRICS),
   getAppVersion: () => ipcRenderer.invoke(IPC_CHANNELS.DESKTOP_GET_APP_VERSION),
+  getVersionInfo: () => ipcRenderer.invoke(IPC_CHANNELS.DESKTOP_GET_VERSION_INFO),
 
   atendidos: {
     list: (filter?: ListAtendidosPayload) =>
@@ -138,6 +146,37 @@ const desktopAPI: DesktopAPI = {
     obterEstadoAba: (sessao_id, aba_id) =>
       ipcRenderer.invoke(IPC_CHANNELS.EVENTO_OBTER_ESTADO, { sessao_id, aba_id }),
   },
+
+  canvas: {
+    forceRepaint: () => ipcRenderer.invoke(IPC_CHANNELS.CANVAS_FORCE_REPAINT),
+  },
 };
 
+const isDiag = process.env.ONETOONE_DIAG === '1' && process.env.NODE_ENV !== 'production';
+
+if (isDiag) {
+  desktopAPI.diagForward = (checkpoint: string, data?: Record<string, unknown>) => {
+    try {
+      ipcRenderer.send(IPC_CHANNELS.DIAG_FORWARD, { checkpoint, data });
+    } catch {
+      // noop
+    }
+  };
+}
+
 contextBridge.exposeInMainWorld('desktopAPI', desktopAPI);
+
+if (isDiag) {
+  contextBridge.exposeInMainWorld('__ONETOONE_DIAG__', true);
+  contextBridge.exposeInMainWorld(
+    '__ONETOONE_DIAG_FORWARD__',
+    (checkpoint: string, data?: Record<string, unknown>) => {
+      try {
+        ipcRenderer.send(IPC_CHANNELS.DIAG_FORWARD, { checkpoint, data });
+      } catch {
+        // noop
+      }
+    }
+  );
+}
+

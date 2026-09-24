@@ -15,6 +15,7 @@ import {
   handleConfigSetLabel,
   handleConfigSet,
 } from '../electron/ipc/config.ipc';
+import { handleCanvasForceRepaint } from '../electron/ipc/canvas.ipc';
 
 describe('IPC Handlers: Validação de Payload no Main e Erros Tipados', () => {
   beforeEach(() => {
@@ -160,6 +161,16 @@ describe('IPC Handlers: Validação de Payload no Main e Erros Tipados', () => {
       expect(r2.success).toBe(false);
       if (r2.success) return;
       expect(r2.error).toBe('DUPLICATE');
+    });
+  });
+
+  describe('Canvas IPC: Force Repaint (D7)', () => {
+    it('executa handleCanvasForceRepaint com sucesso e sem erro de schema', async () => {
+      const res = await handleCanvasForceRepaint();
+      expect(res.success).toBe(true);
+      if (res.success) {
+        expect(typeof res.data.repainted).toBe('boolean');
+      }
     });
   });
 });

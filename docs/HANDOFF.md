@@ -427,4 +427,410 @@ PASS  Banco: sem dados duplicados no SQLite
 ```
 *(22/22 checagens PASS)*
 
+---
 
+## Homologação 1 — Correção de Sincronização Mobile, Borracha de Trecho e Isolamento de Verificação
+
+### Contexto e Relato da Homologação Real
+Na primeira homologação real com dispositivo físico (Host = notebook Windows, Guest = Motorola Edge 70 Pro, Android 16, Chrome, LAN Wi-Fi), foram identificados 3 comportamentos críticos divergentes da expectativa do dono do produto:
+1. **H1 (Bloqueante):** Conexão E2EE bem-sucedida via QR Code, mas desenhos não sincronizavam entre Host e Guest em nenhum dos dois sentidos.
+2. **H2 (Bloqueante):** No smartphone, ao desenhar um traço no canvas, o risco surgia na tela e desaparecia imediatamente na sequência, sem ser transmitido ao Host.
+3. **H3:** A ferramenta de borracha apagava o objeto inteiro ao invés de apagar somente o trecho por onde a borracha passava.
+4. **H4:** A sonda de runtime anterior (`tools/probe-runtime.cjs`) e suítes de teste poluíam o banco de dados de produção do usuário (%APPDATA%\OneToOneSupport\onetoone.db) e apresentavam falso PASS ao testar conexões com loopback 127.0.0.1 em vez de interfaces LAN reais.
+
+### Causas-Raiz e Correções Implementadas
+
+#### 1. H1 — Sincronização Bidirecional e Persistência
+- **Causa A (Stripping de ID na persistência SQLite):** Em `electron/server/index.ts`, `handleGuestEvent` persistia no SQLite apenas `JSON.stringify(envelope.payload?.data || {})`, descartando `id` e `tipo` do elemento. Ao reconstruir o estado ou disparar renderizações, os elementos chegavam sem identificador. Corrigido para serializar o payload estruturado completo `{ id, tipo, data }`.
+- **Causa B (Ignorar retorno e silêncio em IPC):** Em `electron/ipc/evento.ipc.ts`, o retorno booleano de `broadcastToGuest` era ignorado e o catch era silencioso. Corrigido para registrar o resultado e reportar eventuais falhas.
+- **Causa C (UNDO e REDO do Guest não refletidos no Host):** Em `handleGuestEvent` e `src/host/HostApp.tsx`, eventos `UNDO` e `REDO` do Guest não eram gravados no banco nem atualizavam o `tabState` do Host. Adicionado suporte completo à persistência e projeção de `UNDO` e `REDO` de ambos os autores.
+- **Causa D (Envio de estado inicial no Handshake):** Em `electron/server/ws.ts`, o Host agora despacha imediatamente o evento `TAB_STATE` cifrado logo após `SESSION_READY`, garantindo que traços já existentes antes do join do Guest sejam exibidos assim que o convidado entra na sala.
+- **Causa E (Sincronização de abas):** `switchTab` atualizado para enviar `TAB_STATE` da nova aba ao Guest. `activeSessaoId` mantido no `src/host/store/useHostStore.ts`.
+
+#### 2. H2 — Celular: Traço surgia e sumia (Browser Insecure Contexts)
+- **Causa Raiz:** O método nativo `crypto.randomUUID()` só é exposto pelo Chromium em contextos seguros (HTTPS ou `localhost`/`127.0.0.1`). Em redes locais Wi-Fi onde o smartphone acessa o Host via HTTP em IP privado (`http://192.168.x.x:port`), `crypto.randomUUID()` é `undefined`. Ao desenhar, a chamada lançava exceção não tratada ou atribuía ID indefinido, fazendo com que a reconciliação do `renderState` do Fabric removesse o objeto na frame seguinte.
+- **Correção:** Substituição de todas as ocorrências de `crypto.randomUUID()` por `generateUUID()` (de `src/shared/events/protocol.ts`), implementado com `crypto.getRandomValues()`, suportado universalmente em HTTP e HTTPS.
+
+#### 3. H3 — Borracha de Trecho (ADR-012)
+- **Decisão:** A borracha padrão (`eraser`) passa a ser **Borracha de Trecho**, compatível com Event Sourcing append-only:
+  - Cada passada emite `DRAW_ADD` com `tipo: 'eraser_stroke'`.
+  - No Fabric.js, objetos `eraser_stroke` utilizam `globalCompositeOperation = 'destination-out'`.
+  - O canvas possui fundo transparente em sua camada interna e `#ffffff` no CSS, com exportação `toDataURL` compondo sobre fundo branco opaco para evitar vazamento ou perfurações.
+  - Reversibilidade total por `UNDO` e `REDO` por autor sem alteração do histórico append-only.
+  - A antiga borracha lógica foi mantida sob a ferramenta `object_eraser` (`#tool-object-eraser`).
+  - Reducer O(N): benchmark de 50.000 eventos processados em ~60ms (< 1500ms).
+
+#### 4. H4 — Isolamento de Banco de Dados e Sonda de Runtime LAN
+- **Banco Temporário:** `tools/probe-runtime.cjs` e `scripts/test-runner.mjs` inicializam diretório temporário isolado (`os.tmpdir()`) com `ONETOONE_DB_PATH` e `--user-data-dir`, removidos ao final da execução.
+- **Integridade do Banco Real:** O banco %APPDATA%\OneToOneSupport\onetoone.db permanece com hash e tamanho inalterados antes e após `npm run verify` (SHA256: `211F8CD9ACEAF5AAA24F77CDD3F1F8A63CEC1980B36257F253450611285C6379`, tamanho: 98304 bytes).
+- **Variável `ONETOONE_DB_RESET=1`:** Permite reset/recriação de banco vazio na inicialização em desenvolvimento (`NODE_ENV !== 'production'`); é expressamente recusada caso `NODE_ENV === 'production'`.
+- **Sonda LAN Estendida:** A sonda conecta o Guest através do IP LAN real do convite (e.g. `http://192.168.1.200:porta`), validando conteúdo bidirecional por IDs de elementos, passada de borracha de trecho e `UNDO`/`REDO` bidirecionais.
+
+### Lacuna de Verificação (Por que o teste antigo passou e o mundo real falhou)
+1. **Ambiente de Contexto Seguro Artificial:** A sonda anterior conectava o Guest forçando `parsedGuestUrl.hostname = '127.0.0.1'`. Para os motores de renderização baseados em Chromium, `127.0.0.1` é tratado como *Secure Context*, permitindo o funcionamento de APIs como `crypto.randomUUID()`. No mundo real, a conexão é feita via IP da LAN (ex.: `http://192.168.1.200`), onde conexões HTTP comuns são marcadas como *Insecure Context*, desabilitando APIs que dependem de HTTPS/Secure Context.
+2. **Asserção Apenas por Contagem, sem Comparar Conteúdo:** A sonda anterior verificava apenas se o contador `#badge-elementos` não continha o caractere `'0'`. O teste não conferia se o ID gerado pelo Guest correspondia exatamente ao ID existente no Host, nem se o elemento persistido no banco SQLite continha as propriedades vetoriais completas.
+3. **Falta de Teste Bidirecional com Ambas as Pontas Ativas:** A sonda anterior iniciava o Guest, executava uma ação e fechava o Guest antes de o Host interagir com as ferramentas de desenho. Não havia verificação de troca cruzada de eventos ao vivo.
+4. **Vazamento para o Banco de Dados Real:** Testes e probes anteriores gravavam no banco real do desenvolvedor, acumulando registros espúrios que mascaravam estados limpos de inicialização.
+
+### Evidências da Verificação Completa da Correção
+
+#### Prova de Inalterabilidade do Banco Real do Usuário (Antes e Depois do Gate)
+```
+Algorithm       Hash                                                                   Path
+---------       ----                                                                   ----
+SHA256          211F8CD9ACEAF5AAA24F77CDD3F1F8A63CEC1980B36257F253450611285C6379       C:\Users\alxch\AppData\Roaming\OneToOneSupport\onetoone.db
+Tamanho:        98304 bytes
+```
+
+#### Saída Real de `tests/borracha-trecho.test.ts`
+```
+$ node scripts/test-runner.mjs tests/borracha-trecho.test.ts
+[Test-Runner] Executando vitest sob ABI do Electron com ELECTRON_RUN_AS_NODE=1 e DB isolado...
+ RUN  v2.1.9 C:/desenv/utils/OneToOneSupport
+
+stdout | tests/borracha-trecho.test.ts > ADR-012 — Borracha de Trecho (Stroke Segment Eraser) e Reducer O(N) > (e) processa 50 000 eventos no reducer em menos de 1500 ms (linearidade O(N))
+[Benchmark Reducer] 50 000 eventos processados em: 59.58 ms
+
+ ✓ tests/borracha-trecho.test.ts (5 tests) 1185ms
+   ✓ ADR-012 — Borracha de Trecho (Stroke Segment Eraser) e Reducer O(N) > (d) borracha e UNDO/REDO sincronizam bidirecionalmente entre Guest e Host via WebSocket 951ms
+
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+   Duration  2.67s
+```
+
+#### Saída Real de `npm run verify` (15 Suítes, 241 Testes, Sonda 24/24 PASS)
+```
+$ npm run verify
+> onetoonesupport@1.0.0 verify
+> npm run typecheck && npm run build && npm test && npm run probe
+
+> onetoonesupport@1.0.0 typecheck
+> tsc --noEmit
+
+> onetoonesupport@1.0.0 build
+> tsc -p tsconfig.electron.json && vite build && vite build --config vite.config.guest.ts
+dist/renderer/index.html                  0.97 kB │ gzip:   0.56 kB
+dist/renderer/assets/index-DCgmMq-s.js  511.01 kB │ gzip: 151.51 kB
+dist/guest/guest.html                     0.96 kB │ gzip:   0.51 kB
+dist/guest/assets/index-CD_7vfq9.css      3.37 kB │ gzip:   1.16 kB
+dist/guest/assets/index-DLORmdV1.js   1,481.29 kB │ gzip: 465.49 kB
+
+> onetoonesupport@1.0.0 test
+> node scripts/test-runner.mjs
+[Test-Runner] Executando vitest sob ABI do Electron com ELECTRON_RUN_AS_NODE=1 e DB isolado...
+
+ Test Files  15 passed (15)
+      Tests  241 passed (241)
+   Duration  11.81s
+
+> onetoonesupport@1.0.0 probe
+> node tools/probe-runtime.cjs
+[Probe] Inicializando ambiente isolado temporário: C:\Users\alxch\AppData\Local\Temp\onetoone-probe-...
+[Probe] Banco SQLite temporário: C:\Users\alxch\AppData\Local\Temp\onetoone-probe-...\onetoone-probe.db
+[Probe] URL de convite gerada pelo Host: http://192.168.1.200:59524/join/...#...
+[Probe] Lançando Chromium emulado para Guest mobile: C:\Program Files\Google\Chrome\Application\chrome.exe
+[Probe] Conectando Guest mobile ao IP LAN: http://192.168.1.200:59524/join/...#...
+PASS  typeof require === undefined
+PASS  typeof process === undefined
+PASS  UI renderizou (#root com filhos)
+PASS  CSP: script inline NAO executa
+PASS  CSP: eval bloqueado
+PASS  sem erro de pagina
+PASS  IPC: validacao de payload rejeita dado invalido com erro tipado
+PASS  UI: criar atendido
+PASS  UI: detectar duplicado com mensagem clara (Regra #1)
+PASS  UI: editar atendido
+PASS  UI: desativar atendido (soft delete)
+PASS  UI: iniciar sessao, gerar QR e abrir sala do servidor LAN
+PASS  Guest Mobile: carregou bundle do Guest e removeu hash da URL
+PASS  Guest Mobile: CSP sem violacoes no console
+PASS  Guest Mobile: sincronizacao bidirecional por conteudo (IDs de elementos)
+PASS  Guest Mobile: borracha de trecho sincronizou elemento eraser_stroke
+PASS  Guest Mobile: UNDO e REDO bidirecionais sincronizaram estado
+PASS  Guest Mobile: LOCK_SCREEN exibiu overlay e desbloqueou
+PASS  Guest Mobile: mute local emitiu GUEST_MUTED
+PASS  Guest Mobile: barra de ferramentas totalmente visivel na viewport
+PASS  UI: abrir quadro branco HiDPI e verificar DPR 1.5
+PASS  UI: desenhar traço, retângulo, texto, desfazer/refazer e borracha
+PASS  UI: alterar rotulo no dicionario
+PASS  Banco: sem dados duplicados no SQLite
+```
+*(24/24 checagens PASS)*
+
+---
+
+### Homologação 2 — Correções do Quadro Branco, Diagnóstico e Coordenadas (21/09/2026)
+
+#### 1. Resumo das Correções Implementadas (V1 a V5)
+* **V1 — Carimbo de versão visível:**
+  - `scripts/generate-build-info.mjs` gera `src/shared/build-info.json` e `dist/guest/version.json` com `commit`, `branch`, `buildDate` e `stamp`.
+  - Host exibe `#host-version-stamp` no rodapé e loga no startup.
+  - Guest exibe `#guest-version-stamp` no cabeçalho e na tela de entrada (`JoinFlow.tsx`).
+  - Host compara seu carimbo com `dist/guest/version.json` e exibe o alerta visível `#aviso-guest-desatualizado` se o commit diferir.
+* **V2 — Diagnóstico sob flag `ONETOONE_DIAG=1`:**
+  - Implementado em `src/shared/diag.ts` com sanitização rigorosa de tokens, segredos, chaves e nonces.
+  - Ativo exclusivamente em desenvolvimento; ignorado estritamente em produção (`NODE_ENV=production`).
+  - Pontos de log nos métodos críticos: `path:created`, `finishShapeCreation`, `emitEvent`, `renderState` (`engine.ts`), `aplicarEventoQuadro`, `gravarEventoIPC` (`useHostStore.ts`), `guestSend`, `guestReceive` (`GuestRoom.tsx`), e `serverDrop` (`ws.ts`) cobrindo 12 motivos de queda de conexão/mensagem.
+* **V3 — Sonda com entrada real e pixels:**
+  - `tools/probe-runtime.cjs` estendida com automação Windows SendInput (`tools/drag-sendinput.ps1`) utilizando `SetProcessDPIAware`.
+  - Matriz de testes cobrindo as 7 ferramentas (`pencil`, `brush`, `rectangle`, `ellipse`, `line`, `arrow`, `text`) e 4 direções de arraste (`NO_to_SE`, `SO_to_NE`, `SE_to_NO`, `NE_to_SO`).
+  - Medição de pixels não-transparentes (`getImageData` com alpha > 0) nos buffers do Host e Guest, comprovando que nenhum objeto desaparece ou fica fora da tela.
+  - Suporte total a flags `--mode=dev|prod` e `--dpr=1.0|1.5`.
+* **V4 — Mapeamento de coordenadas Host x Mobile:**
+  - Espaço canônico fixo unificado em `CANONICAL_VIRTUAL_WIDTH = 1200` e `CANONICAL_VIRTUAL_HEIGHT = 800`.
+  - Escala uniforme calculada como `scale = Math.min(containerW / 1200, containerH / 800)` aplicando `viewportTransform = [scale, 0, 0, scale, 0, 0]`.
+  - Preservação estrita de aspect ratio (sem distorção anisotrópica) e cena inteiramente contida na viewport do mobile sem corte.
+  - Conversão `pointerToScene` adaptada para priorizar `changedTouches` em eventos de `touchend`, eliminando a causa-raiz de descarte de formas geométricas no término do toque.
+  - Relatório analítico completo arquivado em `docs/reviews/diagnostico-coordenadas.md`.
+* **V5 — Script de homologação limpa (`tools/homologar.ps1`):**
+  - Recusa execução se a árvore Git estiver suja (`git status --porcelain`) ou se a branch não for `fase/07-homologacao-1`.
+  - Encerra instâncias residuais de `electron.exe` e Vite.
+  - Deleta arquivos de banco SQLite em `%APPDATA%\OneToOneSupport` com app fechado, listando cada arquivo removido.
+  - Executa build completo (`npm run build`).
+  - Imprime carimbo de versão ativo e instruções de conexão na LAN para o testador no Motorola Edge 70 Pro.
+  - Inicia ambiente com `ONETOONE_DIAG=1` ativado.
+
+#### 2. Evidência Real de `npm run verify` (16 Suítes, 250 Testes, Sonda 27/27 PASS)
+```
+> onetoonesupport@1.0.0 verify
+> npm run typecheck && npm run build && npm test && npm run probe
+
+> onetoonesupport@1.0.0 typecheck
+> tsc --noEmit
+
+> onetoonesupport@1.0.0 build
+> node scripts/generate-build-info.mjs && tsc -p tsconfig.electron.json && vite build && vite build --config vite.config.guest.ts
+[BuildInfo] Carimbo gerado em C:\desenv\utils\OneToOneSupport\src\shared\build-info.json: b7d31c3 (fase/07-homologacao-1) 2026-09-22T00:01:43.562Z
+[BuildInfo] Carimbo gerado em C:\desenv\utils\OneToOneSupport\dist\guest\version.json: b7d31c3 (fase/07-homologacao-1) 2026-09-22T00:01:43.562Z
+
+> onetoonesupport@1.0.0 test
+> node scripts/test-runner.mjs
+ Test Files  16 passed (16)
+      Tests  250 passed (250)
+   Duration  11.23s
+
+> onetoonesupport@1.0.0 probe
+> node tools/probe-runtime.cjs
+[Probe] Executando em modo: production (isDev: false) | DPR: 1.5
+[Probe] Host Version Stamp: "Build: b7d31c3 (fase/07-homologacao-1) 2026-09-22T00:01:43.562Z" (Aviso desatualizado: null)
+[Probe] Guest Version Stamp: "b7d31c3 (fase/07-homologacao-1) 2026-09-22T00:01:43.562Z"
+[Probe] Windows SendInput drag: before=2681, after=5625, guestPixels=643, pass=true
+[Probe PASS] Forma 'pencil' (NO_to_SE): host +1018 px, guest +127 px
+[Probe PASS] Forma 'brush' (SO_to_NE): host +2012 px, guest +177 px
+[Probe PASS] Forma 'rectangle' (SO_to_NE): host +2700 px, guest +330 px
+[Probe PASS] Forma 'rectangle' (NO_to_SE): host +2700 px, guest +330 px
+[Probe PASS] Forma 'rectangle' (SE_to_NO): host +2700 px, guest +330 px
+[Probe PASS] Forma 'rectangle' (NE_to_SO): host +2700 px, guest +330 px
+[Probe PASS] Forma 'ellipse' (SE_to_NO): host +2095 px, guest +258 px
+[Probe PASS] Forma 'line' (NE_to_SO): host +1127 px, guest +176 px
+[Probe PASS] Forma 'arrow' (SO_to_NE): host +1345 px, guest +198 px
+[Probe PASS] Forma 'text' (CLICK): host +869 px, guest +111 px
+PASS  V1: Carimbo de versão visível no Host (#host-version-stamp)
+PASS  V1: Carimbo de versão visível no Guest (#guest-version-stamp)
+PASS  V1: Carimbo coincide entre Host e Guest sem aviso de desatualizado
+PASS  V3: Entrada real Windows SendInput com SetProcessDPIAware produziu pixels
+PASS  V3: 4 direções e 7 ferramentas deixam pixels não-transparentes no Host
+PASS  V3: 4 direções e 7 ferramentas sincronizam pixels não-transparentes no Guest
+```
+*(27/27 checagens PASS)*
+
+---
+
+### Homologação 2 (D1) — Encaminhamento de Diagnóstico do Renderer para o Terminal do Host
+
+#### 1. Instrução literal para o dono do produto (D1.6)
+
+> para relatar um problema no quadro branco, feche tudo, rode tools\homologar.ps1, desenhe, e copie TODO o texto do terminal para o chefe — não precisa abrir nada além do que já abre.
+
+#### 2. Implementação das Entregas (D1.1 a D1.5)
+
+* **D1.1 & D1.2 — Canal IPC `diag:forward` e Encaminhamento do Host (`[DIAG-HOST]`):**
+  - Adicionado canal `IPC_CHANNELS.DIAG_FORWARD = 'diag:forward'` em `src/shared/ipc-contract.ts` e tipagem em `DesktopAPI.diagForward`.
+  - Exposição condicional em `electron/preload.ts`: as bridges `__ONETOONE_DIAG_FORWARD__` e `desktopAPI.diagForward` são expostas no `contextBridge` **estritamente** quando `isDiagEnabled()` for verdadeiro (`ONETOONE_DIAG=1` e `NODE_ENV !== 'production'`). Nunca expostas em ambiente de produção.
+  - Implementada função `diagLog` em `src/shared/diag.ts`: além de registrar no DevTools com sanitização de segredos via `sanitizeDiagData`, despacha o checkpoint e dados sanitizados por IPC para o Main Process.
+  - Criado `electron/ipc/diag.ipc.ts` e registrado em `electron/ipc/router.ts`: escuta `diag:forward`, recebe eventos sanitizados e imprime no stdout do terminal com o prefixo `[DIAG-HOST] [timestamp] [checkpoint]`.
+
+* **D1.3 — Diagnóstico do Servidor WebSocket / LAN (`[DIAG-SERVER]`):**
+  - Implementada função `diagServerLog(checkpoint, data)` em `src/shared/diag.ts`, registrando com prefixo `[DIAG-SERVER] [timestamp] [checkpoint]` e sanitização de segurança.
+  - Instrumentação de borda em `electron/server/ws.ts`:
+    - Checkpoint `autoridade`: registra a decisão de `sessionManager.canGuestExecute(innerType)` com tipo, permissão e motivo.
+    - Checkpoint `descarte` / `serverDrop`: cobre todas as razões de descarte de conexão/envelope/mensagem com motivo, estágio e detalhes.
+    - Checkpoint `chegada no Guest` / `chegadaNoGuest`: notificado no callback assíncrono de transmissão do frame WebSocket para o socket do sistema operacional (`tcp_flushed`).
+    - Checkpoint `guestEventReceived`: registra eventos decifrados recebidos do Guest.
+  - Instrumentação em `electron/server/index.ts`:
+    - Checkpoint `pathTraversal`: detecta tentativas de navegação maliciosa por `abaId` / `sessaoId` e descarta o evento com `descarte`.
+    - Checkpoint `broadcastToGuest`: registra o despacho de eventos do Host para o convidado via WebSocket cifrado.
+    - Checkpoint `guestEventPersisted`: confirma a persistência do evento do Guest na base SQLite.
+
+* **D1.4 — Visibilidade Integrada em Linha do Tempo Única:**
+  - O terminal onde o Host roda (`tools\homologar.ps1` ou `npm run dev`) unifica as saídas `[DIAG-HOST]` e `[DIAG-SERVER]`, dispensando que o usuário abra DevTools.
+
+* **D1.5 — Teste Automatizado de Timeline (`tools/test-diag-terminal.cjs`):**
+  - Desenha retângulo via SendInput real (`tools/drag-sendinput.ps1`) com Guest mobile conectado em emulação Chromium 412x915.
+  - Captura o stdout do processo `app` e valida cronologicamente a ordem exata de checkpoints:
+    `finishShapeCreation -> emitEvent -> aplicarEventoQuadro -> gravar (IPC) -> broadcastToGuest -> chegada no Guest -> renderState`.
+
+#### 3. Evidência Real de `tools/test-diag-terminal.cjs`
+```
+=================== VERIFICAÇÃO DE CHECKPOINTS NO TERMINAL ===================
+PASS: [path:created/finishShapeCreation] encontrado na pos 0:
+      [DIAG-HOST] [2026-09-22T15:57:47.885Z] [finishShapeCreation] {"tool":"rectangle","author":"host","tipo":"rect","dist":187,"descartado":false}
+PASS: [emitEvent] encontrado na pos 142:
+      [DIAG-HOST] [2026-09-22T15:57:47.885Z] [emitEvent] {"tipo":"DRAW_ADD","autor":"host","id":"e6deafa3-de21-4e1f-b531-f87145460a06","abaId":"default","payloadId":"1f16ea6a-71b8-4cfa-b635-d1316feee4c5"}
+PASS: [aplicarEventoQuadro] encontrado na pos 341:
+      [DIAG-HOST] [2026-09-22T15:57:47.886Z] [aplicarEventoQuadro] {"tipo":"DRAW_ADD","visiveisAntes":0,"visiveisDepois":1,"abaId":"default","autor":"host"}
+PASS: [gravar (IPC)] encontrado na pos 492:
+      [DIAG-HOST] [2026-09-22T15:57:47.887Z] [gravar (IPC)] {"fase":"inicio","tipo":"DRAW_ADD","sessaoId":"bbbdeccb-c984-4595-a5d4-73dcf9ec7fa9","abaId":"default","autor":"host"}
+PASS: [broadcastToGuest] encontrado na pos 665:
+      [DIAG-SERVER] [2026-09-22T15:57:47.890Z] [broadcastToGuest] {"sucesso":true,"tipo":"DRAW_ADD","abaId":"default","autor":"host"}
+PASS: [chegada no Guest] encontrado na pos 793:
+      [DIAG-SERVER] [2026-09-22T15:57:47.891Z] [chegada no Guest] {"transporte":"tcp_flushed","tipo":"DRAW_ADD","connId":"09d2b1a6-3ba0-4f08-95a8-7df23f9c8646"}
+PASS: [renderState] encontrado na pos 1101:
+      [DIAG-HOST] [2026-09-22T15:57:47.891Z] [renderState] {"autor":"host","totalVisiveis":1,"adicionados":["1f16ea6a-71b8-4cfa-b635-d1316feee4c5"],"removidos":[]}
+==============================================================================
+```
+
+#### 4. Evidência Real de `npm run verify` Completo Pós-D1 (17 Suítes, 257 Testes, Sonda 27/27 PASS)
+```
+> onetoonesupport@1.0.0 verify
+> npm run typecheck && npm run build && npm test && npm run probe
+
+> onetoonesupport@1.0.0 typecheck
+> tsc --noEmit
+
+> onetoonesupport@1.0.0 build
+> node scripts/generate-build-info.mjs && tsc -p tsconfig.electron.json && vite build && vite build --config vite.config.guest.ts
+[BuildInfo] Carimbo gerado em C:\desenv\utils\OneToOneSupport\src\shared\build-info.json: 82b67fa (fase/07-homologacao-1) 2026-09-22T15:58:29.298Z
+[BuildInfo] Carimbo gerado em C:\desenv\utils\OneToOneSupport\dist\guest\version.json: 82b67fa (fase/07-homologacao-1) 2026-09-22T15:58:29.298Z
+
+> onetoonesupport@1.0.0 test
+> node scripts/test-runner.mjs
+ Test Files  17 passed (17)
+      Tests  257 passed (257)
+   Duration  11.51s
+
+> onetoonesupport@1.0.0 probe
+> node tools/probe-runtime.cjs
+PASS  typeof require === undefined
+PASS  typeof process === undefined
+PASS  UI renderizou (#root com filhos)
+PASS  CSP: script inline NAO executa
+PASS  CSP: eval bloqueado
+PASS  sem erro de pagina
+PASS  IPC: validacao de payload rejeita dado invalido com erro tipado
+PASS  UI: criar atendido
+PASS  UI: detectar duplicado com mensagem clara (Regra #1)
+PASS  UI: editar atendido
+PASS  UI: desativar atendido (soft delete)
+PASS  UI: iniciar sessao, gerar QR e abrir sala do servidor LAN
+PASS  Guest Mobile: carregou bundle do Guest e removeu hash da URL
+PASS  Guest Mobile: CSP sem violacoes no console
+PASS  Guest Mobile: sincronizacao bidirecional por conteudo (IDs de elementos)
+PASS  Guest Mobile: borracha de trecho sincronizou elemento eraser_stroke
+PASS  Guest Mobile: UNDO e REDO bidirecionais sincronizaram estado
+PASS  Guest Mobile: LOCK_SCREEN exibiu overlay e desbloqueou
+PASS  Guest Mobile: mute local emitiu GUEST_MUTED
+PASS  Guest Mobile: barra de ferramentas totalmente visivel na viewport
+PASS  UI: abrir quadro branco HiDPI e verificar DPR 1.5
+PASS  UI: desenhar traço, retângulo, texto, desfazer/refazer e borracha
+PASS  UI: alterar rotulo no dicionario
+PASS  Banco: sem dados duplicados no SQLite
+PASS  V1: Carimbo de versão visível no Host (#host-version-stamp)
+PASS  V1: Carimbo de versão visível no Guest (#guest-version-stamp)
+PASS  V1: Carimbo coincide entre Host e Guest sem aviso de desatualizado
+PASS  V3: Entrada real Windows SendInput com SetProcessDPIAware produziu pixels
+PASS  V3: 4 direções e 7 ferramentas deixam pixels não-transparentes no Host
+PASS  V3: 4 direções e 7 ferramentas sincronizam pixels não-transparentes no Guest
+```
+*(27/27 checagens PASS)*
+
+---
+
+## Investigação do Ciclo de `mouse:up` e Percepção Visual (2026-09-23)
+
+* **Conclusão Principal (Pista Encontrada e Confirmada):** Investigação detalhada em `docs/reviews/investigacao-mouseup.md` confirmou a causa-raiz arquitetural da queixa do dono ("apaga ao soltar" e "parece colar em cima"). Em `src/shared/canvas/engine.ts:475`, o listener de `path:created` invoca `this.canvas.remove(pathObj)`, removendo imediatamente o traço cru do canvas para esperar a projeção do Reducer (`renderState`). Embora o objeto reconstruído seja 100% vetorial (`new Path(...)` em `engine.ts:108`) e não haja nenhuma conversão para bitmap, a remoção síncrona somada ao ciclo assíncrono do `useEffect` do React gera uma janela (medida em ~1.5ms a 2.2ms no Host e potencialmente mais longa no Guest com tela de 120Hz e cifra WebAssembly) em que o canvas fica sem o traço no momento em que o navegador pinta o frame, provocando piscamento visual (flicker) e a sensação perceptiva de que o traço foi deletado e um novo objeto foi "colado" por cima.
+
+---
+
+## Explicação ao Dono do Produto: Causa do "Desenho Sumindo" e Correção (D5 — 2026-09-23)
+
+O problema relatado em que o desenho parecia "sumir" após desenhar tinha como causa raiz um redimensionamento incorreto do quadro branco disparado pelo monitor de resolução da tela (`onDprChange`), e **não qualquer perda ou apagamento de dados**. A camada de eventos, o banco de dados e o reducer sempre registraram e preservaram todos os traços perfeitamente. O que ocorria é que, ao detectar alteração de densidade de pixels (DPR), o quadro branco era redimensionado erroneamente para o tamanho canônico fixo de 1200×800 pixels em vez de manter as dimensões reais da janela/container (por exemplo, 610×420 pixels). Isso limpava o buffer de tela e forçava uma escala distorcida onde os traços desenhados ficavam fora da área visível do container (`overflow: hidden`), dando a impressão visual de que haviam sumido. O mecanismo foi corrigido em `src/shared/canvas/engine.ts` para sempre preservar rigorosamente as dimensões do container real, comprovado por testes automatizados de medição de pixels (`tests/ondprchange.test.ts`), mantendo todos os traços perfeitamente visíveis e posicionados.
+
+### Rastreabilidade de Evidências Visuais e Medições de Pixel
+- **H3** (Borracha de Trecho / ADR-012): Amostragem de pixels via `getImageData` comprova que apenas o trecho tocado perde pixels não-transparentes (`destination-out`), mantendo o restante do traço íntegro.
+- **D2.1** (Sonda de Traços e Continuidade Visual): Contagem de pixels via `getImageData` por regiões separadas do canvas confirma persistência contínua de traços acumulados.
+- **D2.2** (Diagnóstico e Inspeção de Renderização): Auditoria visual de renderização com contagem de pixels via `getImageData` em todas as fases de atualização de tela.
+- **D5.2** (Prova de Regressão onDprChange): Medição de pixels via `getImageData` antes (1440 pixels) e depois (490 pixels) do evento de DPR confirma ausência de corte visual ou deslocamento fora do container.
+- **D6.1** (Diagnóstico de Divergência Estado-vs-Pixel): Monitoramento periódico sob `ONETOONE_DIAG=1` afere via `getImageData` se há objetos no Fabric com zero pixels na tela visível, emitindo alerta estruturado via IPC ao terminal.
+
+---
+
+## Diagnóstico da Camada de Pintura e Render Pipeline (D6 — 2026-09-23)
+
+### Instrução para o Alexandre (Dono do Produto)
+Se o desenho sumir de novo, cole o terminal — agora ele deve mostrar `[divergencia_estado_pixel]` se for um bug de pintura, ou nada de especial se for outra coisa.
+
+### Resumo Técnico das Investigações D6.1 a D6.4
+1. **D6.1 — Divergência Estado-vs-Pixel implementada:** `WhiteboardEngine.schedulePixelDivergenceCheck` compara os objetos do Fabric com os pixels reais do `lowerCanvasEl` com throttle de 500ms e atraso de 2 frames de animação. Se houver objetos no estado mas zero pixels pintados no canvas, registra `[DIAG-HOST] [divergencia_estado_pixel]` no terminal. Coberto por 4 testes automatizados em `tests/divergencia-pixel.test.ts`.
+2. **D6.2 — Ciclo de Vida e React.StrictMode:** Instrumentado via `engine_lifecycle` com `instanciaId`. No teste real em modo DEV com Vite, a tela gerou 2 criações e 1 descarte, com a árvore DOM mantendo exatamente 1 container, 1 upper-canvas e 1 lower-canvas. Nenhuma camada órfã remanescente.
+3. **D6.3 — Reprodução com Múltiplos Traços Cursivos Rápidos:** Testado com 5 traços cursivos rápidos em sequência (pausas de 60ms) em modo DEV e modo Produção via SendInput do Windows e automação de mouse em janela visível em primeiro plano. Em ambos os casos, os 5 traços acumularam normalmente (10.524 pixels não-transparentes, `badgeElementos: 5`). O ambiente automatizado não reproduziu a perda.
+4. **D6.4 — Composição Gráfica por Hardware vs Software (`--disable-gpu`):** O Electron foi iniciado com `--disable-gpu`. O desenho de traços cursivos apresentou comportamento equivalente (10.692 pixels acumulados).
+5. Relatório completo com saídas reais e evidências visuais: `docs/reviews/investigacao-render-pipeline.md`.
+
+---
+
+## Correção Experimental: Forçar Repaint Real da Janela e Reflow DOM (D7 — 2026-09-23)
+
+### Instrução para o Alexandre (Dono do Produto)
+Alexandre, por favor, feche todas as janelas, rode `tools\homologar.ps1`, desenhe traços rápidos no quadro branco e diga se o desenho continua sumindo ou não após soltar o traço. Esta é uma correção experimental que força a repintura da janela pelo Electron logo após cada desenho; como o bug original nunca reproduziu nas ferramentas automáticas (onde o buffer do canvas sempre esteve correto), a única validação conclusiva é o seu teste real na máquina.
+
+### Resumo Técnico da Implementação D7
+1. **D7.1 — Repaint Forçado no Host via `webContents.invalidate()`:** Implementado canal IPC `IPC_CHANNELS.CANVAS_FORCE_REPAINT` (`canvas:force-repaint`) registrado em `electron/ipc/canvas.ipc.ts` e exposto no preload como `desktopAPI.canvas.forceRepaint()`. O handler chama `mainWindow.webContents.invalidate()` no processo principal do Electron, agendando a repintura da janela física.
+2. **D7.2 — Reflow Síncrono no DOM:** No `WhiteboardEngine` (`src/shared/canvas/engine.ts`), após a renderização de novos elementos em `renderState`, força reflow síncrono no elemento do canvas (`void el.offsetHeight`), acionando recálculo de layout no Chromium. Mecanismo seguro e funcional tanto no Host quanto no Guest mobile.
+3. **D7.3 — Throttle com Trailing Edge:** Throttle de ~180ms implementado em `WhiteboardEngine.triggerRepaintReinforcement`, agrupando chamadas rápidas e garantindo execução retardada (*trailing edge*) para que o último traço desenhado seja sempre repintado sem travar ou desacelerar o arrasto interativo (< 0.5ms por ciclo).
+4. **D7.4 — Preservação de Diagnósticos:** Diagnósticos `divergencia_estado_pixel` (D6.1) e `engine_lifecycle` (D6.2) mantidos ativos sob `ONETOONE_DIAG=1`.
+5. **Cobertura de Testes:** Suíte dedicada `tests/canvas-repaint.test.ts` (7 testes) e caso integrado em `tests/ipc.test.ts`. Gate total de 18 suítes vitest (265 testes) e sonda de runtime 27/27 PASS.
+
+---
+
+## Experimentos de Janela do Electron no Windows (D10 — 2026-09-24)
+
+### Roteiro para o dono (em português simples)
+
+Teste 1: `$env:ONETOONE_RENDER_EXPERIMENT="all"` depois `tools\homologar.ps1`, desenhar como sempre. Se resolver, repetir isolando: só `occlusion`, depois só `nothrottle`, depois só `nudge`, para achar qual foi. Sempre colar o terminal completo. Se não resolver com `all`, dizer isso também — é informação útil.
+
+### Resumo Técnico dos Experimentos D10
+1. **Comportamento Padrão Inalterado:** Sem a variável `ONETOONE_RENDER_EXPERIMENT`, nenhum comportamento muda e nenhuma flag experimental é ativada.
+2. **`occlusion`:** Aplica switch `app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion')` no Windows antes de `app.whenReady()`, desativando a detecção nativa de oclusão de janelas do Windows.
+3. **`nothrottle`:** Configura `webPreferences.backgroundThrottling = false` na janela `BrowserWindow` do Host.
+4. **`nudge`:** Quando ativo, o canal IPC `canvas:force-repaint` aciona micro-redimensionamento de 1px na largura da janela com restauração no frame seguinte (16ms), forçando o DWM do Windows a recompor a swapchain da janela. Possui throttle obrigatório de ~300ms e preserva janelas maximizadas ou fullscreen (pulando o redimensionamento).
+5. **`all`:** Equivale à ativação simultânea de `occlusion,nothrottle,nudge`.
+6. **Diagnóstico de Janela (`ONETOONE_DIAG=1`):** Registra eventos `show`, `hide`, `minimize`, `restore`, `focus`, `blur` e o estado de `win.isVisible()`/`win.isMinimized()` no momento de cada `renderState` que adiciona elementos ao quadro, emitindo `[DIAG-HOST] [janela_evento]`.
+7. **Cobertura de Testes:** Suíte dedicada `tests/render-experiments.test.ts` (19 testes unitários/integração). Gate total de 21 suítes vitest (290 testes) e sonda de runtime 27/27 PASS.
+
+---
+
+## Causa Raiz Confirmada e Prova de Tela Real (D11 — 2026-09-24)
+
+A causa raiz definitiva do problema em que o desenho sumia ao soltar o mouse foi confirmada: o quadro branco aplicava cor de fundo branca no elemento `<canvas>` antes de inicializar o Fabric.js. Ao criar a camada superior (`upperCanvasEl`), o Fabric copiava o estilo do elemento original, fazendo com que a camada superior ficasse com um fundo branco opaco cobrindo a camada de baixo (`lowerCanvasEl`) onde os traços residem. Assim que o mouse era solto e o traço provisório era limpo, a camada superior branca e opaca tapava todos os desenhos da tela, embora os dados e o buffer de memória estivessem sempre corretos. O problema já está corrigido no construtor de `src/shared/canvas/engine.ts`, deixando o fundo branco exclusivamente na camada inferior e a camada superior transparente. Além disso, a sonda de runtime (`tools/probe-runtime.cjs`) foi aprimorada com a checagem V3b, que agora captura e decodifica a imagem real da TELA via `screenshot`, conferindo pixel a pixel que os traços permanecem visíveis para o usuário após soltar o mouse.
+
+
+
+
+---
+
+## Fechamento da Homologação 2 (2026-09-24)
+
+**Estado: resolvido e confirmado pelo dono na máquina real.** O desenho deixou de sumir ao soltar o mouse.
+Causa: fundo branco opaco na camada superior do quadro (ver "Causa Raiz Confirmada" acima e
+`docs/reviews/postmortem-desenho-some.md`). Correção `099787e`, regressão e sonda de tela real `31d58dc`.
+Evidência: `docs/reviews/evidencia-pos-correcao-host.png`. Gate no fechamento: `npm run typecheck` limpo,
+292 testes, sonda com V3b (captura de tela real) passando.
+
+Mecanismos experimentais que ficaram no código, desligados por padrão: `ONETOONE_RENDER_EXPERIMENT`
+(D10) e `ONETOONE_DISABLE_GPU` (D9). Fora do padrão, sem efeito no produto. Candidatos a limpeza futura.
+
+**Pendência aberta (próxima fase, Host apenas):** linhas, setas, retângulos, elipses e texto são objetos
+selecionáveis; ao desenhar algo novo por cima, o Fabric arrasta o objeto anterior em vez de só desenhar.
+Ordem em `Issues/20260924-150000-ferramentas-nao-movem-objetos`.

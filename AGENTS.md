@@ -40,6 +40,16 @@ Você é auditado por outra IA que **reexecuta tudo** e por ferramentas automát
 6. Escreva `docs/reviews/autoauditoria-NN.md`: cada critério → comando → saída real → PASS/FAIL, e a lista do que **NÃO foi verificado**. Sem evidência = FAIL.
 7. Só então atualize o HANDOFF, commite e pare.
 
+### Prova prometida = prova entregue, não uma mais fraca (checado por máquina)
+Quando uma ordem de serviço pede prova visual/pixel (palavras como "pixel", "amostragem", "captura de tela"), a
+autoauditoria PRECISA conter, perto do mesmo item (ID do cabeçalho, ex. `H3`, `C1`, `RT4`), uma evidência real de
+pixel (contagem de pixels, `getImageData`, captura de tela) — não uma checagem mais fácil e mais fraca (ex.: "a
+propriedade do objeto está configurada certo") apresentada como se cumprisse o pedido. `node tools/checar-provas.cjs
+--root .` roda isso automaticamente e agora faz parte de `tools/auditar.cjs`: reprova mesmo que a linha da
+autoauditoria diga PASS. Isso existe porque já aconteceu (Fase 07, borracha de trecho): pixel prometido, propriedade
+entregue, PASS marcado. Regra geral: nunca troque o método de prova pedido por um mais barato sem avisar
+explicitamente no relatório que a prova pedida NÃO foi feita.
+
 ### Regras de ouro contra invenção (aprendidas na prática)
 - **Não invente.** Todo evento, arquivo, função, branch, script ou comando que você citar na documentação precisa existir no código. `tools/verificar-afirmacoes.cjs` confere e reprova. Não prometa "será implementado na fase X" o que o plano não prevê.
 - **Divergência do plano = ADR.** Se você acrescentou/removeu algo em relação à ordem de serviço, registre em `docs/ADR/` e no HANDOFF. "Nenhuma divergência" só se for verdade.
@@ -53,3 +63,6 @@ Você é auditado por outra IA que **reexecuta tudo** e por ferramentas automát
 - Fase 01: a CSP por header (`onHeadersReceived`) **não vale em `file://`**; o app empacotado ficou sem CSP e ninguém percebeu porque só o teste de `typeof require` foi feito. Regra geral: validar cada garantia de segurança **no artefato final**, com um teste que tenta quebrá-la.
 - Fase 01: função que calcula `info.changes` e não usa; retornar sucesso sem checar o efeito.
 - O VS Code define `ELECTRON_RUN_AS_NODE`; ao lançar Electron por script, apague essa variável do ambiente.
+- **Fase 07 (Homologação 2, 2026-09-21/22):** o dono relatou 3 vezes seguidas "o desenho some"/"não sincroniza" e cada rodada corrigiu um defeito real (randomUUID em contexto inseguro; espaço de coordenadas Host≠Guest; ordem `clientX`/`touches` em `touchend`), mas o dono continuou sem notar melhora. Causa raiz do processo (não do código): **o diagnóstico (`ONETOONE_DIAG=1`) só aparecia no console do DevTools do renderer**, que o dono nunca abre; a IA nunca teve o dado real da falha dele, só reproduções sintéticas próprias que sempre passaram. Regra geral: **para qualquer bug relatado por humano que a IA não consegue reproduzir por automação, o primeiro passo não é tentar mais uma correção — é tornar a falha visível pelo caminho que o humano já usa** (aqui: reencaminhar os checkpoints de diagnóstico do renderer para o stdout do processo principal via IPC, que já aparece no terminal onde `npm run dev`/`tools\homologar.ps1` roda), antes de declarar qualquer correção.
+- Verificação por automação (sonda, Puppeteer/CDP) pode dar falso PASS mesmo simulando toque/mouse: eventos sintéticos (`dispatchEvent`, `page.mouse`) não reproduzem toda a cadeia de um SO real. Regra: teste de UI interativa crítica (desenho, arraste) precisa incluir pelo menos uma passada com entrada real do sistema operacional (`SendInput` no Windows — ver `Issues/20260921-004718/evidencia/drag-sendinput.ps1`), não só CDP.
+- **Fase 07 (Homologação 2, fechamento 2026-09-24):** "o desenho some ao soltar o mouse" levou ~10 rodadas porque TODA prova de pixel lia o canvas de baixo (`lowerCanvasEl.getImageData`, `toDataURL`, sonda V3 27/27 PASS), enquanto a causa era um `.upper-canvas` opaco por cima (o Fabric copia o `style.cssText` do `<canvas>` original ao criar a camada de cima). Regras: (1) **bug visual só se prova com captura de TELA real** (`page.screenshot`) e inspeção de `getComputedStyle` de TODAS as camadas DOM, nunca lendo o buffer do canvas; (2) **um diagnóstico que exclui o suspeito da checagem não descarta o suspeito** (o D8 ignorava o `upper-canvas`); (3) **estilo aplicado a um elemento antes de uma biblioteca envolvê-lo pode ser clonado para elementos que a biblioteca cria**: aplique depois; (4) log limpo do dono não prova ausência de bug. Ver `docs/reviews/postmortem-desenho-some.md`.

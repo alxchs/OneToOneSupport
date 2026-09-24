@@ -1,6 +1,11 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useHostStore } from '../store/useHostStore';
-import { WhiteboardEngine, WhiteboardTool } from '../../shared/canvas/engine';
+import {
+  WhiteboardEngine,
+  WhiteboardTool,
+  CANONICAL_VIRTUAL_WIDTH,
+  CANONICAL_VIRTUAL_HEIGHT,
+} from '../../shared/canvas/engine';
 import { getVisibleElements } from '../../shared/events/reducer';
 
 const PALETA_CORES = [
@@ -55,12 +60,12 @@ export const QuadroBrancoPage: React.FC = () => {
     setDprReal(dpr);
 
     const rect = containerRef.current.getBoundingClientRect();
-    const initWidth = Math.max(900, Math.floor(rect.width) || 1200);
-    const initHeight = Math.max(600, Math.floor(rect.height) || 750);
+    const displayWidth = Math.floor(rect.width) || CANONICAL_VIRTUAL_WIDTH;
+    const displayHeight = Math.floor(rect.height) || CANONICAL_VIRTUAL_HEIGHT;
 
     const engine = new WhiteboardEngine(canvasRef.current, {
-      virtualWidth: initWidth,
-      virtualHeight: initHeight,
+      virtualWidth: CANONICAL_VIRTUAL_WIDTH,
+      virtualHeight: CANONICAL_VIRTUAL_HEIGHT,
       autor: 'host',
       sessaoId: activeSessaoId || 'sessao-ativa',
       abaId: activeAbaId || 'default',
@@ -72,11 +77,16 @@ export const QuadroBrancoPage: React.FC = () => {
       },
     });
 
+    engine.setDimensions(displayWidth, displayHeight);
+
     engine.setStrokeColor(corAtual);
     engine.setStrokeWidth(espessuraAtual);
     engine.setTool(ferramenta);
 
     engineRef.current = engine;
+    if (typeof window !== 'undefined') {
+      (window as any).__whiteboardEngine = engine;
+    }
 
     // Renderiza o estado inicial acumulado da aba
     engine.renderState(tabState);
@@ -95,6 +105,9 @@ export const QuadroBrancoPage: React.FC = () => {
 
     return () => {
       window.removeEventListener('resize', handleResize);
+      if (typeof window !== 'undefined') {
+        delete (window as any).__whiteboardEngine;
+      }
       engine.dispose();
       engineRef.current = null;
     };
@@ -501,7 +514,7 @@ export const QuadroBrancoPage: React.FC = () => {
             id="tool-eraser"
             type="button"
             onClick={() => selecionarFerramenta('eraser')}
-            title="Borracha (DRAW_HIDE - Ocultação Lógica)"
+            title="Borracha de Trecho (Apaga o traço por onde passa)"
             style={{
               padding: '0.4rem 0.75rem',
               fontSize: '0.8125rem',
@@ -513,7 +526,26 @@ export const QuadroBrancoPage: React.FC = () => {
               color: ferramenta === 'eraser' ? '#fef3c7' : '#cbd5e1',
             }}
           >
-            ⌫ Borracha
+            ⌫ Borracha (Trecho)
+          </button>
+
+          <button
+            id="tool-object-eraser"
+            type="button"
+            onClick={() => selecionarFerramenta('object_eraser')}
+            title="Borracha de Objeto (Oculta o elemento inteiro ao clicar)"
+            style={{
+              padding: '0.4rem 0.75rem',
+              fontSize: '0.8125rem',
+              fontWeight: 600,
+              borderRadius: '0.375rem',
+              cursor: 'pointer',
+              backgroundColor: ferramenta === 'object_eraser' ? '#451a03' : '#1e293b',
+              border: `1px solid ${ferramenta === 'object_eraser' ? '#d97706' : '#334155'}`,
+              color: ferramenta === 'object_eraser' ? '#fef3c7' : '#cbd5e1',
+            }}
+          >
+            ✕ Borracha (Objeto)
           </button>
         </div>
 

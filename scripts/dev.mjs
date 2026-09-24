@@ -8,6 +8,9 @@ const __dirname = path.dirname(__filename);
 const projectRoot = path.resolve(__dirname, '..');
 
 async function startDev() {
+  console.log('[Dev] Gerando carimbo de versão...');
+  execSync('node scripts/generate-build-info.mjs', { cwd: projectRoot, stdio: 'inherit' });
+
   console.log('[Dev] Compilando processo principal do Electron...');
   execSync('npx tsc -p tsconfig.electron.json', { cwd: projectRoot, stdio: 'inherit' });
 
@@ -28,8 +31,17 @@ async function startDev() {
     electronExe = winElectron;
   }
 
+  // Diagnóstico manual (D9): ONETOONE_DISABLE_GPU=1 npm run dev testa se desligar a
+  // aceleração de hardware do Chromium/Electron muda o sintoma de "desenho some da tela"
+  // (suspeita de bug de composição da GPU/driver não repintando a janela do Windows).
+  const electronArgs = ['.'];
+  if (process.env.ONETOONE_DISABLE_GPU === '1') {
+    console.log('[Dev] ONETOONE_DISABLE_GPU=1: iniciando com --disable-gpu (diagnóstico D9)');
+    electronArgs.push('--disable-gpu');
+  }
+
   console.log('[Dev] Iniciando Electron...');
-  const electronProcess = spawn(electronExe, ['.'], {
+  const electronProcess = spawn(electronExe, electronArgs, {
     cwd: projectRoot,
     stdio: 'inherit',
     shell: true,

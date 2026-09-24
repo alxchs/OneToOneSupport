@@ -35,6 +35,7 @@ export const IPC_CHANNELS = {
   DESKTOP_GET_SCALE_FACTOR: 'desktop:get-scale-factor',
   DESKTOP_GET_DISPLAY_METRICS: 'desktop:get-display-metrics',
   DESKTOP_GET_APP_VERSION: 'desktop:get-app-version',
+  DESKTOP_GET_VERSION_INFO: 'desktop:get-version-info',
 
   // Servidor e Sessão Remota (Fase 04 e 07)
   SERVER_START_SESSION: 'server:start-session',
@@ -51,6 +52,12 @@ export const IPC_CHANNELS = {
   // Eventos de Quadro Branco e Event Sourcing (Fases 05 e 06)
   EVENTO_GRAVAR: 'evento:gravar',
   EVENTO_OBTER_ESTADO: 'evento:obter-estado',
+
+  // Diagnóstico Forward (D1)
+  DIAG_FORWARD: 'diag:forward',
+
+  // Forçar repaint da janela do Host (D7)
+  CANVAS_FORCE_REPAINT: 'canvas:force-repaint',
 } as const;
 
 export type IPCChannelName = typeof IPC_CHANNELS[keyof typeof IPC_CHANNELS];
@@ -182,10 +189,17 @@ export interface ObterEstadoAbaPayload {
   aba_id?: string;
 }
 
+export interface VersionInfoDTO {
+  hostStamp: string;
+  guestStamp?: string;
+  guestOutdated: boolean;
+}
+
 export interface DesktopAPI {
   getScaleFactor: () => Promise<number>;
   getDisplayMetrics: () => Promise<DisplayMetrics>;
   getAppVersion: () => Promise<string>;
+  getVersionInfo: () => Promise<VersionInfoDTO>;
 
   atendidos: {
     list: (filter?: ListAtendidosPayload) => Promise<IPCResult<AtendidoDTO[]>>;
@@ -228,6 +242,12 @@ export interface DesktopAPI {
     gravar: (payload: GravarEventoPayload) => Promise<IPCResult<any>>;
     obterEstadoAba: (sessao_id: string, aba_id?: string) => Promise<IPCResult<any>>;
   };
+
+  canvas?: {
+    forceRepaint: () => Promise<IPCResult<{ repainted: boolean; nudged?: boolean }>>;
+  };
+
+  diagForward?: (checkpoint: string, data?: Record<string, unknown>) => void;
 }
 
 declare global {
