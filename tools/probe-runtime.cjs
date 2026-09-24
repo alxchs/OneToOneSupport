@@ -355,6 +355,67 @@ async function main() {
         }, isHost);
       }
 
+      // D11.2: Captura real da tela (screenshot com clip) decodificada no Chromium
+      // Mede pixels coloridos (não-brancos, não-cinza de UI) na tela real apresentada ao usuário
+      async function countVisibleScreenStrokePixels(targetPage, clip) {
+        const clipX = Math.max(0, Math.round(clip.left !== undefined ? clip.left : clip.x));
+        const clipY = Math.max(0, Math.round(clip.top !== undefined ? clip.top : clip.y));
+        const clipW = Math.max(1, Math.round(clip.width));
+        const clipH = Math.max(1, Math.round(clip.height));
+
+        const base64 = await targetPage.screenshot({
+          clip: { x: clipX, y: clipY, width: clipW, height: clipH },
+          encoding: 'base64',
+        });
+
+        return await targetPage.evaluate(async (b64) => {
+          return new Promise((resolve, reject) => {
+            const img = new Image();
+            img.onload = async () => {
+              try {
+                let bitmap = null;
+                if (typeof createImageBitmap === 'function') {
+                  bitmap = await createImageBitmap(img);
+                }
+                const c = document.createElement('canvas');
+                c.width = bitmap ? bitmap.width : (img.naturalWidth || img.width);
+                c.height = bitmap ? bitmap.height : (img.naturalHeight || img.height);
+                const ctx = c.getContext('2d');
+                if (bitmap) {
+                  ctx.drawImage(bitmap, 0, 0);
+                } else {
+                  ctx.drawImage(img, 0, 0);
+                }
+                const idata = ctx.getImageData(0, 0, c.width, c.height);
+                const d = idata.data;
+                let coloredPixels = 0;
+                for (let i = 0; i < d.length; i += 4) {
+                  const r = d[i];
+                  const g = d[i + 1];
+                  const b = d[i + 2];
+                  const a = d[i + 3];
+                  if (a < 50) continue;
+                  // Não-branco: se todos os canais forem > 240, é fundo branco do canvas
+                  const isWhite = r > 240 && g > 240 && b > 240;
+                  if (isWhite) continue;
+                  // Não-cinza de UI: cinzas de borda/interface possuem baixa diferença entre canais RGB
+                  const max = Math.max(r, g, b);
+                  const min = Math.min(r, g, b);
+                  const isGray = (max - min) < 20;
+                  if (isGray) continue;
+                  coloredPixels++;
+                }
+                resolve(coloredPixels);
+              } catch (err) {
+                reject(err);
+              }
+            };
+            img.onerror = (e) => reject(new Error('Falha ao decodificar captura PNG: ' + e));
+            img.src = 'data:image/png;base64,' + b64;
+          });
+        }, base64);
+      }
+
       // Validação 1: Removeu fragmento #pk_h da barra de endereço e sem violações CSP
       const hashAposJoin = await guestPage.evaluate(() => window.location.hash);
       const guestViolations = await guestPage.evaluate(() => window.__guestViolations || []);
@@ -626,8 +687,12 @@ async function main() {
         guestMobile.winSendInputOk = true;
       }
 
-      // --- V3: Teste das 7 ferramentas e 4 direções com medição de pixels em Host e Guest ---
+      // --- V3 & V3b: Teste das 7 ferramentas e 4 direções com medição de pixels e captura de tela real ---
       const matrixCanvasBox = await page.$eval('.upper-canvas', (el) => {
+        const r = el.getBoundingClientRect();
+        return { left: r.left, top: r.top, width: r.width, height: r.height };
+      });
+      const guestCanvasBox = await guestPage.$eval('.upper-canvas', (el) => {
         const r = el.getBoundingClientRect();
         return { left: r.left, top: r.top, width: r.width, height: r.height };
       });
@@ -652,11 +717,15 @@ async function main() {
         { tool: 'text', btnId: '#tool-text', dir: 'CLICK', isText: true, clickAt: [450, 260] },
       ];
 
+      guestMobile.v3bDetails = [];
       let allShapesPassed = true;
+      let allV3bPassed = true;
       for (const st of shapeTests) {
         await page.bringToFront();
         const hostPixBefore = await countNonTransparentPixels(page, true);
+        const hostScreenBefore = await countVisibleScreenStrokePixels(page, matrixCanvasBox);
         const guestPixBefore = await countNonTransparentPixels(guestPage, false);
+        const guestScreenBefore = await countVisibleScreenStrokePixels(guestPage, guestCanvasBox);
 
         await page.click(st.btnId);
 
@@ -677,16 +746,37 @@ async function main() {
           await page.mouse.up();
         }
 
+        // DEPOIS do traço no Host (após soltar o mouse e finalizar render)
         await new Promise((r) => setTimeout(r, 600));
 
         const hostPixAfter = await countNonTransparentPixels(page, true);
+        const hostScreenAfter = await countVisibleScreenStrokePixels(page, matrixCanvasBox);
+
+        // 1 segundo depois de soltar o mouse no Host
+        await new Promise((r) => setTimeout(r, 1000));
+        const hostScreenAfter1s = await countVisibleScreenStrokePixels(page, matrixCanvasBox);
+
+        // Sincronização e captura no Guest
         await guestPage.bringToFront();
         await new Promise((r) => setTimeout(r, 400));
         const guestPixAfter = await countNonTransparentPixels(guestPage, false);
+        const guestScreenAfter = await countVisibleScreenStrokePixels(guestPage, guestCanvasBox);
+
+        // 1 segundo depois de sincronizar no Guest
+        await new Promise((r) => setTimeout(r, 1000));
+        const guestScreenAfter1s = await countVisibleScreenStrokePixels(guestPage, guestCanvasBox);
 
         const hostDelta = hostPixAfter - hostPixBefore;
         const guestDelta = guestPixAfter - guestPixBefore;
         const pass = hostDelta > 0 && guestDelta > 0;
+
+        // V3b: Captura real da tela (screenshot com clip)
+        // Regra D11.2: traço visível na tela (delta > 0) e número de pixels não pode cair após soltar o mouse (1s depois)
+        const hostScreenDelta = hostScreenAfter - hostScreenBefore;
+        const guestScreenDelta = guestScreenAfter - guestScreenBefore;
+        const hostRetained = hostScreenDelta > 0 && hostScreenAfter1s >= hostScreenAfter;
+        const guestRetained = guestScreenDelta > 0 && guestScreenAfter1s >= guestScreenAfter;
+        const v3bPass = hostRetained && guestRetained;
 
         guestMobile.shapesDetails.push({
           tool: st.tool,
@@ -700,15 +790,46 @@ async function main() {
           pass,
         });
 
+        guestMobile.v3bDetails.push({
+          tool: st.tool,
+          dir: st.dir,
+          hostScreenBefore,
+          hostScreenAfter,
+          hostScreenAfter1s,
+          hostScreenDelta,
+          hostRetained,
+          guestScreenBefore,
+          guestScreenAfter,
+          guestScreenAfter1s,
+          guestScreenDelta,
+          guestRetained,
+          v3bPass,
+        });
+
         if (!pass) {
-          console.error(`[Probe FAIL] Forma '${st.tool}' (${st.dir}): hostDelta=${hostDelta}, guestDelta=${guestDelta}`);
+          console.error(`[Probe FAIL V3] Forma '${st.tool}' (${st.dir}): hostDelta=${hostDelta}, guestDelta=${guestDelta}`);
           allShapesPassed = false;
         } else {
-          console.log(`[Probe PASS] Forma '${st.tool}' (${st.dir}): host +${hostDelta} px, guest +${guestDelta} px`);
+          console.log(`[Probe PASS V3] Forma '${st.tool}' (${st.dir}): host +${hostDelta} px, guest +${guestDelta} px`);
+        }
+
+        if (!v3bPass) {
+          console.error(
+            `[Probe FAIL V3b] Tela real '${st.tool}' (${st.dir}): ` +
+            `Host before=${hostScreenBefore} after=${hostScreenAfter} 1s=${hostScreenAfter1s} (delta=${hostScreenDelta}, retained=${hostRetained}) | ` +
+            `Guest before=${guestScreenBefore} after=${guestScreenAfter} 1s=${guestScreenAfter1s} (delta=${guestScreenDelta}, retained=${guestRetained})`
+          );
+          allV3bPassed = false;
+        } else {
+          console.log(
+            `[Probe PASS V3b] Tela real '${st.tool}' (${st.dir}): ` +
+            `Host +${hostScreenDelta} px (1s: ${hostScreenAfter1s}), Guest +${guestScreenDelta} px (1s: ${guestScreenAfter1s})`
+          );
         }
       }
 
       guestMobile.shapesPixelCheckOk = allShapesPassed;
+      guestMobile.v3bScreenCaptureOk = allV3bPassed;
 
       await page.bringToFront();
       contagemAposDesenho = await page.$eval('#badge-elementos', (el) => el.innerText);
@@ -912,6 +1033,8 @@ main()
         res.guestMobile.shapesPixelCheckOk,
       'V3: 4 direções e 7 ferramentas sincronizam pixels não-transparentes no Guest':
         res.guestMobile.shapesPixelCheckOk,
+      'V3b: traço permanece visível NA TELA (captura real) após soltar o mouse':
+        res.guestMobile.v3bScreenCaptureOk,
     };
 
     console.log(JSON.stringify(res, null, 2));

@@ -809,4 +809,11 @@ Teste 1: `$env:ONETOONE_RENDER_EXPERIMENT="all"` depois `tools\homologar.ps1`, d
 6. **Diagnóstico de Janela (`ONETOONE_DIAG=1`):** Registra eventos `show`, `hide`, `minimize`, `restore`, `focus`, `blur` e o estado de `win.isVisible()`/`win.isMinimized()` no momento de cada `renderState` que adiciona elementos ao quadro, emitindo `[DIAG-HOST] [janela_evento]`.
 7. **Cobertura de Testes:** Suíte dedicada `tests/render-experiments.test.ts` (19 testes unitários/integração). Gate total de 21 suítes vitest (290 testes) e sonda de runtime 27/27 PASS.
 
+---
+
+## Causa Raiz Confirmada e Prova de Tela Real (D11 — 2026-09-24)
+
+A causa raiz definitiva do problema em que o desenho sumia ao soltar o mouse foi confirmada: o quadro branco aplicava cor de fundo branca no elemento `<canvas>` antes de inicializar o Fabric.js. Ao criar a camada superior (`upperCanvasEl`), o Fabric copiava o estilo do elemento original, fazendo com que a camada superior ficasse com um fundo branco opaco cobrindo a camada de baixo (`lowerCanvasEl`) onde os traços residem. Assim que o mouse era solto e o traço provisório era limpo, a camada superior branca e opaca tapava todos os desenhos da tela, embora os dados e o buffer de memória estivessem sempre corretos. O problema já está corrigido no construtor de `src/shared/canvas/engine.ts`, deixando o fundo branco exclusivamente na camada inferior e a camada superior transparente. Além disso, a sonda de runtime (`tools/probe-runtime.cjs`) foi aprimorada com a checagem V3b, que agora captura e decodifica a imagem real da TELA via `screenshot`, conferindo pixel a pixel que os traços permanecem visíveis para o usuário após soltar o mouse.
+
+
 
