@@ -792,4 +792,21 @@ Alexandre, por favor, feche todas as janelas, rode `tools\homologar.ps1`, desenh
 4. **D7.4 — Preservação de Diagnósticos:** Diagnósticos `divergencia_estado_pixel` (D6.1) e `engine_lifecycle` (D6.2) mantidos ativos sob `ONETOONE_DIAG=1`.
 5. **Cobertura de Testes:** Suíte dedicada `tests/canvas-repaint.test.ts` (7 testes) e caso integrado em `tests/ipc.test.ts`. Gate total de 18 suítes vitest (265 testes) e sonda de runtime 27/27 PASS.
 
+---
+
+## Experimentos de Janela do Electron no Windows (D10 — 2026-09-24)
+
+### Roteiro para o dono (em português simples)
+
+Teste 1: `$env:ONETOONE_RENDER_EXPERIMENT="all"` depois `tools\homologar.ps1`, desenhar como sempre. Se resolver, repetir isolando: só `occlusion`, depois só `nothrottle`, depois só `nudge`, para achar qual foi. Sempre colar o terminal completo. Se não resolver com `all`, dizer isso também — é informação útil.
+
+### Resumo Técnico dos Experimentos D10
+1. **Comportamento Padrão Inalterado:** Sem a variável `ONETOONE_RENDER_EXPERIMENT`, nenhum comportamento muda e nenhuma flag experimental é ativada.
+2. **`occlusion`:** Aplica switch `app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion')` no Windows antes de `app.whenReady()`, desativando a detecção nativa de oclusão de janelas do Windows.
+3. **`nothrottle`:** Configura `webPreferences.backgroundThrottling = false` na janela `BrowserWindow` do Host.
+4. **`nudge`:** Quando ativo, o canal IPC `canvas:force-repaint` aciona micro-redimensionamento de 1px na largura da janela com restauração no frame seguinte (16ms), forçando o DWM do Windows a recompor a swapchain da janela. Possui throttle obrigatório de ~300ms e preserva janelas maximizadas ou fullscreen (pulando o redimensionamento).
+5. **`all`:** Equivale à ativação simultânea de `occlusion,nothrottle,nudge`.
+6. **Diagnóstico de Janela (`ONETOONE_DIAG=1`):** Registra eventos `show`, `hide`, `minimize`, `restore`, `focus`, `blur` e o estado de `win.isVisible()`/`win.isMinimized()` no momento de cada `renderState` que adiciona elementos ao quadro, emitindo `[DIAG-HOST] [janela_evento]`.
+7. **Cobertura de Testes:** Suíte dedicada `tests/render-experiments.test.ts` (19 testes unitários/integração). Gate total de 21 suítes vitest (290 testes) e sonda de runtime 27/27 PASS.
+
 

@@ -5,6 +5,15 @@ import { initDb } from './db/connection';
 import { registerIpcHandlers } from './ipc/router';
 import { IPC_CHANNELS, VersionInfoDTO } from '../src/shared/ipc-contract';
 import buildInfo from '../src/shared/build-info.json';
+import { isDiagEnabled } from '../src/shared/diag';
+import {
+  applyPreReadyExperiments,
+  isExperimentActive,
+  printActiveExperiments,
+} from './experiments';
+
+// D10: Aplicar switches de linha de comando dos experimentos antes de app.whenReady()
+applyPreReadyExperiments();
 
 export function getVersionInfo(): VersionInfoDTO {
   const candidatePaths = [
@@ -64,6 +73,7 @@ function createWindow(): BrowserWindow {
   });
 
   const preloadPath = path.join(__dirname, 'preload.js');
+  const isNothrottle = isExperimentActive('nothrottle');
 
   const win = new BrowserWindow({
     width: initialWidth,
@@ -79,8 +89,35 @@ function createWindow(): BrowserWindow {
       sandbox: true,
       preload: preloadPath,
       devTools: true,
+      ...(isNothrottle ? { backgroundThrottling: false } : {}),
     },
   });
+
+  // D10: Diagnóstico de visibilidade da janela (só sob ONETOONE_DIAG=1)
+  if (isDiagEnabled()) {
+    const logJanelaEvento = (ev: string) => {
+      const ts = new Date().toISOString();
+      const isVisible = typeof win.isVisible === 'function' ? win.isVisible() : undefined;
+      const isMinimized = typeof win.isMinimized === 'function' ? win.isMinimized() : undefined;
+      const isFocused = typeof win.isFocused === 'function' ? win.isFocused() : undefined;
+      console.log(
+        `[DIAG-HOST] [${ts}] [janela_evento]`,
+        JSON.stringify({
+          evento: ev,
+          isVisible,
+          isMinimized,
+          isFocused,
+        })
+      );
+    };
+
+    win.on('show', () => logJanelaEvento('show'));
+    win.on('hide', () => logJanelaEvento('hide'));
+    win.on('minimize', () => logJanelaEvento('minimize'));
+    win.on('restore', () => logJanelaEvento('restore'));
+    win.on('focus', () => logJanelaEvento('focus'));
+    win.on('blur', () => logJanelaEvento('blur'));
+  }
 
   // Bloqueio rigoroso de navegação e novas janelas (window.open)
   win.webContents.setWindowOpenHandler(({ url }) => {
@@ -154,6 +191,7 @@ ipcMain.handle(IPC_CHANNELS.DESKTOP_GET_VERSION_INFO, () => {
 });
 
 app.whenReady().then(() => {
+  printActiveExperiments();
   console.log(`[Version] ${buildInfo.stamp}`);
   const vInfo = getVersionInfo();
   if (vInfo.guestOutdated) {

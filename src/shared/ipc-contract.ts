@@ -244,7 +244,7 @@ export interface DesktopAPI {
   };
 
   canvas?: {
-    forceRepaint: () => Promise<IPCResult<{ repainted: boolean }>>;
+    forceRepaint: () => Promise<IPCResult<{ repainted: boolean; nudged?: boolean }>>;
   };
 
   diagForward?: (checkpoint: string, data?: Record<string, unknown>) => void;
