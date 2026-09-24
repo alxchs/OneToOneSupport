@@ -817,3 +817,20 @@ A causa raiz definitiva do problema em que o desenho sumia ao soltar o mouse foi
 
 
 
+
+---
+
+## Fechamento da Homologação 2 (2026-09-24)
+
+**Estado: resolvido e confirmado pelo dono na máquina real.** O desenho deixou de sumir ao soltar o mouse.
+Causa: fundo branco opaco na camada superior do quadro (ver "Causa Raiz Confirmada" acima e
+`docs/reviews/postmortem-desenho-some.md`). Correção `099787e`, regressão e sonda de tela real `31d58dc`.
+Evidência: `docs/reviews/evidencia-pos-correcao-host.png`. Gate no fechamento: `npm run typecheck` limpo,
+292 testes, sonda com V3b (captura de tela real) passando.
+
+Mecanismos experimentais que ficaram no código, desligados por padrão: `ONETOONE_RENDER_EXPERIMENT`
+(D10) e `ONETOONE_DISABLE_GPU` (D9). Fora do padrão, sem efeito no produto. Candidatos a limpeza futura.
+
+**Pendência aberta (próxima fase, Host apenas):** linhas, setas, retângulos, elipses e texto são objetos
+selecionáveis; ao desenhar algo novo por cima, o Fabric arrasta o objeto anterior em vez de só desenhar.
+Ordem em `Issues/20260924-150000-ferramentas-nao-movem-objetos`.
