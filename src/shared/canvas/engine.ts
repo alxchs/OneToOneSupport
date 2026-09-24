@@ -589,6 +589,24 @@ export class WhiteboardEngine {
       }
 
       if (this.activeTool === 'text') {
+        const activeObj = this.canvas.getActiveObject();
+        if (activeObj && (activeObj as any).isEditing) {
+          const pos = this.pointerToScene(e);
+          const isTargetActive = opt.target === activeObj;
+          const containsPoint =
+            typeof (activeObj as any).containsPoint === 'function' &&
+            (activeObj as any).containsPoint(pos);
+
+          if (isTargetActive || containsPoint) {
+            // Clicou no próprio texto em edição: permite mover cursor/seleção no Fabric
+            return;
+          }
+
+          // Clicou fora do texto em edição: encerra edição atual e comita
+          (activeObj as any).exitEditing();
+          return;
+        }
+
         this.handleTextCreation(e);
         return;
       }
@@ -836,7 +854,7 @@ export class WhiteboardEngine {
     const pos = this.pointerToScene(e);
     const elementId = generateUUID();
 
-    const textObj = new IText('Texto', {
+    const textObj = new IText('', {
       left: pos.x,
       top: pos.y,
       fontSize: 24,
@@ -849,7 +867,6 @@ export class WhiteboardEngine {
     this.canvas.add(textObj);
     this.canvas.setActiveObject(textObj);
     textObj.enterEditing();
-    textObj.selectAll();
 
     let committed = false;
     const commitText = () => {
@@ -866,6 +883,9 @@ export class WhiteboardEngine {
           dist: 0,
           descartado: true,
         });
+        if (this.activeTool === 'text') {
+          this.setTool('select');
+        }
         return;
       }
 
@@ -899,13 +919,15 @@ export class WhiteboardEngine {
       };
 
       this.emitEvent(event);
+
+      // Volta para ferramenta de seleção após confirmar o texto inserido
+      if (this.activeTool === 'text') {
+        this.setTool('select');
+      }
     };
 
     textObj.on('editing:exited', commitText);
     textObj.on('deselected', commitText);
-
-    // Volta para ferramenta de seleção após posicionar texto
-    this.setTool('select');
   }
 
   /**

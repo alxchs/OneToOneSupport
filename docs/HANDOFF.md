@@ -1,3 +1,29 @@
+# HANDOFF DE ESTADO — FASE 08: Ferramenta Texto Utilizável (D13) e Ferramentas Sem Mover (D12)
+
+## Mensagem para o Alexandre (Resumo em Português Simples — D13)
+Olá Alexandre! Nesta intervenção (D13), corrigimos o problema na ferramenta de Texto onde clicar no quadro não permitia digitar e deixava a palavra "Texto" gravada. A causa raiz era que a engine encerrava a edição no mesmo instante em que ela abria (chamava `setTool` para `select` logo após iniciar a edição). Agora, ao clicar com a ferramenta Texto, você pode digitar imediatamente (inclusive texto com acentos e múltiplas linhas com Enter); a comutação para seleção só ocorre quando você conclui o texto (clicando fora, teclando Escape ou escolhendo outra ferramenta). Além disso, se você clicar e não digitar nada antes de sair, nenhum elemento é criado no quadro (o texto vazio é descartado sem poluir a tela com placeholders).
+
+Validamos com 5 testes automatizados dedicados em `tests/ferramenta-texto.test.ts`, prova E2E em Chromium real digitando caracteres de verdade e gerando captura de tela (`Issues/20260924-180000-texto-nao-aceita-digitacao/evidencia/tela-com-texto-digitado.png`), e nova checagem integrada na sonda de runtime (`V3d: texto digitado aparece na tela e vira elemento`), que afere a digitação real e a alteração de pixels na tela. O `npm run verify` está 100% verde (354 testes e 34 checagens na sonda).
+
+[HANDOFF DE ESTADO — D13]
+* Arquivos Modificados/Criados no D13:
+  - `src/shared/canvas/engine.ts`: Em `handleTextCreation`, o objeto nasce com texto vazio, a chamada síncrona `setTool('select')` foi removida e movida para dentro do callback de finalização `commitText()`. No listener de `mouse:down`, cliques fora de um texto em edição invocam `exitEditing()` para comitar a digitação atual sem disparar uma nova caixa de texto concorrente.
+  - `tests/ferramenta-texto.test.ts`: Nova suíte de testes com 5 cenários cobrindo o ciclo de digitação imediata, descarte de texto vazio, suporte a multilinha e acentuação, preservação ao alternar ferramentas e confirmação por clique fora.
+  - `tests/ferramentas-sem-mover.test.ts`: Ajustada asserção no teste da ferramenta `text` para verificar que o objeto pré-existente não foi selecionado, permitindo que a nova caixa de texto criada permaneça ativa para digitação imediata.
+  - `tools/probe-runtime.cjs`: Adicionada verificação `V3d: texto digitado aparece na tela e vira elemento` testando digitação real ("Probe Ação 1:1"), verificação de pixels renderizados (+1836 px na tela) e teste de descarte com texto vazio. Atualizados os passos das ferramentas em `shapeTests` e `V3c` para emitirem digitação real quando selecionada a ferramenta Texto.
+  - `Issues/20260924-180000-texto-nao-aceita-digitacao/evidencia/teste-texto.cjs`: Script E2E atualizado validando os 3 fluxos (digitação com acentuação/multilinha, descarte de texto vazio e cancelamento por Escape) e gerando screenshot da tela real.
+  - `Issues/20260924-180000-texto-nao-aceita-digitacao/evidencia/tela-com-texto-digitado.png`: Captura de tela real comprovando o texto digitado renderizado no viewport.
+  - `docs/reviews/autoauditoria-texto.md`: Relatório completo de autoauditoria com comandos executados, saídas reais, verificação de pixel e varredura D13.3.
+  - `docs/HANDOFF.md`: Atualizado com o handoff do D13 e mensagem para o Alexandre.
+* Estado Atual: D13 100% implementado, testado e verificado. `npm run verify` verde (354 testes, 34 checagens de runtime na sonda).
+* Próximo Passo Lógico: Alexandre avaliar as entregas da Fase 08 (D12 e D13) para autorizar merge e push.
+* Decisões Críticas Tomadas:
+  - Comutação para `select` no `commitText()`: Garante ergonomia fluida ao comutar para seleção após concluir a digitação, evitando criar caixas de texto indesejadas no clique fora.
+  - Descarte de texto vazio: Textos em branco são descartados sem criar eventos nem persistir no canvas.
+* Divergências da Spec: Nenhuma.
+
+---
+
 # HANDOFF DE ESTADO — FASE 08: Ferramentas de desenho sem mover objetos existentes (D12)
 
 ## Mensagem para o Alexandre (Resumo em Português Simples)

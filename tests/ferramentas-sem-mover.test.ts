@@ -265,9 +265,15 @@ describe('D12 — Ferramentas de desenho nunca movem objetos existentes', () => 
             target: undefined,
           } as any);
 
-          // 4. Afirmações obrigatórias:
           // (a) Objeto A não é o activeObject
-          expect(engine.canvas.getActiveObject()).toBeFalsy();
+          expect(engine.canvas.getActiveObject()).not.toBe(objA);
+          if (tool !== 'text') {
+            expect(engine.canvas.getActiveObject()).toBeFalsy();
+          } else {
+            const active = engine.canvas.getActiveObject() as any;
+            expect(active).toBeTruthy();
+            expect(active).not.toBe(objA);
+          }
 
           // (b) Propriedades geométricas de A permanecem estritamente inalteradas
           expect(objA.left).toBe(initialLeft);

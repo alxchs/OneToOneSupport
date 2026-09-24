@@ -285,6 +285,7 @@ async function main() {
   let contagemAposRedo = '';
   let contagemAposBorracha = '';
   const v3cResults = { details: [], allPassed: true, selectDragOk: false, objectEraserOk: false };
+  const v3dResults = { pass: false, textTyped: '', textFound: false, emptyDiscardOk: false, screenPixelDelta: 0, toolSwitchedToSelect: false };
 
   // Conecta pelo IP LAN real do convite (H4: sem forçar 127.0.0.1)
   const guestProbeUrl = inviteUrlRaw;
@@ -794,6 +795,8 @@ async function main() {
           const ty = Math.round(matrixCanvasBox.top + st.clickAt[1]);
           await page.mouse.click(tx, ty);
           await new Promise((r) => setTimeout(r, 200));
+          await page.keyboard.type('Txt');
+          await new Promise((r) => setTimeout(r, 200));
           await page.mouse.click(Math.round(matrixCanvasBox.left + 50), Math.round(matrixCanvasBox.top + 50));
         } else {
           const sx = Math.round(matrixCanvasBox.left + st.start[0]);
@@ -1011,6 +1014,8 @@ async function main() {
           const ty = Math.round(matrixCanvasBox.top + tc.clickAt[1]);
           await page.mouse.click(tx, ty);
           await new Promise((r) => setTimeout(r, 200));
+          await page.keyboard.type('TxtA');
+          await new Promise((r) => setTimeout(r, 200));
           await page.mouse.click(Math.round(matrixCanvasBox.left + 50), Math.round(matrixCanvasBox.top + 50));
         } else {
           const sx = Math.round(matrixCanvasBox.left + tc.objStart[0]);
@@ -1092,6 +1097,8 @@ async function main() {
         if (!usedSendInput) {
           if (tc.drawTool === '#tool-text') {
             await page.mouse.click(insideX, insideY);
+            await new Promise((r) => setTimeout(r, 200));
+            await page.keyboard.type('TxtB');
             await new Promise((r) => setTimeout(r, 200));
             await page.mouse.click(Math.round(matrixCanvasBox.left + 50), Math.round(matrixCanvasBox.top + 50));
           } else {
@@ -1245,6 +1252,75 @@ async function main() {
       v3cResults.objectEraserOk = apagouObjeto;
       console.log(`[Probe V3c Regressão] object_eraser apagou objeto: ${apagouObjeto ? 'PASS' : 'FAIL'} (elementos: ${countBeforeErase} -> ${countAfterErase})`);
 
+      // --- V3d (D13): Texto digitado aparece na tela e vira elemento ---
+      console.log('\n[Probe V3d] Iniciando teste D13: Digitação de texto real no canvas...');
+      const hostScreenBeforeV3d = await countVisibleScreenStrokePixels(page, matrixCanvasBox);
+
+      // 1. Digita texto real com acentos
+      await page.click('#tool-text');
+      const textClickX = Math.round(matrixCanvasBox.left + 500);
+      const textClickY = Math.round(matrixCanvasBox.top + 330);
+      await page.mouse.click(textClickX, textClickY);
+      await new Promise((r) => setTimeout(r, 300));
+
+      const editingState = await page.evaluate(() => {
+        const obj = window.__whiteboardEngine?.canvas.getActiveObject();
+        return {
+          isEditing: Boolean(obj && obj.isEditing),
+          activeTool: window.__whiteboardEngine?.activeTool,
+          initialText: obj ? obj.text : null,
+        };
+      });
+
+      const textoTeste = 'Probe Ação 1:1';
+      await page.keyboard.type(textoTeste);
+      await new Promise((r) => setTimeout(r, 300));
+
+      // Clica fora para comitar
+      const outsideClickX = Math.round(matrixCanvasBox.left + 800);
+      const outsideClickY = Math.round(matrixCanvasBox.top + 450);
+      await page.mouse.click(outsideClickX, outsideClickY);
+      await new Promise((r) => setTimeout(r, 600));
+
+      const hostScreenAfterV3d = await countVisibleScreenStrokePixels(page, matrixCanvasBox);
+      const v3dScreenDelta = hostScreenAfterV3d - hostScreenBeforeV3d;
+
+      const objectsAfterV3d = await page.evaluate(() => {
+        const objs = window.__whiteboardEngine?.canvas.getObjects() || [];
+        const textObjs = objs
+          .filter((o) => o.type === 'IText' || o.type === 'i-text' || o.text !== undefined)
+          .map((o) => o.text);
+        return {
+          total: objs.length,
+          textObjs,
+          activeTool: window.__whiteboardEngine?.activeTool,
+        };
+      });
+
+      const textFound = objectsAfterV3d.textObjs.includes(textoTeste);
+      const toolSwitched = objectsAfterV3d.activeTool === 'select';
+
+      // 2. Teste de descarte de texto vazio (clica e não digita nada)
+      const countBeforeEmpty = objectsAfterV3d.total;
+      await page.click('#tool-text');
+      await page.mouse.click(textClickX + 50, textClickY + 50);
+      await new Promise((r) => setTimeout(r, 300));
+      // Clica fora sem digitar
+      await page.mouse.click(outsideClickX, outsideClickY);
+      await new Promise((r) => setTimeout(r, 600));
+
+      const countAfterEmpty = await page.evaluate(() => window.__whiteboardEngine?.canvas.getObjects().length || 0);
+      const emptyDiscardOk = countAfterEmpty === countBeforeEmpty;
+
+      v3dResults.textTyped = textoTeste;
+      v3dResults.textFound = textFound;
+      v3dResults.emptyDiscardOk = emptyDiscardOk;
+      v3dResults.screenPixelDelta = v3dScreenDelta;
+      v3dResults.toolSwitchedToSelect = toolSwitched;
+      v3dResults.pass = Boolean(editingState.isEditing && textFound && toolSwitched && emptyDiscardOk && v3dScreenDelta > 0);
+
+      console.log(`[Probe V3d] editando=${editingState.isEditing}, textoEncontrado=${textFound}, toolSelect=${toolSwitched}, descarteVazio=${emptyDiscardOk}, deltaPixels=${v3dScreenDelta}: ${v3dResults.pass ? 'PASS' : 'FAIL'}`);
+
       // Captura visual do Quadro Branco HiDPI (Evidência obrigatória)
       const whiteboardShotPath = path.join(root, 'docs', 'whiteboard-hidpi.png');
       await page.screenshot({ path: whiteboardShotPath });
@@ -1373,6 +1449,7 @@ async function main() {
     pageErrors,
     guestMobile,
     v3c: v3cResults,
+    v3d: v3dResults,
   };
 }
 
@@ -1434,6 +1511,8 @@ main()
         Boolean(res.v3c && res.v3c.selectDragOk),
       'V3c: regressão object_eraser ainda apaga o objeto sob o cursor':
         Boolean(res.v3c && res.v3c.objectEraserOk),
+      'V3d: texto digitado aparece na tela e vira elemento':
+        Boolean(res.v3d && res.v3d.pass),
     };
 
     console.log(JSON.stringify(res, null, 2));
