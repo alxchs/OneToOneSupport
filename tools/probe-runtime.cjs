@@ -1351,6 +1351,7 @@ async function main() {
 
   // --- V4 (D16): Sessão encerrada abre em modo leitura e não aceita desenho ---
   console.log('\n[Probe V4] Iniciando teste D16: Modo somente leitura de sessão encerrada...');
+  let v5Results = { pass: false };
   const v4Results = {
     sessaoEncerradaOk: false,
     botaoReverExiste: false,
@@ -1537,6 +1538,157 @@ async function main() {
     await page.click('#btn-voltar-sessao');
     await page.waitForSelector(btnReverId, { timeout: 8000 });
     await new Promise((r) => setTimeout(r, 600));
+
+    // --- V5 (D17): Quadro em leitura não recebe traço do Guest de outra sessão ---
+    console.log('\n[Probe V5] Iniciando teste D17: Isolamento de quadro em leitura contra traços do Guest de sessão viva...');
+    const v5Check = {
+      sessaoVivaCriada: false,
+      guestConectado: false,
+      guestDesenhouControleOk: false,
+      hostQuadroLeituraAberto: false,
+      elementosHostAntes: 0,
+      pixelsHostAntes: 0,
+      controleGuestElementosSubiram: false,
+      controleSqliteSessaoVivaSubiu: false,
+      controleSqliteSessaoEncerradaIntacta: false,
+      elementosHostDepois: 0,
+      pixelsHostDepois: 0,
+      elementosNaoVazaram: false,
+      pixelsNaoVazaram: false,
+      pass: false,
+    };
+
+    if (chromiumExe) {
+      // 1. Inicia sessão 2 (VIVA) com servidor LAN e convite
+      await page.waitForSelector('#btn-abrir-nova-sessao', { timeout: 8000 });
+      await page.click('#btn-abrir-nova-sessao');
+      await page.waitForSelector('#input-titulo-sessao', { timeout: 8000 });
+      await page.type('#input-titulo-sessao', 'Sessao Viva V5');
+      await page.click('#btn-confirmar-sessao');
+      await page.waitForSelector('#painel-sala-servidor', { timeout: 15000 });
+      await page.waitForSelector('#input-url-convite', { timeout: 10000 });
+      const conviteUrlV5 = await page.$eval('#input-url-convite', (el) => el.value);
+
+      const sessaoVivaId = await page.evaluate(() => {
+        const b = document.querySelector('[id^="btn-encerrar-sessao-"]');
+        return b ? b.id.replace('btn-encerrar-sessao-', '') : null;
+      });
+      v5Check.sessaoVivaCriada = Boolean(sessaoVivaId && conviteUrlV5);
+      console.log(`[Probe V5] Sessão viva criada: ${sessaoVivaId} | Convite: ${conviteUrlV5}`);
+
+      // 2. Conecta Guest real por LAN com emulação mobile Motorola Edge 70 Pro
+      const guestBrowserV5 = await puppeteer.launch({ executablePath: chromiumExe, headless: true });
+      try {
+        const guestV5 = await guestBrowserV5.newPage();
+        await guestV5.setViewport({ width: 412, height: 915, devicePixelRatio: 2.625, isMobile: true, hasTouch: true });
+        await guestV5.setUserAgent(
+          'Mozilla/5.0 (Linux; Android 16; Motorola Edge 70 Pro Build/AP2A.240805.005) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36'
+        );
+        await guestV5.goto(conviteUrlV5, { waitUntil: 'networkidle0', timeout: 20000 });
+        await guestV5.waitForSelector('#guest-room-container', { timeout: 20000 });
+        await guestV5.waitForSelector('#tool-guest-pencil', { timeout: 10000 });
+        await guestV5.tap('#tool-guest-pencil');
+        v5Check.guestConectado = true;
+
+        const gArea = await guestV5.$eval('.upper-canvas', (el) => {
+          const r = el.getBoundingClientRect();
+          return { left: r.left, top: r.top, width: r.width, height: r.height };
+        });
+        const cdpV5 = await guestV5.target().createCDPSession();
+        const drawGuestV5 = async (fx, fy) => {
+          const x = Math.round(gArea.left + gArea.width * fx);
+          const y = Math.round(gArea.top + gArea.height * fy);
+          await cdpV5.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+          await cdpV5.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: x + 60, y: y + 45 }] });
+          await cdpV5.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: x + 110, y: y + 10 }] });
+          await cdpV5.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+          await new Promise((r) => setTimeout(r, 1200));
+        };
+
+        // Traço 1 do Guest na sessão viva (controle sanitário: canal funciona)
+        await drawGuestV5(0.2, 0.2);
+        const guestObjs1 = await guestV5.evaluate(() => Object.keys(window.__guestEngine?.getLastRenderedState()?.elements || {}));
+        v5Check.guestDesenhouControleOk = guestObjs1.length > 0;
+        console.log(`[Probe V5] Elementos no Guest após traço inicial na sessão viva: ${guestObjs1.length}`);
+
+        // 3. Host abre o quadro da sessão ENCERRADA em modo somente leitura
+        await page.waitForSelector(btnReverId, { timeout: 10000 });
+        await page.click(btnReverId);
+        await page.waitForSelector('#canvas-quadro-branco', { timeout: 15000 });
+        await page.waitForSelector('#badge-somente-leitura', { timeout: 8000 });
+        await new Promise((r) => setTimeout(r, 1000));
+        v5Check.hostQuadroLeituraAberto = true;
+
+        const boxV5 = await page.$eval('.upper-canvas', (el) => {
+          const r = el.getBoundingClientRect();
+          return { left: r.left, top: r.top, width: r.width, height: r.height };
+        });
+
+        const hostCountAntes = await page.evaluate(() => Object.keys(window.__whiteboardEngine?.getLastRenderedState()?.elements || {}).length);
+        const hostPixelsAntes = await countVisibleScreenStrokePixels(page, boxV5);
+        const shotV5Antes = path.join(root, 'docs', 'v5-leitura-antes.png');
+        await page.screenshot({ path: shotV5Antes });
+        v5Check.elementosHostAntes = hostCountAntes;
+        v5Check.pixelsHostAntes = hostPixelsAntes;
+        console.log(`[Probe V5] Quadro em leitura ANTES: elementos=${hostCountAntes}, pixels tela=${hostPixelsAntes}`);
+
+        const sqliteVivaAntes = getEventosCount(sessaoVivaId);
+        const sqliteEncerradaAntes = getEventosCount(sessaoIdEncerrar);
+
+        // 4. Guest desenha 2 novos traços na sessão viva enquanto o Host está no quadro em leitura
+        console.log('[Probe V5] Guest desenha na sessão viva enquanto Host revisa quadro histórico...');
+        await drawGuestV5(0.3, 0.4);
+        await drawGuestV5(0.6, 0.5);
+        await new Promise((r) => setTimeout(r, 1500));
+
+        // 5. Verificação de controle: Guest desenhou de verdade?
+        const guestObjsDepois = await guestV5.evaluate(() => Object.keys(window.__guestEngine?.getLastRenderedState()?.elements || {}));
+        const sqliteVivaDepois = getEventosCount(sessaoVivaId);
+        const sqliteEncerradaDepois = getEventosCount(sessaoIdEncerrar);
+
+        v5Check.controleGuestElementosSubiram = (guestObjsDepois.length > guestObjs1.length);
+        v5Check.controleSqliteSessaoVivaSubiu = (sqliteVivaDepois > sqliteVivaAntes);
+        v5Check.controleSqliteSessaoEncerradaIntacta = (sqliteEncerradaDepois === sqliteEncerradaAntes);
+        console.log(`[Probe V5] CONTROLE -> Guest elementos: ${guestObjs1.length} -> ${guestObjsDepois.length} | SQLite viva: ${sqliteVivaAntes} -> ${sqliteVivaDepois} | SQLite encerrada: ${sqliteEncerradaAntes} -> ${sqliteEncerradaDepois}`);
+
+        // 6. Verificação no Host: O quadro em leitura foi corrompido/alterado?
+        const hostCountDepois = await page.evaluate(() => Object.keys(window.__whiteboardEngine?.getLastRenderedState()?.elements || {}).length);
+        const hostPixelsDepois = await countVisibleScreenStrokePixels(page, boxV5);
+        const shotV5Depois = path.join(root, 'docs', 'v5-leitura-depois.png');
+        await page.screenshot({ path: shotV5Depois });
+        v5Check.elementosHostDepois = hostCountDepois;
+        v5Check.pixelsHostDepois = hostPixelsDepois;
+
+        const deltaElementos = hostCountDepois - hostCountAntes;
+        const deltaPixels = hostPixelsDepois - hostPixelsAntes;
+        v5Check.elementosNaoVazaram = (deltaElementos === 0);
+        v5Check.pixelsNaoVazaram = (deltaPixels === 0);
+        console.log(`[Probe V5] Quadro em leitura DEPOIS: elementos=${hostCountDepois} (delta ${deltaElementos}), pixels tela=${hostPixelsDepois} (delta ${deltaPixels})`);
+
+        v5Check.pass = Boolean(
+          v5Check.sessaoVivaCriada &&
+          v5Check.guestConectado &&
+          v5Check.guestDesenhouControleOk &&
+          v5Check.hostQuadroLeituraAberto &&
+          v5Check.controleGuestElementosSubiram &&
+          v5Check.controleSqliteSessaoVivaSubiu &&
+          v5Check.controleSqliteSessaoEncerradaIntacta &&
+          v5Check.elementosNaoVazaram &&
+          v5Check.pixelsNaoVazaram
+        );
+        console.log(`[Probe V5] Verificação V5 concluída: ${v5Check.pass ? 'PASS' : 'FAIL'}`);
+      } finally {
+        await guestBrowserV5.close();
+      }
+
+      // Retorna para a tela de detalhes do atendido e fecha sala do servidor da sessão viva
+      await page.click('#btn-voltar-sessao');
+      await page.waitForSelector('#painel-sala-servidor', { timeout: 10000 });
+      await page.click('#btn-fechar-sala-servidor');
+      await new Promise((r) => setTimeout(r, 600));
+    }
+
+    v5Results = v5Check;
   }
   await page.click('#btn-status-detalhe');
   await new Promise((r) => setTimeout(r, 600));
@@ -1641,6 +1793,7 @@ async function main() {
     v3c: v3cResults,
     v3d: v3dResults,
     v4: v4Results,
+    v5: v5Results,
   };
 }
 
@@ -1706,6 +1859,8 @@ main()
         Boolean(res.v3d && res.v3d.pass),
       'V4: sessão encerrada abre em leitura e não aceita desenho':
         Boolean(res.v4 && res.v4.pass),
+      'V5: quadro em leitura não recebe traço do Guest de outra sessão':
+        Boolean(res.v5 && res.v5.pass),
     };
 
     console.log(JSON.stringify(res, null, 2));

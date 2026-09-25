@@ -1,3 +1,28 @@
+# HANDOFF DE ESTADO — FASE 08: Bloqueio de Evento do Guest no Quadro em Leitura (D17)
+
+## Mensagem para o Alexandre (Resumo em Português Simples — D17)
+Olá Alexandre! Nesta intervenção (D17), corrigimos uma falha de isolamento em que o quadro de uma sessão já encerrada aberto para consulta ("Ver quadro (somente leitura)") recebia e exibia na tela os traços que o aluno estivesse desenhando no celular durante uma aula ao vivo conectada ao mesmo tempo. 
+
+Agora, implementamos um funil único e estrito na aplicação (`aplicarEventoRemoto`), com a identidade da sessão carimbada diretamente pelo processo principal (Main) que gerencia o servidor, e não pela mensagem do celular nem pelo que estiver aberto na tela no momento. Com isso, o quadro em modo de leitura ignora e descarta sumariamente qualquer traço do aluno na aula viva, preservando a fidelidade permanente e imutável do histórico da aula passada. Validamos com o ataque do chefe (que antes falhava e agora resistiu com 0 novos pixels na tela), com a sonda runtime V5 (comprovando isolamento visual e integridade com celular conectado pelo IP da rede local) e com testes unitários cobrindo todas as regras de descarte e o caminho feliz da aula ao vivo.
+
+[HANDOFF DE ESTADO — D17]
+* Arquivos Modificados/Criados no D17:
+  - `src/host/store/useHostStore.ts`: Criada a ação `aplicarEventoRemoto` como funil único para eventos remotos do Guest, validando `quadroSomenteLeitura`, `sessaoId` da autoridade, `activeSessaoId`, `activeAbaId` e a allowlist de ações permitidas (`ACOES_PERMITIDAS_GUEST`).
+  - `src/host/HostApp.tsx`: Banido o uso solto de `useHostStore.setState({ tabState })`; o listener IPC de eventos do Guest agora delega exclusivamente para `aplicarEventoRemoto`. Removidos imports não utilizados.
+  - `electron/server/index.ts`: `handleGuestEvent` passa a carimbar e despachar os eventos do Guest contendo o `sessaoId` oficial da autoridade (`SessionManager`), impedindo spoofing do Guest.
+  - `electron/ipc/server.ipc.ts`: Repasse IPC para o Renderer inclui o `sessaoId` obtido diretamente do `SessionManager`.
+  - `tests/funil-remoto-guest.test.ts`: Nova suíte de testes com 8 cenários cobrindo descarte por modo leitura, sessão trocada, aba trocada, `sessaoId` inválido/ausente, tipo fora da allowlist, emissão de diagnóstico, resiliência da sessão viva e sobreposição de autoridade contra spoofing.
+  - `tools/probe-runtime.cjs`: Adicionada checagem `V5: quadro em leitura não recebe traço do Guest de outra sessão`, conectando Motorola Edge 70 Pro real via IP de LAN, avaliando captura de tela (`page.screenshot`) decodificada e contagem de pixels coloridos antes e depois com delta 0.
+  - `docs/reviews/autoauditoria-vazamento-remoto.md`: Relatório completo de autoauditoria do D17 contendo critérios, comandos, saídas reais de reprodução prévia, execução do ataque do chefe, sonda V5 e lista do que não foi verificado.
+* Estado Atual: D17 100% implementado e testado. `npm run verify` verde (362 testes no vitest, 37 checagens na sonda). Ataque do chefe aprovado com código 0 e delta 0 pixels.
+* Decisões Críticas Tomadas:
+  - Funil único centralizado na Store Zustand: Nenhuma alteração de `tabState` por evento remoto ocorre fora da ação `aplicarEventoRemoto`.
+  - Identidade de sessão carimbada na borda pelo Main: Sessão vem do `SessionManager`, impedindo que o Guest forje identidade ou que o Host carimbe com o que está em foco na tela.
+  - Reaproveitamento estrito do ADR-011: Utilizada a constante única `ACOES_PERMITIDAS_GUEST` para validação de tipo.
+* Divergências da Spec: Nenhuma.
+
+---
+
 # HANDOFF DE ESTADO — FASE 08: Limpeza dos Andaimes de Diagnóstico (D14)
 
 ## Mensagem para o Alexandre (Resumo em Português Simples — D14)
