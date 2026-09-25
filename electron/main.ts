@@ -6,14 +6,6 @@ import { registerIpcHandlers } from './ipc/router';
 import { IPC_CHANNELS, VersionInfoDTO } from '../src/shared/ipc-contract';
 import buildInfo from '../src/shared/build-info.json';
 import { isDiagEnabled } from '../src/shared/diag';
-import {
-  applyPreReadyExperiments,
-  isExperimentActive,
-  printActiveExperiments,
-} from './experiments';
-
-// D10: Aplicar switches de linha de comando dos experimentos antes de app.whenReady()
-applyPreReadyExperiments();
 
 export function getVersionInfo(): VersionInfoDTO {
   const candidatePaths = [
@@ -73,7 +65,6 @@ function createWindow(): BrowserWindow {
   });
 
   const preloadPath = path.join(__dirname, 'preload.js');
-  const isNothrottle = isExperimentActive('nothrottle');
 
   const win = new BrowserWindow({
     width: initialWidth,
@@ -89,7 +80,6 @@ function createWindow(): BrowserWindow {
       sandbox: true,
       preload: preloadPath,
       devTools: true,
-      ...(isNothrottle ? { backgroundThrottling: false } : {}),
     },
   });
 
@@ -191,7 +181,6 @@ ipcMain.handle(IPC_CHANNELS.DESKTOP_GET_VERSION_INFO, () => {
 });
 
 app.whenReady().then(() => {
-  printActiveExperiments();
   console.log(`[Version] ${buildInfo.stamp}`);
   const vInfo = getVersionInfo();
   if (vInfo.guestOutdated) {

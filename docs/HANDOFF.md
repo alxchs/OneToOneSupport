@@ -1,3 +1,44 @@
+# HANDOFF DE ESTADO — FASE 08: Limpeza dos Andaimes de Diagnóstico (D14)
+
+## Mensagem para o Alexandre (Resumo em Português Simples — D14)
+Olá Alexandre! Nesta intervenção (D14), realizamos a limpeza criteriosa de todos os andaimes temporários, hipóteses descartadas e códigos de teste que haviam sido adicionados durante a caçada ao defeito visual da Fase 07 (que foi definitivamente resolvido com a correção da transparência da camada superior `.upper-canvas` no D11).
+
+O benefício mais importante desta limpeza foi remover o "reforço de repaint" que rodava a cada elemento desenhado no caminho crítico de produção: medimos que ele consumia ~10 ms por traço na média e adicionava +51 ms de atraso no percentil 95 (cauda de latência). Com a remoção, o desenho no Host ficou visivelmente mais leve e o caminho quente (`renderState`) agora chama apenas o `requestRenderAll()` puro do Fabric sem disparar nenhum `setTimeout` nem chamada IPC desnecessária.
+
+Além disso:
+1. Removemos os experimentos de janela do Electron (switches de oclusão do Windows, não-throttling e micro-redimensionamento nudge) e o switch de GPU do servidor dev.
+2. Mantivemos sob flag de diagnóstico (`ONETOONE_DIAG=1`) os verificadores leves (`checkPixelDivergence` e `checkCssVisibility`) e os logs de ciclo de vida (`engine_lifecycle` e `janela_evento`), que custam absolutamente zero em produção.
+3. CONSERTAMOS o verificador visual `checkCssVisibility` (D8) para inspecionar todas as camadas do Fabric (inclusive alertando se o `upperCanvasEl` nascer com fundo opaco), eliminando exatamente o ponto cego que antes escondia a causa raiz.
+4. Preservamos estritamente todas as defesas fundamentais do produto: o `upperCanvasEl` transparente, a trava de seleção sem arraste (`ARRASTO_NO_MODO_SELECAO_HABILITADO = false`), o `skipTargetFind` do D12, e os scripts centrais de validação (`tools/drag-sendinput.ps1` e `tools/probe-runtime.cjs`).
+
+A suíte completa (`npm run verify`) está 100% verde com 25 arquivos de teste (354 testes vitest) e todas as 36 checagens de runtime na sonda passando com prova real de tela.
+
+[HANDOFF DE ESTADO — D14]
+* Arquivos Modificados/Removidos no D14:
+  - electron/experiments.ts (removido, hipótese descartada)
+  - tests/render-experiments.test.ts (removido, 19 testes obsoletos)
+  - `electron/main.ts`: Removidas chamadas e switches de experimentos.
+  - `scripts/dev.mjs`: Removido suporte a ONETOONE_DISABLE_GPU.
+  - `src/shared/canvas/engine.ts`: Removidos reforços de repaint e timers do caminho quente de `renderState`. O método `checkCssVisibility` foi consertado para inspecionar `upperCanvasEl` e detectar fundos opacos que ocluam o canvas de traços.
+  - `src/shared/ipc-contract.ts`: Removido canal de repaint e método correspondente da interface `DesktopAPI`.
+  - `electron/preload.ts`: Removido canal e método de repaint.
+  - electron/ipc/canvas.ipc.ts (removido, handler IPC obsoleto)
+  - `electron/ipc/router.ts`: Removido registro de rotas do canvas IPC.
+  - tests/canvas-repaint.test.ts (removido, 7 testes obsoletos)
+  - `tests/ipc.test.ts`: Removido caso de teste de force repaint.
+  - `tests/divergencia-pixel.test.ts`: Adicionados 3 novos testes validando a detecção de `upperCanvasEl` opaco, canvas transparente normal e `lowerCanvasEl` oculto.
+  - tools/investigar-render-pipeline.cjs (removido, ferramenta efêmera descartada)
+  - tools/drag-cursive-sendinput.ps1 (removido, ferramenta efêmera descartada)
+  - `docs/reviews/autoauditoria-limpeza-diagnosticos.md`: Relatório completo de autoauditoria com tabela classificatória, saídas reais e verificação do caminho quente.
+* Estado Atual: D14 100% implementado, testado e verificado. `npm run verify` verde (354 testes, 36 checagens na sonda).
+* Próximo Passo Lógico: Alexandre avaliar as entregas para autorizar merge e push.
+* Decisões Críticas Tomadas:
+  - Eliminação Completa do Reforço de Repaint: Eliminada sobrecarga no caminho quente de desenho com comprovação em sonda e testes.
+  - Aperfeiçoamento do D8: Diagnóstico agora monitora `upperCanvasEl` contra regressões visuais de opacidade.
+* Divergências da Spec: Nenhuma.
+
+---
+
 # HANDOFF DE ESTADO — FASE 08: Seleção Seleciona Sem Arrasto (D15), Modo Leitura (D16) e Ferramentas de Desenho (D12/D13)
 
 ## Mensagem para o Alexandre (Resumo em Português Simples — D15)
@@ -892,43 +933,29 @@ Se o desenho sumir de novo, cole o terminal — agora ele deve mostrar `[diverge
 
 ---
 
-## Correção Experimental: Forçar Repaint Real da Janela e Reflow DOM (D7 — 2026-09-23)
+## Correção Experimental: Forçar Repaint Real da Janela e Reflow DOM (D7 — 2026-09-23, Removida em D14)
 
-### Instrução para o Alexandre (Dono do Produto)
-Alexandre, por favor, feche todas as janelas, rode `tools\homologar.ps1`, desenhe traços rápidos no quadro branco e diga se o desenho continua sumindo ou não após soltar o traço. Esta é uma correção experimental que força a repintura da janela pelo Electron logo após cada desenho; como o bug original nunca reproduziu nas ferramentas automáticas (onde o buffer do canvas sempre esteve correto), a única validação conclusiva é o seu teste real na máquina.
+> [!NOTE]
+> Este andaime de repaint experimental foi totalmente removido em D14 (`fase/08-ferramentas-sem-mover`) após a confirmação da causa raiz no `.upper-canvas` (D11). A medição do chefe comprovou economia de ~10 ms na média e 51 ms no p95 em cada traço.
 
-### Resumo Técnico da Implementação D7
-1. **D7.1 — Repaint Forçado no Host via `webContents.invalidate()`:** Implementado canal IPC `IPC_CHANNELS.CANVAS_FORCE_REPAINT` (`canvas:force-repaint`) registrado em `electron/ipc/canvas.ipc.ts` e exposto no preload como `desktopAPI.canvas.forceRepaint()`. O handler chama `mainWindow.webContents.invalidate()` no processo principal do Electron, agendando a repintura da janela física.
-2. **D7.2 — Reflow Síncrono no DOM:** No `WhiteboardEngine` (`src/shared/canvas/engine.ts`), após a renderização de novos elementos em `renderState`, força reflow síncrono no elemento do canvas (`void el.offsetHeight`), acionando recálculo de layout no Chromium. Mecanismo seguro e funcional tanto no Host quanto no Guest mobile.
-3. **D7.3 — Throttle com Trailing Edge:** Throttle de ~180ms implementado em `WhiteboardEngine.triggerRepaintReinforcement`, agrupando chamadas rápidas e garantindo execução retardada (*trailing edge*) para que o último traço desenhado seja sempre repintado sem travar ou desacelerar o arrasto interativo (< 0.5ms por ciclo).
+### Histórico da Implementação D7 (Arquivada)
+1. **D7.1 — Repaint Forçado:** Canal IPC `canvas:force-repaint` e método `forceRepaint` (removidos em D14).
+2. **D7.2 — Reflow Síncrono no DOM:** Chamada a `offsetHeight` no `renderState` (removida em D14).
+3. **D7.3 — Throttle com Trailing Edge:** Agendamento retardado de repaint (removido em D14).
 4. **D7.4 — Preservação de Diagnósticos:** Diagnósticos `divergencia_estado_pixel` (D6.1) e `engine_lifecycle` (D6.2) mantidos ativos sob `ONETOONE_DIAG=1`.
-5. **Cobertura de Testes:** Suíte dedicada `tests/canvas-repaint.test.ts` (7 testes) e caso integrado em `tests/ipc.test.ts`. Gate total de 18 suítes vitest (265 testes) e sonda de runtime 27/27 PASS.
 
 ---
 
-## Experimentos de Janela do Electron no Windows (D10 — 2026-09-24)
+## Experimentos de Janela do Electron no Windows (D10 — 2026-09-24, Removidos em D14)
 
-### Roteiro para o dono (em português simples)
-
-Teste 1: `$env:ONETOONE_RENDER_EXPERIMENT="all"` depois `tools\homologar.ps1`, desenhar como sempre. Se resolver, repetir isolando: só `occlusion`, depois só `nothrottle`, depois só `nudge`, para achar qual foi. Sempre colar o terminal completo. Se não resolver com `all`, dizer isso também — é informação útil.
-
-### Resumo Técnico dos Experimentos D10
-1. **Comportamento Padrão Inalterado:** Sem a variável `ONETOONE_RENDER_EXPERIMENT`, nenhum comportamento muda e nenhuma flag experimental é ativada.
-2. **`occlusion`:** Aplica switch `app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion')` no Windows antes de `app.whenReady()`, desativando a detecção nativa de oclusão de janelas do Windows.
-3. **`nothrottle`:** Configura `webPreferences.backgroundThrottling = false` na janela `BrowserWindow` do Host.
-4. **`nudge`:** Quando ativo, o canal IPC `canvas:force-repaint` aciona micro-redimensionamento de 1px na largura da janela com restauração no frame seguinte (16ms), forçando o DWM do Windows a recompor a swapchain da janela. Possui throttle obrigatório de ~300ms e preserva janelas maximizadas ou fullscreen (pulando o redimensionamento).
-5. **`all`:** Equivale à ativação simultânea de `occlusion,nothrottle,nudge`.
-6. **Diagnóstico de Janela (`ONETOONE_DIAG=1`):** Registra eventos `show`, `hide`, `minimize`, `restore`, `focus`, `blur` e o estado de `win.isVisible()`/`win.isMinimized()` no momento de cada `renderState` que adiciona elementos ao quadro, emitindo `[DIAG-HOST] [janela_evento]`.
-7. **Cobertura de Testes:** Suíte dedicada `tests/render-experiments.test.ts` (19 testes unitários/integração). Gate total de 21 suítes vitest (290 testes) e sonda de runtime 27/27 PASS.
+> [!NOTE]
+> Os experimentos de janela (switches de oclusão, não-throttling e micro-redimensionamento nudge) e o switch de GPU do dev server foram totalmente removidos na ordem D14 após a resolução definitiva da causa raiz real. O app opera em modo padrão limpo sem flags experimentais.
 
 ---
 
 ## Causa Raiz Confirmada e Prova de Tela Real (D11 — 2026-09-24)
 
 A causa raiz definitiva do problema em que o desenho sumia ao soltar o mouse foi confirmada: o quadro branco aplicava cor de fundo branca no elemento `<canvas>` antes de inicializar o Fabric.js. Ao criar a camada superior (`upperCanvasEl`), o Fabric copiava o estilo do elemento original, fazendo com que a camada superior ficasse com um fundo branco opaco cobrindo a camada de baixo (`lowerCanvasEl`) onde os traços residem. Assim que o mouse era solto e o traço provisório era limpo, a camada superior branca e opaca tapava todos os desenhos da tela, embora os dados e o buffer de memória estivessem sempre corretos. O problema já está corrigido no construtor de `src/shared/canvas/engine.ts`, deixando o fundo branco exclusivamente na camada inferior e a camada superior transparente. Além disso, a sonda de runtime (`tools/probe-runtime.cjs`) foi aprimorada com a checagem V3b, que agora captura e decodifica a imagem real da TELA via `screenshot`, conferindo pixel a pixel que os traços permanecem visíveis para o usuário após soltar o mouse.
-
-
-
 
 ---
 
@@ -940,8 +967,7 @@ Causa: fundo branco opaco na camada superior do quadro (ver "Causa Raiz Confirma
 Evidência: `docs/reviews/evidencia-pos-correcao-host.png`. Gate no fechamento: `npm run typecheck` limpo,
 292 testes, sonda com V3b (captura de tela real) passando.
 
-Mecanismos experimentais que ficaram no código, desligados por padrão: `ONETOONE_RENDER_EXPERIMENT`
-(D10) e `ONETOONE_DISABLE_GPU` (D9). Fora do padrão, sem efeito no produto. Candidatos a limpeza futura.
+Mecanismos experimentais da caçada (D7, D9, D10) foram integralmente limpos em D14 sem perda de proteção e com ganho de desempenho no caminho quente do desenho.
 
 **Pendência aberta (próxima fase, Host apenas):** linhas, setas, retângulos, elipses e texto são objetos
 selecionáveis; ao desenhar algo novo por cima, o Fabric arrasta o objeto anterior em vez de só desenhar.

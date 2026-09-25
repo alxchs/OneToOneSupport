@@ -325,4 +325,127 @@ describe('D6.1 & D6.2 — Diagnóstico de Divergência Estado-vs-Pixel e Ciclo d
     engine.dispose();
     container.remove();
   });
+
+  it('D14 / D8: detecta canvas_possivelmente_escondido quando upperCanvasEl possui fundo opaco (ponto cego corrigido)', () => {
+    const container = document.createElement('div');
+    container.style.width = '600px';
+    container.style.height = '400px';
+    document.body.appendChild(container);
+
+    const canvasEl = document.createElement('canvas');
+    canvasEl.width = 600;
+    canvasEl.height = 400;
+    container.appendChild(canvasEl);
+
+    const engine = new WhiteboardEngine(canvasEl);
+    engine.setDimensions(600, 400);
+
+    const lowerEl = engine.canvas.lowerCanvasEl;
+    const upperEl = engine.canvas.upperCanvasEl;
+
+    vi.spyOn(lowerEl, 'getBoundingClientRect').mockReturnValue({
+      width: 600,
+      height: 400,
+      left: 0,
+      top: 0,
+      right: 600,
+      bottom: 400,
+      x: 0,
+      y: 0,
+      toJSON: () => {},
+    });
+
+    // Simula o bug da Fase 07: upper-canvas com fundo branco opaco cobrindo lower-canvas
+    upperEl.style.backgroundColor = '#ffffff';
+
+    engine.checkCssVisibility();
+
+    const diagEvent = capturedForwardEvents.find((e) => e.checkpoint === 'canvas_possivelmente_escondido');
+    expect(diagEvent).toBeDefined();
+    expect(diagEvent?.data?.upperOpaco).toBe(true);
+
+    engine.dispose();
+    container.remove();
+  });
+
+  it('D14 / D8: NÃO emite canvas_possivelmente_escondido quando canvas e camadas estão normais e upperCanvasEl é transparente', () => {
+    const container = document.createElement('div');
+    container.style.width = '600px';
+    container.style.height = '400px';
+    document.body.appendChild(container);
+
+    const canvasEl = document.createElement('canvas');
+    canvasEl.width = 600;
+    canvasEl.height = 400;
+    container.appendChild(canvasEl);
+
+    const engine = new WhiteboardEngine(canvasEl);
+    engine.setDimensions(600, 400);
+
+    const lowerEl = engine.canvas.lowerCanvasEl;
+    const upperEl = engine.canvas.upperCanvasEl;
+
+    vi.spyOn(lowerEl, 'getBoundingClientRect').mockReturnValue({
+      width: 600,
+      height: 400,
+      left: 0,
+      top: 0,
+      right: 600,
+      bottom: 400,
+      x: 0,
+      y: 0,
+      toJSON: () => {},
+    });
+
+    // Assegura que upper-canvas está transparente
+    upperEl.style.backgroundColor = 'transparent';
+
+    engine.checkCssVisibility();
+
+    const diagEvent = capturedForwardEvents.find((e) => e.checkpoint === 'canvas_possivelmente_escondido');
+    expect(diagEvent).toBeUndefined();
+
+    engine.dispose();
+    container.remove();
+  });
+
+  it('D14 / D8: detecta canvas_possivelmente_escondido quando lowerCanvasEl está oculto via CSS (display: none)', () => {
+    const container = document.createElement('div');
+    container.style.width = '600px';
+    container.style.height = '400px';
+    document.body.appendChild(container);
+
+    const canvasEl = document.createElement('canvas');
+    canvasEl.width = 600;
+    canvasEl.height = 400;
+    container.appendChild(canvasEl);
+
+    const engine = new WhiteboardEngine(canvasEl);
+    engine.setDimensions(600, 400);
+
+    const lowerEl = engine.canvas.lowerCanvasEl;
+
+    vi.spyOn(lowerEl, 'getBoundingClientRect').mockReturnValue({
+      width: 600,
+      height: 400,
+      left: 0,
+      top: 0,
+      right: 600,
+      bottom: 400,
+      x: 0,
+      y: 0,
+      toJSON: () => {},
+    });
+
+    lowerEl.style.display = 'none';
+
+    engine.checkCssVisibility();
+
+    const diagEvent = capturedForwardEvents.find((e) => e.checkpoint === 'canvas_possivelmente_escondido');
+    expect(diagEvent).toBeDefined();
+    expect(diagEvent?.data?.display).toBe('none');
+
+    engine.dispose();
+    container.remove();
+  });
 });

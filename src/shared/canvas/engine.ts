@@ -312,11 +312,6 @@ export class WhiteboardEngine {
   private readonly pixelCheckThrottleMs: number = 500;
   private pendingPixelCheckHandle: number | null = null;
 
-  // Forçar repaint real da janela e reflow DOM (D7 - esta é uma correção experimental, não comprovada por automação)
-  private lastRepaintTimestamp: number = 0;
-  private readonly repaintThrottleMs: number = 180;
-  private pendingRepaintTimer: ReturnType<typeof setTimeout> | null = null;
-
   // D8: checagem de CSS/DOM que poderia estar escondendo ou cobrindo o canvas mesmo com pixels corretos
   private lastCssCheckTimestamp: number = 0;
   private readonly cssCheckThrottleMs: number = 500;
@@ -1245,11 +1240,6 @@ export class WhiteboardEngine {
 
     this.canvas.requestRenderAll();
 
-    // D7: Se novos elementos foram adicionados ou alterados no canvas, força repaint real (esta é uma correção experimental, não comprovada por automação)
-    if (idsAdicionados.length > 0 || idsRemovidos.length > 0) {
-      this.triggerRepaintReinforcement();
-    }
-
     if (isDiagEnabled()) {
       this.schedulePixelDivergenceCheck();
       this.scheduleCssVisibilityCheck();
@@ -1311,75 +1301,6 @@ export class WhiteboardEngine {
   public setArrastoHabilitado(habilitado: boolean): void {
     setArrastoNoModoSelecaoHabilitado(habilitado);
     this.syncDragLocks();
-  }
-
-  /**
-   * D7: Correção experimental para forçar repaint da janela e reflow no DOM.
-   * Esta é uma correção experimental, não comprovada por automação - validação é o dono testando na máquina.
-   * Aplica throttle (~180ms) com trailing edge para não sobrecarregar e garantir
-   * que o último traço executado receba o repaint forçado.
-   */
-  public triggerRepaintReinforcement(): void {
-    const now = Date.now();
-    const elapsed = now - this.lastRepaintTimestamp;
-
-    if (elapsed < this.repaintThrottleMs) {
-      if (this.pendingRepaintTimer === null && typeof setTimeout !== 'undefined') {
-        this.pendingRepaintTimer = setTimeout(() => {
-          this.pendingRepaintTimer = null;
-          this.executeRepaintReinforcement();
-        }, this.repaintThrottleMs - elapsed);
-      }
-      return;
-    }
-
-    if (this.pendingRepaintTimer !== null && typeof clearTimeout !== 'undefined') {
-      clearTimeout(this.pendingRepaintTimer);
-      this.pendingRepaintTimer = null;
-    }
-
-    this.executeRepaintReinforcement();
-  }
-
-  /**
-   * Executa os mecanismos D7.1 (webContents.invalidate no Host via IPC)
-   * e D7.2 (reflow síncrono no DOM via offsetHeight no Host e Guest).
-   * Esta é uma correção experimental, não comprovada por automação.
-   */
-  private executeRepaintReinforcement(): void {
-    this.lastRepaintTimestamp = Date.now();
-
-    // D7.2: Reflow síncrono barato no DOM (funciona tanto no Host quanto no Guest)
-    try {
-      if (this.canvas) {
-        const lowerEl = this.canvas.lowerCanvasEl;
-        if (lowerEl && typeof lowerEl.offsetHeight === 'number') {
-          void lowerEl.offsetHeight; // força reflow síncrono no Chromium
-        }
-      }
-    } catch {
-      // Ignora erro em ambientes de teste sem DOM real
-    }
-
-    // D7.1: Invalidação de janela do Host via webContents.invalidate() (só Host/Electron)
-    if (
-      typeof window !== 'undefined' &&
-      window.desktopAPI?.canvas?.forceRepaint &&
-      typeof window.desktopAPI.canvas.forceRepaint === 'function'
-    ) {
-      try {
-        window.desktopAPI.canvas.forceRepaint().catch(() => {});
-      } catch {
-        // Ignora erro em caso de teardown
-      }
-    }
-  }
-
-  /**
-   * Método público para acionamento explícito de repaint reforçado (D7)
-   */
-  public forceRepaint(): void {
-    this.triggerRepaintReinforcement();
   }
 
   /**
@@ -1480,8 +1401,8 @@ export class WhiteboardEngine {
   /**
    * D8: Lê o estado real de apresentação do canvas no DOM (bounding rect, display/visibility/opacity
    * computados, e o que está de fato no topo da pilha de composição no ponto central do canvas).
-   * Registra SEMPRE que houver algo suspeito: dimensão zero, display none, visibility hidden,
-   * opacity baixa, ou um elemento diferente do canvas ocupando o centro dele.
+   * D14: Inspeciona todas as camadas do Fabric (lowerCanvasEl e upperCanvasEl), alertando caso o
+   * upperCanvasEl possua fundo opaco cobrindo os traços (causa raiz da Fase 07) ou camadas estejam ocultas.
    */
   public checkCssVisibility(): void {
     if (!isDiagEnabled()) return;
@@ -1495,8 +1416,24 @@ export class WhiteboardEngine {
 
       const rect = lowerEl.getBoundingClientRect();
       const computed = window.getComputedStyle(lowerEl);
+      const upperComputed = upperEl ? window.getComputedStyle(upperEl) : null;
       const parent = lowerEl.parentElement;
       const parentComputed = parent ? window.getComputedStyle(parent) : null;
+
+      // D14: Verifica se upperCanvasEl possui fundo opaco que cubra a camada de desenho
+      let upperOpaco = false;
+      if (upperComputed) {
+        const bg = (upperComputed.backgroundColor || '').trim().toLowerCase();
+        if (bg && bg !== 'transparent' && bg !== 'rgba(0, 0, 0, 0)') {
+          const rgbaMatch = bg.match(/^rgba\(\s*\d+\s*,\s*\d+\s*,\s*([\d.]+)\s*\)$/);
+          if (rgbaMatch) {
+            upperOpaco = parseFloat(rgbaMatch[1]) > 0;
+          } else {
+            // rgb(...), #fff, white, etc.
+            upperOpaco = true;
+          }
+        }
+      }
 
       const centerX = rect.left + rect.width / 2;
       const centerY = rect.top + rect.height / 2;
@@ -1511,12 +1448,19 @@ export class WhiteboardEngine {
         computed.display === 'none' ||
         computed.visibility === 'hidden' ||
         parseFloat(computed.opacity || '1') < 0.5 ||
+        upperOpaco ||
+        (upperComputed !== null &&
+          (upperComputed.display === 'none' ||
+            upperComputed.visibility === 'hidden' ||
+            parseFloat(upperComputed.opacity || '1') < 0.5)) ||
         (parentComputed !== null &&
           (parentComputed.display === 'none' || parentComputed.visibility === 'hidden')) ||
         (elementNoCentro !== null &&
           elementNoCentro !== lowerEl &&
           elementNoCentro !== upperEl &&
-          !lowerEl.contains(elementNoCentro));
+          !lowerEl.contains(elementNoCentro) &&
+          !(upperEl && upperEl.contains(elementNoCentro))) ||
+        (elementNoCentro === upperEl && upperOpaco);
 
       if (suspeito) {
         diagLog('canvas_possivelmente_escondido', {
@@ -1527,6 +1471,11 @@ export class WhiteboardEngine {
           display: computed.display,
           visibility: computed.visibility,
           opacity: computed.opacity,
+          upperDisplay: upperComputed?.display,
+          upperVisibility: upperComputed?.visibility,
+          upperOpacity: upperComputed?.opacity,
+          upperBackgroundColor: upperComputed?.backgroundColor,
+          upperOpaco,
           parentDisplay: parentComputed?.display,
           parentVisibility: parentComputed?.visibility,
           elementoNoCentro: elementNoCentro
@@ -1592,10 +1541,6 @@ export class WhiteboardEngine {
     ) {
       window.cancelAnimationFrame(this.pendingPixelCheckHandle);
       this.pendingPixelCheckHandle = null;
-    }
-    if (this.pendingRepaintTimer !== null && typeof clearTimeout !== 'undefined') {
-      clearTimeout(this.pendingRepaintTimer);
-      this.pendingRepaintTimer = null;
     }
     if (
       this.pendingCssCheckHandle !== null &&
