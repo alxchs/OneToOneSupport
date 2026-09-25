@@ -33,3 +33,21 @@ O arrasto volta numa versão futura. Portanto:
 → PASS/FAIL e o que NÃO foi verificado); `docs/HANDOFF.md` com um parágrafo curto em português simples
 dizendo ao dono que a Seleção agora só seleciona, e que o arrasto está desligado por uma constante e volta
 quando o evento de movimentação existir; commit local único, sem push.
+
+---
+
+## ESTADO ATUAL (acrescentado pelo chefe em 2026-09-25, após interrupção por cota)
+Uma execução anterior desta mesma ordem foi interrompida no meio (cota do executor esgotada) e deixou
+trabalho NÃO COMMITADO na árvore:
+- `src/shared/canvas/engine.ts`: +88 linhas já escritas — a constante `ARRASTO_NO_MODO_SELECAO_HABILITADO`
+  (declarada como `export let` com a função `setArrastoNoModoSelecaoHabilitado`, para os testes poderem
+  ligar/desligar), listeners de `selection:created`/`selection:updated`, `applySelectionDragLocks` e
+  `syncDragLocks`. Compila (`npx tsc --noEmit` limpo).
+- `Issues/20260924-200000-selecao-sem-arrasto/evidencia/teste-selecao-sem-arrasto.cjs`: script de evidência
+  já escrito.
+- `tests/selecao-sem-arrasto.test.ts`: tinha ficado com 0 byte (vazio) e foi REMOVIDO pelo chefe para não
+  quebrar o vitest. Precisa ser escrito.
+
+Aproveite o que já está feito, confira se está correto (não confie, leia), e complete o que falta: os testes
+do D15.3 (inclusive o que liga a constante para `true` e prova que o arrasto volta inteiro), a autoauditoria
+e o commit. Se discordar de algo já escrito, corrija e diga por quê na autoauditoria.

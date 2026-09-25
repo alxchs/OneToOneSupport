@@ -1,3 +1,30 @@
+# HANDOFF DE ESTADO — FASE 08: Seleção Seleciona Sem Arrasto (D15), Modo Leitura (D16) e Ferramentas de Desenho (D12/D13)
+
+## Mensagem para o Alexandre (Resumo em Português Simples — D15)
+Olá Alexandre! Nesta intervenção (D15), a ferramenta de Seleção foi ajustada conforme a sua decisão (Opção A): agora ela apenas seleciona os objetos no quadro, mantendo o contorno visual azul de seleção, mas não permite arrastar, redimensionar nem girar o objeto pelo mouse. Isso elimina a falsa impressão de que o objeto foi movido na sessão, pois até então essa movimentação era apenas uma mutação visual na memória da máquina local (não gerava evento no protocolo append-only, não gravava no SQLite e não ia para o celular do aluno).
+
+Conforme sua exigência expressa, todo o código de movimentação foi estritamente preservado: a trava é governada por uma constante exportada de código (`ARRASTO_NO_MODO_SELECAO_HABILITADO = false`) em `src/shared/canvas/engine.ts`. Quando implementarmos o evento oficial de movimentação com persistência e sincronização E2EE (Opção B do D12.3 via ADR), bastará comutar essa constante para `true` que todo o comportamento original de manipulação e alças de vértice volta imediatamente por inteiro.
+
+Validamos tudo com 11 testes automatizados dedicados em `tests/selecao-sem-arrasto.test.ts` e com teste E2E em Electron real com captura de tela (`page.screenshot`), amostragem e comparação binária de pixels (`Issues/20260924-200000-selecao-sem-arrasto/evidencia/selecao-sem-arrasto.png`), comprovando 100% de preservação dos pixels da imagem sob tentativa de arraste com a constante desligada e comprovando que o objeto volta a se mover quando a constante é ligada para `true`. A suíte completa (`npm run verify`) está 100% verde com 378 testes e 36 verificações de runtime na sonda.
+
+[HANDOFF DE ESTADO — D15]
+* Arquivos Modificados/Criados no D15:
+  - `src/shared/canvas/engine.ts`: Introduzida a constante `ARRASTO_NO_MODO_SELECAO_HABILITADO` (padrão `false`), a função `setArrastoNoModoSelecaoHabilitado`, o getter `arrastoHabilitado` e os métodos `applySelectionDragLocks`, `syncDragLocks` e `setArrastoHabilitado`. Listeners em `selection:created` e `selection:updated` travam `lockMovementX`, `lockMovementY`, `lockRotation`, `lockScalingX`, `lockScalingY` e ocultam `hasControls` quando a constante é `false`.
+  - `tests/selecao-sem-arrasto.test.ts`: Nova suíte com 11 testes automatizados cobrindo constante padrão `false`, feedback visual, travas geométricas completas, matriz de 5 tipos de objetos, seleção múltipla (ActiveSelection), ausência de eventos espúrios, prova de restauração com constante `true`, resiliência a nulos e regressões com demais ferramentas.
+  - `Issues/20260924-200000-selecao-sem-arrasto/evidencia/teste-selecao-sem-arrasto.cjs`: Script E2E de comprovação em Electron real que desenha retângulo, seleciona em modo `select`, captura tela real via `page.screenshot`, tenta arrastar com constante `false` comprovando preservação de geometria e correspondência binária de pixels (`selecao-apos-arraste-false.png`), ativa constante `true` comprovando deslocamento real e alças ativas (`selecao-apos-arraste-true.png`).
+  - `Issues/20260924-200000-selecao-sem-arrasto/evidencia/selecao-sem-arrasto.png`: Captura de tela real do objeto selecionado sem controles.
+  - `Issues/20260924-200000-selecao-sem-arrasto/evidencia/selecao-apos-arraste-false.png`: Captura de tela pós-arraste confirmando estabilidade exata dos pixels.
+  - `Issues/20260924-200000-selecao-sem-arrasto/evidencia/selecao-apos-arraste-true.png`: Captura de tela pós-arraste com constante `true` demonstrando movimentação e alças ativas.
+  - `docs/reviews/autoauditoria-selecao-sem-arrasto.md`: Relatório completo de autoauditoria com critérios, saídas reais e lista do que não foi verificado.
+* Estado Atual: D15 100% implementado, testado e verificado. `npm run verify` verde (378 testes, 36 checagens na sonda).
+* Próximo Passo Lógico: Alexandre avaliar as entregas para autorizar merge e push.
+* Decisões Críticas Tomadas:
+  - Constante de código pura: Nenhuma UI ou configuração exposta desnecessariamente, atendendo ao requisito D15.2.
+  - Código 100% preservado: Toda a lógica do Fabric permanece viva e reativável alternando a constante.
+* Divergências da Spec: Nenhuma.
+
+---
+
 # HANDOFF DE ESTADO — FASE 08: Modo Leitura de Sessão Encerrada (D16) e Ferramentas de Desenho (D12/D13)
 
 ## Mensagem para o Alexandre (Resumo em Português Simples — D16)

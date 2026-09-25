@@ -21,6 +21,26 @@ import { diagLog, isDiagEnabled } from '../diag';
 export const CANONICAL_VIRTUAL_WIDTH = 1200;
 export const CANONICAL_VIRTUAL_HEIGHT = 800;
 
+/**
+ * D15: Controla se o arrasto (mover, redimensionar, girar) de objetos em modo de seleção está ativo.
+ *
+ * POR QUE ESTÁ DESLIGADO (false):
+ * Mover ou alterar objetos pelo modo de seleção atua apenas na memória local do canvas Fabric.js.
+ * Não gera evento no protocolo append-only, não persiste no SQLite, não replica para o Guest
+ * e o objeto retorna à posição original na primeira reconstrução do estado (renderState).
+ * Dá a impressão ao profissional de que o objeto foi movido, mas o movimento não é gravado.
+ *
+ * O QUE PRECISA EXISTIR PARA RELIGAR (true):
+ * Implementação da Opção B do D12.3 (exige ADR): evento oficial de movimentação (ex: DRAW_MOVE / DRAW_TRANSFORM),
+ * redução determinística no Reducer, persistência append-only no banco de dados SQLite, transmissão criptografada E2EE
+ * para o Guest e suporte completo a desfazer/refazer (UNDO/REDO) de transformações geométricas.
+ */
+export let ARRASTO_NO_MODO_SELECAO_HABILITADO = false;
+
+export function setArrastoNoModoSelecaoHabilitado(habilitado: boolean): void {
+  ARRASTO_NO_MODO_SELECAO_HABILITADO = habilitado;
+}
+
 export type WhiteboardTool =
   | 'select'
   | 'pencil'
@@ -655,6 +675,29 @@ export class WhiteboardEngine {
         this.finishShapeCreation(e);
       }
     });
+
+    // D15: Ao criar ou atualizar uma seleção no canvas, aplica travas de movimentação conforme a constante
+    this.canvas.on('selection:created', (opt: any) => {
+      if (opt.target) {
+        this.applySelectionDragLocks(opt.target);
+      }
+      if (opt.selected && Array.isArray(opt.selected)) {
+        for (const s of opt.selected) {
+          this.applySelectionDragLocks(s);
+        }
+      }
+    });
+
+    this.canvas.on('selection:updated', (opt: any) => {
+      if (opt.target) {
+        this.applySelectionDragLocks(opt.target);
+      }
+      if (opt.selected && Array.isArray(opt.selected)) {
+        for (const s of opt.selected) {
+          this.applySelectionDragLocks(s);
+        }
+      }
+    });
   }
 
   /**
@@ -992,6 +1035,7 @@ export class WhiteboardEngine {
       case 'select': {
         this.canvas.selection = true;
         this.canvas.defaultCursor = 'default';
+        this.syncDragLocks();
         break;
       }
 
@@ -1180,11 +1224,15 @@ export class WhiteboardEngine {
             fabricObj.lockScalingX = true;
             fabricObj.lockScalingY = true;
             fabricObj.hasControls = false;
+          } else {
+            this.applySelectionDragLocks(fabricObj);
           }
           this.canvas.add(fabricObj);
           this.objectsMap.set(el.id, fabricObj);
           idsAdicionados.push(el.id);
         }
+      } else if (!this.readOnly) {
+        this.applySelectionDragLocks(fabricObj);
       }
     }
 
@@ -1206,6 +1254,63 @@ export class WhiteboardEngine {
       this.schedulePixelDivergenceCheck();
       this.scheduleCssVisibilityCheck();
     }
+  }
+
+  /**
+   * D15: Aplica ou remove travas de arrasto, redimensionamento e rotação em objetos do Fabric.js.
+   * Quando ARRASTO_NO_MODO_SELECAO_HABILITADO é false (padrão):
+   * - Objetos permanecem selecionáveis (selectable = true), com feedback visual de contorno (hasBorders = true)
+   * - Movimentação é travada (lockMovementX = true, lockMovementY = true)
+   * - Rotação é travada (lockRotation = true)
+   * - Redimensionamento é travado (lockScalingX = true, lockScalingY = true)
+   * - Alças de controle nos vértices são ocultadas (hasControls = false)
+   *
+   * Quando ARRASTO_NO_MODO_SELECAO_HABILITADO é true (para testes ou versão futura com evento de movimentação):
+   * - Restaura o comportamento completo de manipulação com alças e liberdade de movimento.
+   */
+  public applySelectionDragLocks(obj: FabricObject | null | undefined): void {
+    if (!obj || this.readOnly) return;
+    if ((obj as any).tipo === 'eraser_stroke' || obj.selectable === false) {
+      return;
+    }
+
+    const habilitado = ARRASTO_NO_MODO_SELECAO_HABILITADO;
+    obj.lockMovementX = !habilitado;
+    obj.lockMovementY = !habilitado;
+    obj.lockRotation = !habilitado;
+    obj.lockScalingX = !habilitado;
+    obj.lockScalingY = !habilitado;
+    obj.hasControls = habilitado;
+  }
+
+  /**
+   * D15: Sincroniza as travas de arrasto em todos os objetos registrados na cena e no objeto ativo.
+   */
+  public syncDragLocks(): void {
+    if (this.readOnly) return;
+    for (const [, obj] of this.objectsMap) {
+      this.applySelectionDragLocks(obj);
+    }
+    const active = this.canvas.getActiveObject();
+    if (active) {
+      this.applySelectionDragLocks(active);
+    }
+    this.canvas.requestRenderAll();
+  }
+
+  /**
+   * D15: Retorna o estado atual do arrasto no modo de seleção.
+   */
+  public get arrastoHabilitado(): boolean {
+    return ARRASTO_NO_MODO_SELECAO_HABILITADO;
+  }
+
+  /**
+   * D15: Altera o estado do arrasto e sincroniza os objetos da instância.
+   */
+  public setArrastoHabilitado(habilitado: boolean): void {
+    setArrastoNoModoSelecaoHabilitado(habilitado);
+    this.syncDragLocks();
   }
 
   /**

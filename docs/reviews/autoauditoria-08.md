@@ -169,9 +169,9 @@ Foi comprovado via teste automatizado (`tests/ferramentas-sem-mover.test.ts`, bl
 
 ---
 
-### D15.3 — Prova de Seleção sem Arrasto (Issue Aberta em Issues/20260924-200000-selecao-sem-arrasto)
-* **Status:** PENDENTE / SEPARADA (Issue `20260924-200000-selecao-sem-arrasto` aberta para execução em ordem subsequente).
-* **Evidência Visual / Pixel:** O teste da ordem D15 exigirá validação por captura de tela (`page.screenshot`) e amostragem de pixels quando for executada.
+### D15.3 — Prova de Seleção sem Arrasto (Ordem D15 Executada)
+* **Status:** PASS
+* **Evidência Visual / Pixel / Screenshot:** Validação por captura de tela real (`page.screenshot`) em `Issues/20260924-200000-selecao-sem-arrasto/evidencia/selecao-sem-arrasto.png`, demonstrando o objeto selecionado sem alças de controle nos vértices. Sob tentativa de arraste com a constante desligada (`ARRASTO_NO_MODO_SELECAO_HABILITADO = false`), a nova captura de tela (`selecao-apos-arraste-false.png`) comprovou correspondência binária de 100% dos pixels (`bufBefore.equals(bufAfterFalse) === true`) e geometria estritamente inalterada. Ao religar a constante para `true`, o teste comprovou o retorno imediato da movimentação com deslocamento visual de pixels na captura de tela (`selecao-apos-arraste-true.png`). Detalhes completos em `docs/reviews/autoauditoria-selecao-sem-arrasto.md`.
 
 ---
 
