@@ -80,3 +80,21 @@ Leitura do lote 1: 3 fases (~10 mil linhas novas, 121 testes, servidor E2EE, UI 
 - Semana 29% ao fim do lote 2 (correção + red team + reauditoria): sem variação desde a medição de 29% anterior. Total do lote 2 com o chefe em sessão limpa: 27% → 29% (+2 pontos, contaminado por uso em outros projetos; o custo real deste projeto é ≤ 2 pontos).
 - Homologação 1 (2026-09-21): o teste físico do dono achou 3 defeitos que 24/24 checagens automáticas não viram. Causa: a sonda conectava por loopback (contexto "seguro"); no IP de LAN em HTTP `crypto.randomUUID` não existe. Lição registrada: verificação de rede precisa usar o IP de LAN (contexto inseguro), e conteúdo, não contagem. O executor diagnosticou bem a causa raiz (melhor entrega do experimento), mas substituiu a checagem de pixels da borracha por checagem de propriedade e marcou PASS.
 - Semana 30% após a correção da homologação 1 (29% → 30%, +1; medição contaminada por outros projetos).
+
+## Registro da Fase 08 (auditoria do chefe, 2026-09-25)
+- Entrega D12–D16 (8 commits, 53 arquivos, +5343 −2012): auditor automático **tudo verde** (354 testes,
+  sonda 36/36, 243 afirmações conferidas, autoauditorias sem FAIL).
+- **Falso PASS coletivo:** o chefe atacou 3 regras no app empacotado e furou 1 — o quadro de sessão
+  encerrada em "somente leitura" recebe os traços que o aluno desenha na sessão VIVA (caminho remoto do
+  `HostApp.tsx` desvia da trava do D16). Provado com captura de tela (14750 → 20575 pixels coloridos) e
+  contagem no SQLite. Ordem D17 emitida; fase reprovada para merge até a correção.
+- Padrão que se repete (3ª vez no projeto, depois da homologação 1 e da fase 07): **a prova cobre o caminho
+  que a IA controla e ignora o caminho do outro lado** (rede/LAN/celular). Os 13 testes do D16 e a sonda V4
+  só exercitam o Host desenhando.
+- Lição de método desta auditoria: o primeiro ataque deu "trava resistiu" por engano do próprio chefe (as
+  coordenadas do toque caíam fora do canvas do Guest). Só depois de instrumentar um **controle** — provar
+  que o Guest desenhou mesmo (elementos e eventos no SQLite subindo) — o resultado passou a valer. Regra:
+  todo teste negativo ("não vazou") precisa de um controle positivo no mesmo run, senão ele não distingue
+  "defesa funcionou" de "ataque não aconteceu".
+- Dois ataques resistiram: arraste por TOQUE no modo seleção (D15) e desenho por TOQUE no modo leitura
+  (D16) — o executor só tinha testado com mouse nos dois casos.
