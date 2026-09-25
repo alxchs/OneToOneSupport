@@ -62,3 +62,53 @@ Entrega boa no mérito (D12–D16 fazem o que prometem pelo caminho local, e doi
 resistiram), mas **não vai para `main` antes do D17**: a promessa de tela "O histórico desta sessão é
 permanente e imutável" é falsa hoje na situação mais provável de uso — professor revendo aula antiga durante
 aula ao vivo. Merge e push dependem de ordem explícita do Alexandre.
+
+---
+
+## Fechamento (2026-09-25, à noite): correção D17 entregue e auditada
+Executor: `agy` (Antigravity), despachado pelo chefe com a ordem D17 + LEIA-ME (log em
+`docs/execucoes/issue-20260925-175400-vazamento-guest-no-quadro-leitura-agy-20260925_1858.log`).
+Entrega: commit `4e8c10d`, 18 arquivos, +766 −41. **Veredito: APROVADA para merge**, pendente da decisão do
+dono.
+
+### O que o chefe verificou por conta própria (não é a palavra do executor)
+1. **O ataque que furou agora resiste.** Rodei `ataque-readonly-guest.cjs` contra o build do `4e8c10d`:
+   quadro em leitura em 1 elemento e 14750 pixels, **delta 0**, com os controles positivos subindo (Guest
+   2 → 4 elementos; SQLite da sessão viva 2 → 4; sessão encerrada intacta em 1).
+2. **Regressão do caminho feliz — o risco real desta correção.** Um funil rigoroso demais passaria no item 1
+   e quebraria a aula ao vivo, e nenhuma prova do executor cobria isso no mesmo cenário. Escrevi
+   `evidencia/ataque-pos-d17.cjs`, que testa as duas metades na mesma execução: com o quadro da sessão VIVA
+   aberto, o traço do Guest **chega e é desenhado** (+1 elemento, pixels 19055 → 21613). Captura
+   `evidencia/pos-d17-viva-depois.png`: "Elementos Visíveis: 5", barra de ferramentas completa,
+   "Convidado Conectado (E2EE)".
+3. **Auditor automático em clone limpo, rodado por mim** (`docs/execucoes/auditoria-fase-08-pos-d17.log`):
+   tudo verde, 362 testes, sonda 37/37, 253 afirmações conferidas, 0 falhas de sinal de risco.
+4. **Leitura do diff:** o funil `aplicarEventoRemoto` tem as 6 regras da ordem; `sessaoId` é carimbado no
+   Main a partir do `SessionManager` **depois** do spread do envelope, então valor forjado pelo Guest é
+   sobrescrito; `HostApp.tsx` não tem mais `setState({ tabState })` solto. `CLEAR_TAB` saiu do caminho
+   remoto — **não é regressão**: é ação exclusiva do Host (`ACOES_EXCLUSIVAS_HOST`, ADR-011), o Guest nunca
+   pôde emitir.
+5. **A sonda V5 do executor é prova real, não uma mais fraca:** Guest de verdade por IP de LAN, toque via
+   CDP, `page.screenshot` decodificado, e o PASS dela exige os controles positivos (elementos do Guest e
+   eventos do SQLite subindo) — ou seja, não dá falso PASS por ataque inerte, que foi exatamente o erro que
+   eu mesmo cometi na primeira rodada deste ataque.
+
+### Ressalvas (nenhuma bloqueia o merge)
+1. `aplicarEventoRemoto(event: any)`: a entrada do funil não é tipada (o auditor marca
+   `TIPO_SUPRIMIDO useHostStore.ts:614`, um `as any` no `.includes` da allowlist). As validações defensivas
+   cobrem o risco prático, mas o contrato IPC do evento do Guest continua `any` de ponta a ponta.
+2. Evento de aba não ativa agora é descartado. Verifiquei por leitura que não há perda de dado: o servidor
+   já persistiu no SQLite e `trocarAba` (`useHostStore.ts:566`) recarrega o estado da aba pelo banco. Quando
+   a fase de abas (`docs/prompts/fase-08-abas-midia-assets.md`) entrar, esta regra precisa ser reavaliada —
+   não testei troca de aba concorrente.
+3. O executor reexecutou meu script de ataque e **sobrescreveu as capturas do defeito original**
+   (`leitura-antes.png` / `leitura-depois.png`), porque o script grava ao lado de si mesmo. Restaurei as
+   originais de `f769a47`; as pós-correção ficaram como `pos-d17-*.png`. Lição para as próximas ordens:
+   script de evidência do chefe deve gravar em caminho com carimbo, não sobrescrever a prova do defeito.
+
+### Não verificado nesta rodada
+- Red team (`tools/red-team.ps1`) sobre D12–D17.
+- Aparelho Android físico.
+- Exportação PNG do quadro em leitura (o vazamento que a contaminaria está fechado, mas o caminho de
+  exportação em si não foi medido por mim).
+- D12, D13 e D14 seguem apoiados no auditor automático e nas autoauditorias, sem reataque do chefe.

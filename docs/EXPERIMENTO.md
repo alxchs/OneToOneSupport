@@ -98,3 +98,10 @@ Leitura do lote 1: 3 fases (~10 mil linhas novas, 121 testes, servidor E2EE, UI 
   "defesa funcionou" de "ataque não aconteceu".
 - Dois ataques resistiram: arraste por TOQUE no modo seleção (D15) e desenho por TOQUE no modo leitura
   (D16) — o executor só tinha testado com mouse nos dois casos.
+- **Correção D17 (mesmo dia):** despachada ao `agy` pelo chefe e entregue em uma rodada (commit `4e8c10d`,
+  +766 −41, 362 testes, sonda 37/37). O executor reproduziu o defeito antes de corrigir, reexecutou o
+  ataque do chefe depois e escreveu a sonda V5 **com os controles positivos embutidos no critério de PASS**
+  — a lição da rodada anterior foi absorvida. O chefe verificou por conta própria e achou o buraco que
+  faltava na prova: ninguém tinha testado se o funil novo quebraria a aula ao vivo. Testei
+  (`ataque-pos-d17.cjs`, as duas metades na mesma execução): não quebrou. Fase 08 APROVADA para merge,
+  pendente do dono.
