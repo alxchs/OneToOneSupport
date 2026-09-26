@@ -88,6 +88,9 @@ export class RelatorioService {
       path.resolve(__dirname, '../reports/preload-relatorio.js'),
       path.resolve(__dirname, '../../dist/electron/reports/preload-relatorio.js'),
       path.resolve(process.cwd(), 'dist/electron/reports/preload-relatorio.js'),
+      path.resolve(__dirname, '../reports/preload-relatorio.ts'),
+      path.resolve(__dirname, '../../electron/reports/preload-relatorio.ts'),
+      path.resolve(process.cwd(), 'electron/reports/preload-relatorio.ts'),
     ];
     for (const p of candidatePaths) {
       if (fs.existsSync(p)) return p;
@@ -125,11 +128,29 @@ export class RelatorioService {
   /**
    * Gera o relatório da sessão em formato PDF conforme os requisitos R1..R7 (ADR-015).
    */
-  public async gerar(
+  /**
+   * Prepara os dados da sessão, reconstrói os estados vetoriais e monta o HTML do relatório (R1, R4).
+   * Método exposto para permitir auditoria e testes unitários diretos de sanitização e reconstrução.
+   */
+  public async prepararDadosERecursos(
     sessaoId: string,
     numeroVersao?: number,
     opcoes?: GerarRelatorioOpcoes
-  ): Promise<IPCResult<{ path: string }>> {
+  ): Promise<
+    IPCResult<{
+      htmlMontado: string;
+      pastaDestinoSessao: string;
+      caminhoFinalPdf: string;
+      preloadPath: string;
+      abasPayloadParaJanela: Array<{
+        id: string;
+        tipo: AbaRecord['tipo'];
+        renderMiniatura: boolean;
+        state: unknown;
+        assetDataUri?: string | null;
+      }>;
+    }>
+  > {
     // 1. Validação de identificador seguro contra Path Traversal
     if (!isValidId(sessaoId)) {
       return {
@@ -353,6 +374,39 @@ export class RelatorioService {
         `<img src="${opcoes.urlExternaParaTesteBloqueioRede}" alt="teste-rede" />\n</body>`
       );
     }
+
+    return {
+      success: true,
+      data: {
+        htmlMontado,
+        pastaDestinoSessao,
+        caminhoFinalPdf,
+        preloadPath,
+        abasPayloadParaJanela,
+      },
+    };
+  }
+
+  /**
+   * Gera o relatório da sessão em formato PDF conforme os requisitos R1..R7 (ADR-015).
+   */
+  public async gerar(
+    sessaoId: string,
+    numeroVersao?: number,
+    opcoes?: GerarRelatorioOpcoes
+  ): Promise<IPCResult<{ path: string }>> {
+    const recursosRes = await this.prepararDadosERecursos(sessaoId, numeroVersao, opcoes);
+    if (!recursosRes.success) {
+      return { success: false, error: recursosRes.error, message: recursosRes.message };
+    }
+
+    const {
+      htmlMontado,
+      pastaDestinoSessao,
+      caminhoFinalPdf,
+      preloadPath,
+      abasPayloadParaJanela,
+    } = recursosRes.data;
 
     // Gravação do HTML temporário na pasta da sessão
     const tempHtmlFileName = `.relatorio-${crypto.randomUUID()}.html`;
