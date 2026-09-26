@@ -1,10 +1,19 @@
 # ADR-015: Geração de Relatório em PDF via API Nativa do Electron (printToPDF)
 
 ## Contexto
-O plano original de fases (`docs/FASES.md`) previa a geração de relatórios de atendimento em PDF utilizando a biblioteca `puppeteer` (`^22.15.0`). Embora o `puppeteer` já estivesse presente no repositório como ferramenta exclusiva de testes e automação em tempo de desenvolvimento (`tools/probe-runtime.cjs`), seu uso em produção no empacotamento (`electron-builder`) traria sérias desvantagens de distribuição:
-1. **Duplicação de Chromium:** O Puppeteer baixa e empacota seu próprio binário do Chromium (~150–200 MB compactado, ~350–450 MB descompactado em disco), mesmo o instalador do Electron já trazendo uma instância completa e atualizada do Chromium.
-2. **Inchaço do Instalador:** O instalador final distribuído para os clientes teria seu tamanho desnecessariamente dobrado sem qualquer ganho funcional.
-3. **Consumo de Memória e Inicialização:** Lançar um subprocesso independente do Puppeteer consome centenas de megabytes de RAM adicionais em comparação com a criação de uma janela interna fora de tela gerenciada pelo processo principal do Electron.
+O plano original de fases (`docs/FASES.md`) previa a geração de relatórios de atendimento em PDF utilizando a biblioteca `puppeteer` (`^22.15.0`). O `puppeteer` já estava presente no repositório como ferramenta exclusiva de testes e automação em tempo de desenvolvimento (`tools/probe-runtime.cjs`), e seu uso em produção no empacotamento (`electron-builder`) traria desvantagens:
+1. **Correção (2026-09-26, revisão do chefe na Fase 10):** o `.npmrc` do projeto já tem `puppeteer_skip_download=true`
+   (com `runtime=electron`/`target=30.5.1`), então o `puppeteer` instalado aqui **nunca baixou um Chromium
+   próprio** — `node_modules/puppeteer` mede ~420 KB no disco, e `tools/probe-runtime.cjs` sempre aponta
+   `executablePath`/`connect()` para o binário do próprio Electron via CDP. A estimativa original desta ADR
+   ("~150–200 MB compactado evitados") **não se aplicava a este repositório** e foi uma afirmação copiada da
+   situação genérica do Puppeteer sem reverificar a configuração real do projeto — exatamente o tipo de erro que
+   `AGENTS.md` pede para não repetir. O ganho real de tamanho de instalador por evitar Puppeteer em produção é
+   próximo de zero **neste projeto**; risco-aceito corrigido, decisão abaixo mantida por outros motivos.
+2. **Motivo real da decisão (revisado):** rodar `printToPDF` nativo evita depender, em produção, de uma porta de
+   depuração CDP (`--remote-debugging-port`) e de um processo de automação externo — superfície de ataque e
+   complexidade operacional menores, e nenhum código de terceiros no caminho de escrita em disco do relatório.
+   `puppeteer` seguiria existindo só como dependência de teste/dev (como já era).
 
 ## Decisão
 1. **Adoção da API Nativa do Electron:** Utilizar exclusivamente um `BrowserWindow` interno fora de tela (`show: false`) e a API nativa `webContents.printToPDF(options)` do Electron (`node_modules/electron/electron.d.ts`), eliminando 100% de duplicação do Chromium e zero dependências novas em produção.
@@ -21,6 +30,8 @@ O plano original de fases (`docs/FASES.md`) previa a geração de relatórios de
 
 ## Consequências
 - Zero dependências npm adicionadas ao projeto.
-- Economia estimada de ~150 MB a ~200 MB no instalador final do produto por não empacotar um segundo Chromium.
+- **Correção:** não há economia de tamanho de instalador por Chromium duplicado neste projeto (ver item 1 do
+  Contexto) — o ganho real é não depender de CDP/porta de depuração em produção e não rodar código de
+  automação de terceiros no caminho de geração do relatório.
 - Renderização visual HiDPI fiel às dimensões 4K @150% do Host (ADR-003).
 - Janela estritamente isolada e à prova de vazamentos de rede ou injeções de scripts externos.
