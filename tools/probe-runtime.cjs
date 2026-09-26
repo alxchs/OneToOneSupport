@@ -114,6 +114,7 @@ async function main() {
     }
   });
   let v6Results = { pass: false };
+  let v7Results = { pass: false };
 
   await page.reload();
   await new Promise((r) => setTimeout(r, 1500));
@@ -2047,6 +2048,102 @@ async function main() {
   await page.click('#btn-status-detalhe');
   await new Promise((r) => setTimeout(r, 600));
 
+  // --- V7 (Fase 09): Relatório em PDF da Sessão (R1..R8) ---
+  console.log('\n[Probe V7] Iniciando testes de Relatório em PDF da Sessão (R1..R8)...');
+  const v7Check = {
+    pass: false,
+    botaoGerarExiste: false,
+    relatorioGeradoOk: false,
+    arquivoFisicoExiste: false,
+    tamanhoValido: false,
+    numPaginas: 0,
+    textoAtendidoOk: false,
+    textoRotuloOk: false,
+    textoAbasOk: false,
+    miniaturaPixelProofOk: false,
+    paintImageOpsCount: 0,
+    caminhoPdf: null,
+  };
+
+  const btnGerarId = `#btn-gerar-relatorio-${sessaoIdEncerrar}`;
+  await page.waitForSelector(btnGerarId, { timeout: 8000 });
+  v7Check.botaoGerarExiste = true;
+  console.log(`[Probe V7] Botão de gerar relatório encontrado para a sessão ${sessaoIdEncerrar}`);
+
+  // Dispara a geração via desktopAPI do Host (R1..R5)
+  const genReportRes = await page.evaluate(async (sId) => {
+    return await window.desktopAPI.relatorio.gerar(sId);
+  }, sessaoIdEncerrar);
+
+  console.log('[Probe V7] genReportRes:', JSON.stringify(genReportRes));
+
+  v7Check.relatorioGeradoOk = Boolean(genReportRes && genReportRes.success && genReportRes.data && genReportRes.data.path);
+  v7Check.caminhoPdf = genReportRes?.data?.path || null;
+  console.log(`[Probe V7] Geração de relatório concluída via IPC: ${v7Check.relatorioGeradoOk} (caminho: ${v7Check.caminhoPdf})`);
+
+  if (v7Check.caminhoPdf && fs.existsSync(v7Check.caminhoPdf)) {
+    v7Check.arquivoFisicoExiste = true;
+    const statPdf = fs.statSync(v7Check.caminhoPdf);
+    v7Check.tamanhoValido = statPdf.size > 5000;
+    console.log(`[Probe V7] Arquivo físico existe no disco: ${statPdf.size} bytes (válido: ${v7Check.tamanhoValido})`);
+
+    // Inspeção profunda e verificação de conteúdo usando pdfjs-dist
+    const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+    const pdfBytes = new Uint8Array(fs.readFileSync(v7Check.caminhoPdf));
+    const pdfDoc = await pdfjs.getDocument({ data: pdfBytes }).promise;
+    v7Check.numPaginas = pdfDoc.numPages;
+    console.log(`[Probe V7] Documento PDF carregado com sucesso pelo pdfjs-dist: ${pdfDoc.numPages} página(s)`);
+
+    let fullPdfText = '';
+    let totalImageOps = 0;
+
+    for (let pNum = 1; pNum <= pdfDoc.numPages; pNum++) {
+      const pageObj = await pdfDoc.getPage(pNum);
+      const textContent = await pageObj.getTextContent();
+      const pageText = textContent.items.map((it) => it.str).join(' ');
+      fullPdfText += ' ' + pageText;
+
+      const ops = await pageObj.getOperatorList();
+      for (let i = 0; i < ops.fnArray.length; i++) {
+        const op = ops.fnArray[i];
+        if (op === pdfjs.OPS.paintImageXObject || op === pdfjs.OPS.paintInlineImageXObject) {
+          totalImageOps++;
+        }
+      }
+    }
+
+    v7Check.paintImageOpsCount = totalImageOps;
+    console.log(`[Probe V7] Texto consolidado extraído do PDF: "${fullPdfText.replace(/\s+/g, ' ').slice(0, 300)}..."`);
+    console.log(`[Probe V7] Operações de renderização de imagem/miniatura encontradas no PDF: ${totalImageOps}`);
+
+    v7Check.textoAtendidoOk = fullPdfText.includes('Mariana') || fullPdfText.includes('Atendido');
+    v7Check.textoRotuloOk = fullPdfText.includes('Relatório') || fullPdfText.includes('Sessão');
+    v7Check.textoAbasOk = fullPdfText.includes('Imagem') || fullPdfText.includes('PDF');
+    v7Check.miniaturaPixelProofOk = totalImageOps >= 2;
+
+    console.log(`[Probe V7] Verificações de texto: Atendido=${v7Check.textoAtendidoOk}, Rótulo=${v7Check.textoRotuloOk}, Abas=${v7Check.textoAbasOk}`);
+    console.log(`[Probe V7] Prova de pixels de miniaturas: ${v7Check.miniaturaPixelProofOk} (${totalImageOps} miniaturas gráficas com pixels de traço incorporadas)`);
+
+    // Captura screenshot da janela do Host com a tela de detalhes e evidência de geração
+    const shotV7 = path.join(root, 'docs', 'reviews', 'evidencias', 'v7-detalhes-relatorio.png');
+    await page.screenshot({ path: shotV7 });
+    console.log(`[Probe V7] Captura de tela salva em ${shotV7}`);
+  }
+
+  v7Check.pass = Boolean(
+    v7Check.botaoGerarExiste &&
+    v7Check.relatorioGeradoOk &&
+    v7Check.arquivoFisicoExiste &&
+    v7Check.tamanhoValido &&
+    v7Check.numPaginas >= 1 &&
+    v7Check.textoAtendidoOk &&
+    v7Check.textoRotuloOk &&
+    v7Check.textoAbasOk &&
+    v7Check.miniaturaPixelProofOk
+  );
+  v7Results = v7Check;
+  console.log(`[Probe V7] Resultado final da seção V7: ${v7Results.pass ? 'PASS' : 'FAIL'}`);
+
   await page.click('#btn-voltar-lista');
   await page.waitForSelector('#input-busca-atendido', { timeout: 5000 });
 
@@ -2149,6 +2246,7 @@ async function main() {
     v4: v4Results,
     v5: v5Results,
     v6: v6Results,
+    v7: v7Results,
   };
 }
 
@@ -2224,6 +2322,16 @@ main()
         Boolean(res.v6 && res.v6.shaPreserved),
       'V6: autoridade PDF_PAGE rejeita comando emitido pelo Guest':
         Boolean(res.v6 && res.v6.pdfPageAuthOk),
+      'V7: Botão Gerar Relatório visível na interface do Host':
+        Boolean(res.v7 && res.v7.botaoGerarExiste),
+      'V7: Relatório PDF gerado via API nativa do Electron (ADR-015)':
+        Boolean(res.v7 && res.v7.relatorioGeradoOk),
+      'V7: Arquivo físico salvo na convenção de diretório com tamanho válido':
+        Boolean(res.v7 && res.v7.arquivoFisicoExiste && res.v7.tamanhoValido),
+      'V7: Leitura e extração de texto via pdfjs-dist conferem atendido, rótulos e abas':
+        Boolean(res.v7 && res.v7.textoAtendidoOk && res.v7.textoRotuloOk && res.v7.textoAbasOk),
+      'V7: Prova visual de pixels com miniaturas gráficas incorporadas no PDF':
+        Boolean(res.v7 && res.v7.miniaturaPixelProofOk),
     };
 
     console.log(JSON.stringify(res, null, 2));

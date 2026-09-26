@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useHostStore } from '../store/useHostStore';
+import type { RevisaoDTO } from '../../shared/ipc-contract';
 
 export const DetalheAtendidoPage: React.FC = () => {
   const {
@@ -26,6 +27,52 @@ export const DetalheAtendidoPage: React.FC = () => {
   const [tituloSessao, setTituloSessao] = useState('');
   const [notasSessao, setNotasSessao] = useState('');
   const [copiado, setCopiado] = useState(false);
+  const [gerandoRelatorioId, setGerandoRelatorioId] = useState<string | null>(null);
+  const [modalRevisoesSessaoId, setModalRevisoesSessaoId] = useState<string | null>(null);
+  const [revisoesDisponiveis, setRevisoesDisponiveis] = useState<RevisaoDTO[]>([]);
+  const [revisaoSelecionada, setRevisaoSelecionada] = useState<string>('atual');
+
+  const handleClicarGerarRelatorio = async (sessaoId: string) => {
+    if (!window.desktopAPI?.relatorio) return;
+    try {
+      const res = await window.desktopAPI.relatorio.listarRevisoes(sessaoId);
+      if (res.success && res.data && res.data.length > 1) {
+        setRevisoesDisponiveis(res.data);
+        setRevisaoSelecionada('atual');
+        setModalRevisoesSessaoId(sessaoId);
+        return;
+      }
+    } catch {
+      // Fallback para gerar direto do estado atual
+    }
+    await handleExecutarGerarRelatorio(sessaoId);
+  };
+
+  const handleExecutarGerarRelatorio = async (sessaoId: string, versao?: number) => {
+    if (!window.desktopAPI?.relatorio) return;
+    setGerandoRelatorioId(sessaoId);
+    setModalRevisoesSessaoId(null);
+    try {
+      const res = await window.desktopAPI.relatorio.gerar(sessaoId, versao);
+      if (res.success) {
+        useHostStore.setState({
+          mensagemAlerta: { tipo: 'sucesso', texto: 'Relatório em PDF gerado com sucesso! Abrindo arquivo...' },
+        });
+        await window.desktopAPI.relatorio.abrir(res.data.path);
+      } else {
+        useHostStore.setState({
+          mensagemAlerta: { tipo: 'alerta', texto: res.message || 'Falha ao gerar relatório.' },
+        });
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      useHostStore.setState({
+        mensagemAlerta: { tipo: 'alerta', texto: `Erro ao gerar relatório: ${msg}` },
+      });
+    } finally {
+      setGerandoRelatorioId(null);
+    }
+  };
 
   useEffect(() => {
     carregarStatusServidor();
@@ -504,6 +551,25 @@ export const DetalheAtendidoPage: React.FC = () => {
                       >
                         Encerrar {rotuloSessao}
                       </button>
+                      <button
+                        id={`btn-gerar-relatorio-${s.id}`}
+                        type="button"
+                        onClick={() => handleClicarGerarRelatorio(s.id)}
+                        disabled={gerandoRelatorioId === s.id}
+                        style={{
+                          padding: '0.5rem 1rem',
+                          fontSize: '0.8125rem',
+                          fontWeight: 600,
+                          backgroundColor: '#0369a1',
+                          border: '1px solid #0284c7',
+                          color: '#ffffff',
+                          borderRadius: '0.375rem',
+                          cursor: gerandoRelatorioId === s.id ? 'wait' : 'pointer',
+                          opacity: gerandoRelatorioId === s.id ? 0.7 : 1,
+                        }}
+                      >
+                        {gerandoRelatorioId === s.id ? 'Gerando...' : 'Gerar Relatório'}
+                      </button>
                     </div>
                   )}
 
@@ -524,6 +590,25 @@ export const DetalheAtendidoPage: React.FC = () => {
                         }}
                       >
                         Ver quadro (somente leitura)
+                      </button>
+                      <button
+                        id={`btn-gerar-relatorio-${s.id}`}
+                        type="button"
+                        onClick={() => handleClicarGerarRelatorio(s.id)}
+                        disabled={gerandoRelatorioId === s.id}
+                        style={{
+                          padding: '0.5rem 1rem',
+                          fontSize: '0.8125rem',
+                          fontWeight: 600,
+                          backgroundColor: '#0369a1',
+                          border: '1px solid #0284c7',
+                          color: '#ffffff',
+                          borderRadius: '0.375rem',
+                          cursor: gerandoRelatorioId === s.id ? 'wait' : 'pointer',
+                          opacity: gerandoRelatorioId === s.id ? 0.7 : 1,
+                        }}
+                      >
+                        {gerandoRelatorioId === s.id ? 'Gerando...' : 'Gerar Relatório'}
                       </button>
                     </div>
                   )}
@@ -726,6 +811,111 @@ export const DetalheAtendidoPage: React.FC = () => {
           </div>
         )}
       </div>
+      {modalRevisoesSessaoId && (
+        <div
+          id="modal-escolher-revisao"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.75)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 100,
+            padding: '1rem',
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: '#0f172a',
+              border: '1px solid #334155',
+              borderRadius: '0.75rem',
+              padding: '1.5rem',
+              maxWidth: '480px',
+              width: '100%',
+              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5)',
+            }}
+          >
+            <h3 style={{ margin: '0 0 0.5rem 0', color: '#f8fafc', fontSize: '1.125rem' }}>
+              Escolher Versão do Relatório
+            </h3>
+            <p style={{ margin: '0 0 1.25rem 0', color: '#94a3b8', fontSize: '0.875rem' }}>
+              Esta sessão possui {revisoesDisponiveis.length} revisões salvas no histórico. Selecione qual versão você deseja incluir no relatório em PDF:
+            </p>
+
+            <div style={{ marginBottom: '1.25rem' }}>
+              <label
+                htmlFor="select-revisao-relatorio"
+                style={{ display: 'block', fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', marginBottom: '0.375rem' }}
+              >
+                Versão da Sessão
+              </label>
+              <select
+                id="select-revisao-relatorio"
+                value={revisaoSelecionada}
+                onChange={(e) => setRevisaoSelecionada(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '0.625rem 0.875rem',
+                  fontSize: '0.875rem',
+                  backgroundColor: '#1e293b',
+                  border: '1px solid #475569',
+                  color: '#f8fafc',
+                  borderRadius: '0.375rem',
+                }}
+              >
+                <option value="atual">Estado atual (mais recente)</option>
+                {revisoesDisponiveis.map((rev) => (
+                  <option key={rev.id} value={String(rev.numero_versao)}>
+                    Revisão {rev.numero_versao}{rev.titulo ? `: ${rev.titulo}` : ''} ({new Date(rev.criado_em).toLocaleDateString()})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+              <button
+                type="button"
+                id="btn-cancelar-modal-revisao"
+                onClick={() => setModalRevisoesSessaoId(null)}
+                style={{
+                  padding: '0.5rem 1rem',
+                  fontSize: '0.875rem',
+                  backgroundColor: '#1e293b',
+                  border: '1px solid #475569',
+                  color: '#cbd5e1',
+                  borderRadius: '0.375rem',
+                  cursor: 'pointer',
+                }}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                id="btn-confirmar-gerar-relatorio"
+                onClick={() =>
+                  handleExecutarGerarRelatorio(
+                    modalRevisoesSessaoId,
+                    revisaoSelecionada === 'atual' ? undefined : Number(revisaoSelecionada)
+                  )
+                }
+                style={{
+                  padding: '0.5rem 1.25rem',
+                  fontSize: '0.875rem',
+                  fontWeight: 600,
+                  backgroundColor: '#0284c7',
+                  border: 'none',
+                  color: '#ffffff',
+                  borderRadius: '0.375rem',
+                  cursor: 'pointer',
+                }}
+              >
+                Confirmar e Gerar PDF
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

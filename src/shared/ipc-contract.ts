@@ -67,6 +67,11 @@ export const IPC_CHANNELS = {
   ASSET_GET: 'asset:get',
   ASSET_LIST_BY_SESSAO: 'asset:list-by-sessao',
 
+  // Relatório PDF (Fase 09 - R5)
+  RELATORIO_GERAR: 'relatorio:gerar',
+  RELATORIO_LISTAR_REVISOES: 'relatorio:listar-revisoes',
+  RELATORIO_ABRIR: 'relatorio:abrir',
+
   // Diagnóstico Forward (D1)
   DIAG_FORWARD: 'diag:forward',
 } as const;
@@ -265,6 +270,25 @@ export interface GuestEventDTO {
   [key: string]: unknown;
 }
 
+export interface GerarRelatorioPayload {
+  sessaoId: string;
+  numeroVersao?: number;
+}
+
+export interface RelatorioGeradoDTO {
+  path: string;
+}
+
+export interface RevisaoDTO {
+  id: string;
+  sessao_id: string;
+  numero_versao: number;
+  snapshot_evento_idx: number;
+  titulo: string | null;
+  criado_em: number;
+  autor: string;
+}
+
 export interface DesktopAPI {
   getScaleFactor: () => Promise<number>;
   getDisplayMetrics: () => Promise<DisplayMetrics>;
@@ -327,6 +351,12 @@ export interface DesktopAPI {
   eventos: {
     gravar: (payload: GravarEventoPayload) => Promise<IPCResult<any>>;
     obterEstadoAba: (sessao_id: string, aba_id?: string) => Promise<IPCResult<any>>;
+  };
+
+  relatorio: {
+    gerar: (sessaoId: string, numeroVersao?: number) => Promise<IPCResult<RelatorioGeradoDTO>>;
+    listarRevisoes: (sessaoId: string) => Promise<IPCResult<RevisaoDTO[]>>;
+    abrir: (caminho: string) => Promise<IPCResult<boolean>>;
   };
 
   diagForward?: (checkpoint: string, data?: Record<string, unknown>) => void;

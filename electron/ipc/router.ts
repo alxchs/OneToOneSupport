@@ -6,6 +6,7 @@ import { registerEventoIpc } from './evento.ipc';
 import { registerAbaIpc } from './aba.ipc';
 import { registerAssetIpc } from './asset.ipc';
 import { registerDiagIpc } from './diag.ipc';
+import { registerRelatorioIpc } from './relatorio.ipc';
 
 /**
  * Registra todos os canais e rotas de IPC do Main Process.
@@ -19,6 +20,7 @@ export function registerIpcHandlers(): void {
   registerAbaIpc();
   registerAssetIpc();
   registerDiagIpc();
+  registerRelatorioIpc();
 }
 
 

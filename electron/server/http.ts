@@ -351,7 +351,8 @@ export function createExpressApp(sessionManager: SessionManager): express.Expres
   return app;
 }
 
-function escapeHtml(str: string): string {
+export function escapeHtml(str: string): string {
+  if (!str) return '';
   return str
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
