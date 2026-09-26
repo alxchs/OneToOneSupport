@@ -14,12 +14,17 @@ Você é o chefe técnico (Claude Code) do OneToOneSupport. O executor é o Anti
 
 ## Ciclo da fase (o que só o chefe faz)
 1. Ordem em `docs/prompts/fase-NN-*.md` já existe; refinar só se a revisão cruzada (`docs/reviews/revisao-cruzada-NN.md`) apontar lacuna.
-2. Alexandre dispara: `pwsh -NoProfile -File tools\despachar.ps1 -Fase NN -Autonomo` (o Claude Code bloqueia o chefe de fazer isso). Revisão cruzada opcional: `tools\revisao-cruzada.ps1 -Fase NN`.
+2. O próprio chefe dispara: `pwsh -NoProfile -File tools\despachar.ps1 -Fase NN -Autonomo` (ordem explícita do
+   Alexandre em 2026-09-26: o chefe roda isso sozinho, sem devolver o comando para ele colar no terminal — só
+   `git push`/merge continuam exigindo autorização dele naquele momento). Revisão cruzada opcional:
+   `tools\revisao-cruzada.ps1 -Fase NN`.
 3. Ao fim do lote: ler `docs/execucoes/lote-*.log` e `auditoria-fase-NN.log` (curtos); por fase, abrir a tela e tentar quebrar 2-3 regras; comparar com `autoauditoria-NN.md`; escrever `docs/reviews/fase-NN.md` e a linha em `docs/EXPERIMENTO.md` (defeitos que o chefe achou, falsos PASS).
 4. Merge `--no-ff` em `main` e `git push` só com ordem explícita do Alexandre, naquele momento. Nunca `git add -A` em `main`.
 
 ## Fatos que custaram caro
-- `agy` headless não pede permissão: sem `--dangerously-skip-permissions` ele nega todo comando. O Claude Code bloqueia o chefe de usá-lo; quem roda é o Alexandre no terminal do VS Code.
+- `agy` headless não pede permissão: sem `--dangerously-skip-permissions` ele nega todo comando; por isso o
+  `despachar.ps1 -Autonomo` sempre passa essa flag. Cota da conta do Antigravity pode se esgotar
+  (`RESOURCE_EXHAUSTED`, HTTP 429) — o erro informa o tempo até o reset; esperar e redespachar, sem martelar.
 - `ELECTRON_RUN_AS_NODE` (definido pelo VS Code) faz o Electron rodar como Node; apague-o ao lançar Electron.
 - `NODE_ENV=production` faz `npm ci` pular devDependencies.
 - Em `file://`, CSP por header não vale; usar `<meta>` no build. No Git Bash, `branch:path` precisa de `MSYS_NO_PATHCONV=1`.
