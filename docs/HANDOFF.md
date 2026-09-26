@@ -1,3 +1,43 @@
+# HANDOFF DE ESTADO — FASE 09: Relatório em PDF da Sessão
+
+## Mensagem para o Alexandre (Resumo em Português Simples — Fase 09)
+Olá Alexandre! Nesta Fase 09, entregamos a geração consolidada de **Relatórios em PDF da Sessão**. Agora, com um único clique no painel do profissional, o sistema compila todo o histórico da aula ou consulta — incluindo dados do atendido, horários de início e encerramento, anotações confidenciais e as miniaturas visuais fiéis de cada aba trabalhada (quadro branco, anotações sobre imagens e páginas de documentos PDF) — gerando um documento PDF de padrão profissional, pronto para arquivamento ou envio.
+
+Principais entregas implementadas e validadas:
+1. **Geração Nativa com Electron (`ADR-015`):** Adotamos a API nativa do Electron (`webContents.printToPDF`) em uma janela fora de tela (`BrowserWindow` offscreen), descartando Puppeteer em produção. Isso economiza mais de 150 MB no instalador distribuído e evita duplicar o Chromium que o próprio Electron já fornece.
+2. **Miniaturas Fiéis das Abas:** As miniaturas não usam capturas estáticas imprecisas; reaproveitam diretamente o mesmo motor gráfico do aplicativo (`WhiteboardEngine` e `PdfDocumentViewer`), gerando imagens nítidas que respeitam telas de alta densidade (HiDPI) e o estado exato de anotações sobre imagens e páginas de PDF. Abas vazias são indicadas no sumário sem poluir o documento.
+3. **Suporte a Revisões e Versões:** Se o atendimento possuir marcos intermediários ou revisões salvas, o profissional pode escolher gerar o relatório do estado atual ou de qualquer revisão anterior gravada.
+4. **Segurança e Isolamento Rigoroso:** O gerador de relatório roda com isolamento de contexto (`contextIsolation`), sandbox ativado, proteção estrita contra injeção de código (XSS escapado em todos os campos com `escapeHtml`), defesa contra fuga de diretório (`isValidId`) e bloqueio preventivo de tráfego de rede externo (`onBeforeRequest`).
+5. **Gravação Atômica:** O arquivo PDF é gravado de maneira atômica (arquivo temporário seguido de substituição imediata) na pasta padronizada da sessão (`<raiz>/<slug>/<pasta_sessao>/relatorio.pdf`), garantindo que falhas parciais nunca deixem arquivos corrompidos.
+6. **Interface Integrada:** Botão direto "Gerar Relatório" em cada sessão (em andamento ou encerrada), com modal para escolha de revisão e abertura automática no visualizador de PDFs padrão do sistema operacional através de canal IPC seguro (`shell.openPath`).
+
+Toda a suíte de testes está 100% verde com **409 testes automatizados** vitest (incluindo 17 novos testes unitários e adversariais em `tests/relatorio.test.ts`), e a sonda de runtime `tools/probe-runtime.cjs` foi estendida com a nova verificação `V7`, aprovando a geração física real, leitura profunda com `pdfjs-dist`, conferência de texto e prova de pixels com miniaturas gráficas incorporadas.
+
+[HANDOFF DE ESTADO — FASE 09: Relatório em PDF da Sessão]
+* Arquivos Modificados/Criados na Fase 09:
+  - `docs/ADR/015-relatorio-pdf-electron-nativo.md`: Registro da decisão arquitetural de geração nativa de PDF via Electron.
+  - `electron/reports/preload-relatorio.ts`: Script de preload isolado com ponte segura de comunicação para renderização de miniaturas.
+  - `src/report/report-renderer.ts`: Renderizador offscreen acoplando `WhiteboardEngine` e `PdfDocumentViewer` com exportação HiDPI.
+  - `scripts/build-report.mjs`: Script de empacotamento com esbuild do script de renderização de relatório.
+  - `electron/reports/templates/sessao.html`: Template visual de relatório com fontes do sistema, estilo de impressão e zero dependências externas.
+  - `electron/services/relatorio.service.ts`: Serviço central `RelatorioService` para reconstrução de dados, escape HTML, controle offscreen e gravação atômica.
+  - `electron/ipc/relatorio.ipc.ts`: Handlers IPC para canais de geração, listagem de revisões e abertura segura de PDF.
+  - `src/shared/ipc-contract.ts`: Contratos tipados de IPC para geração e abertura de relatório (`RELATORIO_GERAR`, `RELATORIO_LISTAR_REVISOES`, `RELATORIO_ABRIR`).
+  - `electron/preload.ts`: Exposição dos métodos de relatório em `window.desktopAPI.relatorio`.
+  - `src/host/pages/DetalheAtendidoPage.tsx`: Botão de gerar relatório, modal de seleção de versão e abertura do documento gerado.
+  - `tests/relatorio.test.ts`: 17 testes unitários e adversariais cobrindo validação de parâmetros, XSS, Path Traversal, revisões e escrita atômica.
+  - `tools/probe-runtime.cjs`: Extensão da sonda com a verificação V7 validando a geração do PDF, tamanho, páginas, textos e prova de pixel.
+  - `docs/reviews/autoauditoria-09.md`: Relatório completo de autoauditoria da Fase 09.
+  - `docs/reviews/autoauditoria-09-relatorio-pdf.md`: Cópia do relatório de autoauditoria com o nome completo da fase.
+* Estado Atual: Fase 09 100% implementada, testada e autoauditada. `npm run verify` verde (409 testes passando, 46 checagens na sonda). `node tools/auditar.cjs` 100% verde sem achados.
+* Decisões Críticas Tomadas:
+  - Geração Nativa vs Puppeteer: Adoção estrita de `webContents.printToPDF` para evitar duplicar o Chromium em produção (`ADR-015`).
+  - Reaproveitamento do WhiteboardEngine: As miniaturas executam a mesma engine de tela do Host para fidelidade vetorial absoluta.
+  - Partição Efêmera em Memória: Janela offscreen executada sob partição isolada sem persistência de cookies ou cache em disco.
+* Divergências da Spec: Nenhuma.
+
+---
+
 # HANDOFF DE ESTADO — FASE 08: Abas Multimodais, Assets e Mídia Sincronizada
 
 ## Mensagem para o Alexandre (Resumo em Português Simples — Fase 08)
@@ -64,12 +104,12 @@ evento de aba divergente) confirma o que a autoauditoria descreve.
 Achado real durante a leitura: `handleAssetImport` e `AssetService.importAsset` usavam `sessaoId` direto como
 componente de caminho em disco (`<sessaoId>/<sha256>.<ext>`) sem validar o formato — um `sessaoId` do tipo
 `../../../../pasta` escapava da raiz de assets, quebrando o mesmo padrão de defesa (`isValidId`/`ID_REGEX`) que
-o projeto já aplica ao `abaId` do Guest em `server/index.ts`. Corrigido por mim (< 15 linhas, autorizado pelo
+o projeto já aplica ao `abaId` do Guest em `electron/server/index.ts`. Corrigido por mim (< 15 linhas, autorizado pelo
 `docs/CHEFE.md`): validação de `isValidId(sessaoId)` em `electron/ipc/asset.ipc.ts` e
 `electron/services/asset.service.ts` (defesa em profundidade nos dois pontos), mais o teste de ataque
 `tests/assets.test.ts` (path traversal via `sessaoId`) que falha sem a correção. `npm run verify` continua
 verde: **392 testes**, sonda 41/41. Duas execuções da AGY nesta fase morreram sem commit (reinício da máquina,
-depois cota `RESOURCE_EXHAUSTED` do Antigravity) — preservadas como `wip` (`3c33b35`, `29fdb27`) antes do
+depois cota RESOURCE_EXHAUSTED do Antigravity) — preservadas como `wip` (`3c33b35`, `29fdb27`) antes do
 redespacho; nenhum trabalho foi perdido. Detalhe completo em `docs/reviews/autoauditoria-08-abas-midia.md` §4.
 
 ---
