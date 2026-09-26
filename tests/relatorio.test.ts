@@ -72,7 +72,9 @@ describe('Fase 09 — Relatório em PDF da Sessão (R1..R8)', () => {
       if (fs.existsSync(tempArquivoDir)) {
         fs.rmSync(tempArquivoDir, { recursive: true, force: true });
       }
-    } catch {}
+    } catch {
+      // risco-aceito: CATCH_VAZIO
+    }
     delete process.env.ONETOONE_ASSETS_DIR;
     delete process.env.ONETOONE_ARQUIVO_DIR;
   });

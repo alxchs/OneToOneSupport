@@ -63,7 +63,7 @@ stdout | tests/relatorio.test.ts
 [Probe V7] Captura de tela salva em docs/reviews/evidencias/v7-detalhes-relatorio.png
 [Probe V7] Resultado final da seção V7: PASS
 ```
-* **Evidência de Pixel / Visual:** O documento PDF gerado pelo Electron foi inspecionado em profundidade pela biblioteca `pdfjs-dist/legacy/build/pdf.mjs` no ambiente Node.js. Para cada página do documento, a lista de operadores gráficos (`getOperatorList`) foi percorrida, comprovando a presença de 4 operações `paintImageXObject` correspondentes às miniaturas com pixels reais renderizadas pelo Chromium offscreen (quarentena do quadro branco, anotação sobre imagem e páginas anotadas de PDF).
+* **Evidência de Pixel / Visual:** O documento PDF gerado pelo Electron foi inspecionado em profundidade pela biblioteca pdfjs-dist (módulo legacy) no ambiente Node.js. Para cada página do documento, a lista de operadores gráficos (`getOperatorList`) foi percorrida, comprovando a presença de 4 operações `paintImageXObject` correspondentes às miniaturas com pixels reais renderizadas pelo Chromium offscreen (quarentena do quadro branco, anotação sobre imagem e páginas anotadas de PDF).
 * **Resultado:** PASS
 
 ---

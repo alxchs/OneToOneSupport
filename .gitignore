@@ -12,6 +12,7 @@ dist-electron/
 out/
 release/
 .vite/
+*.bundle.js
 
 # C++ native builds & node-gyp
 build/
