@@ -1142,3 +1142,9 @@ Ordem em `Issues/20260924-150000-ferramentas-nao-movem-objetos`.
 ## Fechamento oficial (2026-09-26)
 Merge `--no-ff` em `main` (`7370789`) e `git push origin main` + `git push origin fase/08-abas-midia-assets`
 feitos por ordem explícita do Alexandre, dada nesta sessão.
+
+---
+
+## Fechamento oficial (2026-09-26)
+Merge `--no-ff` em `main` (`666d107`) e `git push origin main` + `git push origin fase/09-relatorio-pdf`
+feitos por ordem explícita do Alexandre, dada nesta sessão.
