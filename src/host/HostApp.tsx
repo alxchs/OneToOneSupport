@@ -6,7 +6,7 @@ import { DetalheAtendidoPage } from './pages/DetalheAtendidoPage';
 import { ConfiguracoesPage } from './pages/ConfiguracoesPage';
 import { QuadroBrancoPage } from './pages/QuadroBrancoPage';
 import { useHostStore } from './store/useHostStore';
-import type { VersionInfoDTO } from '../shared/ipc-contract';
+import type { VersionInfoDTO, GuestEventDTO } from '../shared/ipc-contract';
 import buildInfo from '../shared/build-info.json';
 
 export const HostApp: React.FC = () => {
@@ -33,7 +33,7 @@ export const HostApp: React.FC = () => {
 
     // Escuta eventos em tempo real enviados pelo Guest através do funil único no store (D17)
     if (window.desktopAPI?.serverSession) {
-      const unsubGuest = window.desktopAPI.serverSession.onGuestEvent((event: any) => {
+      const unsubGuest = window.desktopAPI.serverSession.onGuestEvent((event: GuestEventDTO) => {
         useHostStore.getState().aplicarEventoRemoto(event);
       });
 

@@ -257,7 +257,7 @@ export interface ImportAssetPayload {
 
 export interface GuestEventDTO {
   type: string;
-  payload?: any;
+  payload?: unknown;
   sessaoId?: string;
   abaId?: string;
   autor?: string;

@@ -7,6 +7,7 @@ import { buildInviteUrl } from '../../src/shared/crypto/invite';
 import { EventoService, isValidId } from '../services/evento.service';
 import { getAbaById } from '../db/repositories/aba.repo';
 import { diagServerLog } from '../../src/shared/diag';
+import { GuestEventDTO } from '../../src/shared/ipc-contract';
 
 export interface ServerSessionInfo {
   sessaoId: string;
@@ -37,7 +38,7 @@ export class ServerSessionController {
   private qrDataUrl: string = '';
 
   private statusListeners: Array<(info: ServerSessionInfo | null) => void> = [];
-  private guestEventListeners: Array<(event: any) => void> = [];
+  private guestEventListeners: Array<(event: GuestEventDTO) => void> = [];
 
   constructor(_options?: any) {
     this.selectedIp = getDefaultLanIp();
@@ -62,14 +63,14 @@ export class ServerSessionController {
     };
   }
 
-  public onGuestEvent(listener: (event: any) => void): () => void {
+  public onGuestEvent(listener: (event: GuestEventDTO) => void): () => void {
     this.guestEventListeners.push(listener);
     return () => {
       this.guestEventListeners = this.guestEventListeners.filter((l) => l !== listener);
     };
   }
 
-  private notifyGuestEvent(event: any): void {
+  private notifyGuestEvent(event: GuestEventDTO): void {
     for (const listener of this.guestEventListeners) {
       try {
         listener(event);

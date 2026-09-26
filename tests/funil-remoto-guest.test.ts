@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { useHostStore } from '../src/host/store/useHostStore';
 import { createInitialTabState, getVisibleElements } from '../src/shared/events/reducer';
 import { ServerSessionController } from '../electron/server/index';
+import type { GuestEventDTO } from '../src/shared/ipc-contract';
 
 describe('D17 — Funil Único de Eventos Remotos do Guest e Identidade de Sessão', () => {
   beforeEach(() => {
@@ -102,7 +103,7 @@ describe('D17 — Funil Único de Eventos Remotos do Guest e Identidade de Sess�
     ];
 
     for (const ev of eventosInvalidos) {
-      const aplicado = useHostStore.getState().aplicarEventoRemoto(ev);
+      const aplicado = useHostStore.getState().aplicarEventoRemoto(ev as unknown as GuestEventDTO);
       expect(aplicado).toBe(false);
     }
 

@@ -1,3 +1,60 @@
+# HANDOFF DE ESTADO — FASE 08: Abas Multimodais, Assets e Mídia Sincronizada
+
+## Mensagem para o Alexandre (Resumo em Português Simples — Fase 08)
+Olá Alexandre! Nesta Fase 08, entregamos a infraestrutura completa de **Abas Multimodais, Gestão Segura de Assets e Mídia Sincronizada**. Agora, o professor pode conduzir o atendimento criando abas de diversos tipos (quadro em branco, imagem de fundo, documento PDF com paginação, vídeo e áudio), e o aluno acompanha tudo sincronizado em tempo real no celular, mantendo a capacidade de desenhar e fazer anotações por cima de imagens e páginas de PDF.
+
+Principais entregas implementadas e validadas:
+1. **Abas de Verdade (M1):** Sistema completo de abas persistidas no SQLite (`AbaRepo`, `AbaService`, `AbaIPC`), ordenadas sem buracos, com criação idempotente (clique duplo não duplica), renomeação, reordenação e trava contra remoção de abas que possuam anotações. Barra de abas elegante e sem qualquer elemento vermelho.
+2. **Importação Segura e Atômica de Assets (M2):** Upload de arquivos gravados fora do webroot em pasta isolada de assets, com identificação real de formato por assinatura (magic bytes, banindo arquivos maliciosos e SVG), sanitização profunda de nomes de arquivo (proteção contra nomes reservados do Windows e unicode malicioso) e conferência de hash SHA-256 antes da inserção no banco.
+3. **Serviço de Mídia com Range Requests (M3):** Rota `/midia/:assetId` com suporte completo a Range Requests (`Accept-Ranges: bytes`, status 206 para partes e 416 para faixas inválidas) e autorização com token criptográfico de 32 bytes gerado pelo `SessionManager` comparado em tempo constante.
+4. **Quadro sobre Imagem e PDF (M4, M5):** Renderização de imagens e páginas de PDF (via PDF.js, ADR-013 e ADR-014) como fundo estático do canvas, respeitando o display 4K @150%. Os arquivos originais em disco nunca são modificados (SHA-256 preservado). Navegação de páginas de PDF é autoridade exclusiva do professor, com anotações salvas e restauradas de forma independente por página (`<abaId>_p<pagina>`).
+5. **Mídia Sincronizada (M6):** Sincronização temporal de vídeo e áudio com o servidor como relógio mestre, correção de deriva suave via taxa de reprodução (`playbackRate` 0.97–1.03) e proteção com rate limit contra rajadas de `CLOCK_SYNC`. O aluno só interage com o player se o professor destravar a mídia (`UNLOCK_MEDIA`).
+6. **Arquivamento Seguro no Encerramento (M8):** Ao encerrar a sessão, todos os assets utilizados são copiados atomicamente para a pasta permanente do atendido, com conferência estrita de integridade por hash SHA-256.
+7. **Dívidas Quitadas (M9):** Funil de eventos remotos estritamente tipado com `GuestEventDTO`, preservação de eventos recebidos em abas em segundo plano e reexecução do teste de ataque ao modo leitura com 0 novos elementos e delta de 0 pixels na tela.
+
+Toda a suíte de testes está 100% verde com 31 arquivos e 391 testes automatizados vitest, e a sonda de runtime `tools/probe-runtime.cjs` executada sobre o aplicativo empacotado aprovou todas as 41 checagens reais com prova visual de pixels na tela e conexões emuladas pelo IP da rede local.
+
+[HANDOFF DE ESTADO — FASE 08: Abas Multimodais, Assets e Mídia Sincronizada]
+* Arquivos Modificados/Criados na Fase 08:
+  - `electron/db/repositories/aba.repo.ts`: Repositório de abas no SQLite com `createAba`, `getAbaById`, `listAbasBySessao`, `renameAba`, `reorderAbas`, `deleteAba` e contagem de eventos por aba.
+  - `electron/db/repositories/asset.repo.ts`: Repositório de assets no SQLite com `createAsset`, `getAssetById`, `listAssetsBySessao` e `deleteAsset`.
+  - `electron/services/aba.service.ts`: Serviço de regras de negócio de abas com ordenação automática contígua, validação de tipos permitidos e bloqueio de exclusão sob eventos existentes (`HAS_EVENTS`).
+  - `electron/services/asset.service.ts`: Serviço de gestão de assets com detecção de MIME por magic bytes, sanitização profunda de caminhos e nomes, limite de tamanho configurável e conferência de integridade SHA-256.
+  - `electron/services/sessao.service.ts`: Extensão do encerramento de sessão com cópia e arquivamento seguro de assets com conferência de hash SHA-256.
+  - `electron/ipc/aba.ipc.ts`: Handlers IPC para criação, listagem, renomeação, reordenação e remoção de abas.
+  - `electron/ipc/asset.ipc.ts`: Handlers IPC para importação e consulta de assets.
+  - `electron/ipc/router.ts`: Registro dos canais IPC de abas e assets no roteador principal.
+  - `electron/server/http.ts`: Implementação da rota `GET /midia/:assetId` com suporte a Range Requests, autorização com token em tempo constante e isolamento de sessão.
+  - `electron/server/session-manager.ts`: Geração e validação de token de mídia CSPRNG e rate limit de `CLOCK_SYNC`.
+  - `electron/server/ws.ts`: Roteamento e despacho de mensagens de sincronização de mídia e relógio.
+  - `src/shared/ipc-contract.ts`: Contratos tipados de IPC para abas, assets, `GuestEventDTO`, `AbaDTO` e `AssetDTO`.
+  - `src/shared/events/protocol.ts`: Suporte formal às mensagens `PDF_PAGE` e `CLOCK_SYNC` com esquemas de validação de payload.
+  - `src/shared/autoridade.ts`: Inclusão de `PDF_PAGE` nas ações exclusivas do Host e `CLOCK_SYNC` nas ações de transporte.
+  - `src/shared/pdf/pdf-loader.ts`: Carregador utilitário `PdfDocumentViewer` com integração do `pdfjs-dist` e fake worker in-thread seguro.
+  - `src/shared/media-sync.ts`: Algoritmo determinístico `MediaSyncManager` para correção suave de deriva temporal entre Host e Guest.
+  - `src/shared/canvas/engine.ts`: Suporte a fundo estático de imagem ou canvas de PDF via `setBackgroundImage` e `clearBackgroundImage`.
+  - `src/host/pages/QuadroBrancoPage.tsx`: Barra de abas no topo, menu de criação de abas multimodais, controles de paginação de PDF e visualização integrada de mídia.
+  - `src/guest/GuestRoom.tsx`: Acompanhamento mobile da aba ativa, renderização de imagem/PDF, reprodução de mídia sob autorização e tratamento de autoplay.
+  - `tests/abas.test.ts`: Suíte de 7 testes cobrindo CRUD de abas, idempotência e reordenação.
+  - `tests/assets.test.ts`: Suíte de 6 testes cobrindo allowlist de MIME, limite de tamanho, sanitização de nomes maliciosos e importação atômica.
+  - `tests/midia-range.test.ts`: Suíte de 5 testes validando respostas 200, 206 e 416 na rota de streaming de mídia com Range Requests.
+  - `tests/midia-sync.test.ts`: Suíte de 7 testes validando o algoritmo determinístico de sincronização temporal de mídia e limitação de taxa de `CLOCK_SYNC`.
+  - `tests/arquivamento.test.ts`: Suíte de 4 testes cobrindo arquivamento de assets com conferência de hash SHA-256 e idempotência.
+  - `tools/probe-runtime.cjs`: Extensão da sonda com a verificação V6 exercitando o fluxo completo em Electron e Chromium reais.
+  - `docs/ADR/013-pdfjs-renderizacao.md`: Registro arquitetural da adoção do PDF.js.
+  - `docs/ADR/014-csp-worker-pdfjs.md`: Registro da adequação da CSP para workers do PDF.js.
+  - `docs/reviews/autoauditoria-08-abas-midia.md`: Relatório completo de autoauditoria com critérios M1..M10 e saídas reais de comandos.
+* Estado Atual: Fase 08 100% implementada, testada e autoauditada. `npm run verify` verde (391 testes passando, 41 checagens na sonda). `node tools/auditar.cjs` 100% verde sem achados.
+* Decisões Críticas Tomadas:
+  - Fundo Estático no Engine: Imagens e PDFs são projetados como plano de fundo (`backgroundImage`) do Fabric, permanecendo imóveis, imutáveis e fora do log de eventos do Event Sourcing.
+  - Isolamento de Anotações por Página: No contexto de PDF, anotações vetoriais são particionadas sob a convenção `<abaId>_p<pagina>`, permitindo paginação fluida sem conflito de traços.
+  - Autoridade Estrita na Paginação: Navegação de páginas em abas PDF (`PDF_PAGE`) é prerrogativa exclusiva do Host; mensagens de paginação vindas do Guest são sumariamente rejeitadas.
+  - Token de Mídia com Comparação em Tempo Constante: O token de acesso à rota `/midia` é validado via `crypto.timingSafeEqual`, prevenindo ataques de temporização (timing attacks).
+  - Tolerância Suave de Deriva de Mídia: Ajuste gradual por `playbackRate` para desvios moderados (80–500 ms) e salto discreto (`seek`) apenas para desvios superiores a 500 ms.
+* Divergências da Spec: Nenhuma.
+
+---
+
 # HANDOFF DE ESTADO — FASE 08: Bloqueio de Evento do Guest no Quadro em Leitura (D17)
 
 ## Mensagem para o Alexandre (Resumo em Português Simples — D17)

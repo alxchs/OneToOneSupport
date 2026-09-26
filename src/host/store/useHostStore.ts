@@ -83,7 +83,7 @@ interface HostState {
   removerAba: (id: string) => Promise<boolean>;
   mudarPaginaPdf: (pagina: number) => Promise<boolean>;
   trocarAba: (abaId: string) => Promise<boolean>;
-  aplicarEventoRemoto: (event: GuestEventDTO | any) => boolean;
+  aplicarEventoRemoto: (event: GuestEventDTO) => boolean;
 }
 
 export const useHostStore = create<HostState>((set, get) => ({
