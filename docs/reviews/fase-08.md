@@ -112,3 +112,10 @@ dono.
 - Exportação PNG do quadro em leitura (o vazamento que a contaminaria está fechado, mas o caminho de
   exportação em si não foi medido por mim).
 - D12, D13 e D14 seguem apoiados no auditor automático e nas autoauditorias, sem reataque do chefe.
+
+### Fechamento oficial
+Merge `--no-ff` em `main` (`1abf4df`) e `git push origin main` feitos em 2026-09-25 por ordem explícita do
+Alexandre, dada nesta sessão. Branch `fase/08-ferramentas-sem-mover` também empurrada (`7872549`).
+A Fase 08 planejada no roteiro (`docs/prompts/fase-08-abas-midia-assets.md` — abas, mídia e assets) **não
+foi feita**: esta branch carregou as correções D12–D17 da homologação. Quem pegar a próxima sessão começa
+por ela ou pela Fase 09.
