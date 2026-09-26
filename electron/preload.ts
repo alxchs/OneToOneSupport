@@ -69,6 +69,11 @@ const IPC_CHANNELS = {
   ASSET_GET: 'asset:get',
   ASSET_LIST_BY_SESSAO: 'asset:list-by-sessao',
 
+  // Relatório PDF (Fase 09)
+  RELATORIO_GERAR: 'relatorio:gerar',
+  RELATORIO_LISTAR_REVISOES: 'relatorio:listar-revisoes',
+  RELATORIO_ABRIR: 'relatorio:abrir',
+
   // Diagnóstico Forward (D1)
   DIAG_FORWARD: 'diag:forward',
 } as const;
@@ -187,6 +192,15 @@ const desktopAPI: DesktopAPI = {
     gravar: (payload) => ipcRenderer.invoke(IPC_CHANNELS.EVENTO_GRAVAR, payload),
     obterEstadoAba: (sessao_id, aba_id) =>
       ipcRenderer.invoke(IPC_CHANNELS.EVENTO_OBTER_ESTADO, { sessao_id, aba_id }),
+  },
+
+  relatorio: {
+    gerar: (sessaoId: string, numeroVersao?: number) =>
+      ipcRenderer.invoke(IPC_CHANNELS.RELATORIO_GERAR, { sessaoId, numeroVersao }),
+    listarRevisoes: (sessaoId: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.RELATORIO_LISTAR_REVISOES, { sessaoId }),
+    abrir: (caminho: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.RELATORIO_ABRIR, { caminho }),
   },
 };
 
