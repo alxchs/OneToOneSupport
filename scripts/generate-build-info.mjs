@@ -48,3 +48,11 @@ try {
   console.warn('[BuildInfo] Aviso ao compilar bundle de relatório:', err?.message || err);
 }
 
+try {
+  const { generateAllIcons } = await import('./generate-icon.mjs');
+  generateAllIcons();
+} catch (err) {
+  console.warn('[BuildInfo] Aviso ao gerar ícones:', err?.message || err);
+}
+
+

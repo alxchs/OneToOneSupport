@@ -15,7 +15,10 @@ release/
 *.bundle.js
 
 # C++ native builds & node-gyp
-build/
+build/*
+!build/installer.nsh
+!build/icon.ico
+!build/icon.png
 *.node
 *.obj
 *.pdb
