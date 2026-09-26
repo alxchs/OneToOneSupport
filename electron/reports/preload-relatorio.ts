@@ -16,6 +16,8 @@ const api: RelatorioPreloadAPI = {
         ipcRenderer.send('relatorio:erro', msg);
       }
     });
+    // Notifica o Main que o listener está registrado e pronto
+    ipcRenderer.send('relatorio:renderer-pronto');
   },
   pronto: () => {
     ipcRenderer.send('relatorio:pronto');

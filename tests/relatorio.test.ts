@@ -509,7 +509,6 @@ describe('Fase 09 — Relatório em PDF da Sessão (R1..R8)', () => {
       createRevisao(
         {
           sessao_id: sessaoId,
-          numero_versao: 1,
           snapshot_evento_idx: 1,
           titulo: 'Marco Inicial',
           autor: 'host',

@@ -98,6 +98,19 @@ export class RelatorioService {
     throw new Error('Preload de relatório não encontrado. Execute npm run build antes de gerar relatórios.');
   }
 
+  private resolveBundlePath(): string {
+    const candidatePaths = [
+      path.resolve(__dirname, '../reports/report-renderer.bundle.js'),
+      path.resolve(__dirname, '../../dist/electron/reports/report-renderer.bundle.js'),
+      path.resolve(process.cwd(), 'dist/electron/reports/report-renderer.bundle.js'),
+      path.resolve(process.cwd(), 'electron/reports/report-renderer.bundle.js'),
+    ];
+    for (const p of candidatePaths) {
+      if (fs.existsSync(p)) return p;
+    }
+    throw new Error('Bundle de renderização de relatório (report-renderer.bundle.js) não encontrado.');
+  }
+
   private formatarTimestamp(timestampMs: number): string {
     const d = new Date(timestampMs);
     const dia = String(d.getDate()).padStart(2, '0');
@@ -413,12 +426,23 @@ export class RelatorioService {
     const tempHtmlFilePath = path.join(pastaDestinoSessao, tempHtmlFileName);
     fs.writeFileSync(tempHtmlFilePath, htmlMontado, 'utf8');
 
+    // Cópia temporária do bundle de renderização para a pasta da sessão (se não estiver lá)
+    const bundleSrcPath = this.resolveBundlePath();
+    const tempBundlePath = path.join(pastaDestinoSessao, 'report-renderer.bundle.js');
+    let bundleCopiadoTemporario = false;
+    if (!fs.existsSync(tempBundlePath)) {
+      fs.copyFileSync(bundleSrcPath, tempBundlePath);
+      bundleCopiadoTemporario = true;
+    }
+
     // 8. Renderização via BrowserWindow offscreen nativo (R3)
     let win: BrowserWindow | null = null;
     let timerTimeout: NodeJS.Timeout | null = null;
+    let rendererProntoHandler: ((event: Electron.IpcMainEvent) => void) | null = null;
     this.lastBlockedNetworkRequests = 0;
 
     try {
+      const offlinePartition = `relatorio-offline-${crypto.randomUUID()}`;
       win = new BrowserWindow({
         show: false,
         width: 1200,
@@ -428,6 +452,7 @@ export class RelatorioService {
           nodeIntegration: false,
           sandbox: true,
           preload: preloadPath,
+          partition: offlinePartition,
         },
       });
 
@@ -489,7 +514,37 @@ export class RelatorioService {
         }, timeoutLimiteMs);
       });
 
+      // Handshake bidirecional: registra listener para confirmar que o renderer carregou
+      let rendererPronto = false;
+      rendererProntoHandler = (event: Electron.IpcMainEvent) => {
+        if (event.sender.id === webContents.id) {
+          rendererPronto = true;
+        }
+      };
+      ipcMain.on('relatorio:renderer-pronto', rendererProntoHandler);
+
       await win.loadFile(tempHtmlFilePath);
+
+      // Aguarda sinal de prontidão do renderer com fallback de segurança
+      if (!rendererPronto) {
+        await new Promise<void>((resolve) => {
+          const checkTimer = setInterval(() => {
+            if (rendererPronto) {
+              clearInterval(checkTimer);
+              resolve();
+            }
+          }, 40);
+          setTimeout(() => {
+            clearInterval(checkTimer);
+            resolve();
+          }, 2500);
+        });
+      }
+
+      if (rendererProntoHandler) {
+        ipcMain.removeListener('relatorio:renderer-pronto', rendererProntoHandler);
+        rendererProntoHandler = null;
+      }
 
       // Dispara renderização das miniaturas com o payload preparado
       webContents.send('relatorio:iniciar', {
@@ -541,6 +596,9 @@ export class RelatorioService {
       const msg = err instanceof Error ? err.message : String(err);
       return { success: false, error: 'INTERNAL_ERROR', message: msg };
     } finally {
+      if (rendererProntoHandler) {
+        ipcMain.removeListener('relatorio:renderer-pronto', rendererProntoHandler);
+      }
       if (timerTimeout) {
         clearTimeout(timerTimeout);
       }
@@ -553,6 +611,13 @@ export class RelatorioService {
         }
       } catch (_cleanupErr) {
         void _cleanupErr;
+      }
+      try {
+        if (bundleCopiadoTemporario && fs.existsSync(tempBundlePath)) {
+          fs.unlinkSync(tempBundlePath);
+        }
+      } catch (_bundleErr) {
+        void _bundleErr;
       }
     }
   }

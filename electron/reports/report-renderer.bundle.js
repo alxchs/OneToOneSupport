@@ -93485,7 +93485,9 @@ var ReportRendererModule = (() => {
             });
           });
         });
-        window.__relatorio.pronto();
+        if (window.__relatorio) {
+          window.__relatorio.pronto();
+        }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         window.__relatorio?.erro(msg);
