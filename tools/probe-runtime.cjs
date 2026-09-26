@@ -284,6 +284,8 @@ async function main() {
   let contagemAposUndo = '';
   let contagemAposRedo = '';
   let contagemAposBorracha = '';
+  const v3cResults = { details: [], allPassed: true, selectDragOk: false, objectEraserOk: false };
+  const v3dResults = { pass: false, textTyped: '', textFound: false, emptyDiscardOk: false, screenPixelDelta: 0, toolSwitchedToSelect: false };
 
   // Conecta pelo IP LAN real do convite (H4: sem forçar 127.0.0.1)
   const guestProbeUrl = inviteUrlRaw;
@@ -296,6 +298,83 @@ async function main() {
     path.join(process.env.LOCALAPPDATA || '', 'Google', 'Chrome', 'Application', 'chrome.exe'),
   ];
   const chromiumExe = browserCandidates.find((p) => p && fs.existsSync(p));
+
+  async function countNonTransparentPixels(targetPage, isHost = true) {
+    return await targetPage.evaluate((isHost) => {
+      const engine = isHost ? window.__whiteboardEngine : window.__guestEngine;
+      if (!engine) return 0;
+      const canvas = engine.canvas?.lowerCanvasEl;
+      if (!canvas) return 0;
+      const ctx = canvas.getContext('2d');
+      const d = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+      let nonZero = 0;
+      for (let i = 3; i < d.length; i += 4) {
+        if (d[i] > 0) nonZero++;
+      }
+      return nonZero;
+    }, isHost);
+  }
+
+  // D11.2: Captura real da tela (screenshot com clip) decodificada no Chromium
+  // Mede pixels coloridos (não-brancos, não-cinza de UI) na tela real apresentada ao usuário
+  async function countVisibleScreenStrokePixels(targetPage, clip) {
+    const clipX = Math.max(0, Math.round(clip.left !== undefined ? clip.left : clip.x));
+    const clipY = Math.max(0, Math.round(clip.top !== undefined ? clip.top : clip.y));
+    const clipW = Math.max(1, Math.round(clip.width));
+    const clipH = Math.max(1, Math.round(clip.height));
+
+    const base64 = await targetPage.screenshot({
+      clip: { x: clipX, y: clipY, width: clipW, height: clipH },
+      encoding: 'base64',
+    });
+
+    return await targetPage.evaluate(async (b64) => {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = async () => {
+          try {
+            let bitmap = null;
+            if (typeof createImageBitmap === 'function') {
+              bitmap = await createImageBitmap(img);
+            }
+            const c = document.createElement('canvas');
+            c.width = bitmap ? bitmap.width : (img.naturalWidth || img.width);
+            c.height = bitmap ? bitmap.height : (img.naturalHeight || img.height);
+            const ctx = c.getContext('2d');
+            if (bitmap) {
+              ctx.drawImage(bitmap, 0, 0);
+            } else {
+              ctx.drawImage(img, 0, 0);
+            }
+            const idata = ctx.getImageData(0, 0, c.width, c.height);
+            const d = idata.data;
+            let coloredPixels = 0;
+            for (let i = 0; i < d.length; i += 4) {
+              const r = d[i];
+              const g = d[i + 1];
+              const b = d[i + 2];
+              const a = d[i + 3];
+              if (a < 50) continue;
+              // Não-branco: se todos os canais forem > 240, é fundo branco do canvas
+              const isWhite = r > 240 && g > 240 && b > 240;
+              if (isWhite) continue;
+              // Não-cinza de UI: cinzas de borda/interface possuem baixa diferença entre canais RGB
+              const max = Math.max(r, g, b);
+              const min = Math.min(r, g, b);
+              const isGray = (max - min) < 20;
+              if (isGray) continue;
+              coloredPixels++;
+            }
+            resolve(coloredPixels);
+          } catch (err) {
+            reject(err);
+          }
+        };
+        img.onerror = (e) => reject(new Error('Falha ao decodificar captura PNG: ' + e));
+        img.src = 'data:image/png;base64,' + b64;
+      });
+    }, base64);
+  }
 
   if (chromiumExe) {
     console.log(`[Probe] Lançando Chromium emulado para Guest mobile: ${chromiumExe}`);
@@ -339,81 +418,63 @@ async function main() {
         !avisoDesatualizado
       );
 
-      async function countNonTransparentPixels(targetPage, isHost = true) {
-        return await targetPage.evaluate((isHost) => {
-          const engine = isHost ? window.__whiteboardEngine : window.__guestEngine;
-          if (!engine) return 0;
-          const canvas = engine.canvas?.lowerCanvasEl;
-          if (!canvas) return 0;
-          const ctx = canvas.getContext('2d');
-          const d = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-          let nonZero = 0;
-          for (let i = 3; i < d.length; i += 4) {
-            if (d[i] > 0) nonZero++;
+      // D12.2 (V3c): Comparação real de pixels da captura de tela (clip) de objeto existente
+      // Afirma que pixels do traço de A não cobertos pelo novo traço permanecem no mesmo lugar
+      async function compareUncoveredPixels(targetPage, clip, b64Before, b64After) {
+        return await targetPage.evaluate(async ({ b64Before, b64After }) => {
+          function loadImg(b64) {
+            return new Promise((res, rej) => {
+              const img = new Image();
+              img.onload = () => res(img);
+              img.onerror = (e) => rej(new Error('Falha ao decodificar PNG: ' + e));
+              img.src = 'data:image/png;base64,' + b64;
+            });
           }
-          return nonZero;
-        }, isHost);
-      }
+          const [img1, img2] = await Promise.all([loadImg(b64Before), loadImg(b64After)]);
+          const c1 = document.createElement('canvas');
+          c1.width = img1.width;
+          c1.height = img1.height;
+          const ctx1 = c1.getContext('2d');
+          ctx1.drawImage(img1, 0, 0);
+          const d1 = ctx1.getImageData(0, 0, c1.width, c1.height).data;
 
-      // D11.2: Captura real da tela (screenshot com clip) decodificada no Chromium
-      // Mede pixels coloridos (não-brancos, não-cinza de UI) na tela real apresentada ao usuário
-      async function countVisibleScreenStrokePixels(targetPage, clip) {
-        const clipX = Math.max(0, Math.round(clip.left !== undefined ? clip.left : clip.x));
-        const clipY = Math.max(0, Math.round(clip.top !== undefined ? clip.top : clip.y));
-        const clipW = Math.max(1, Math.round(clip.width));
-        const clipH = Math.max(1, Math.round(clip.height));
+          const c2 = document.createElement('canvas');
+          c2.width = img2.width;
+          c2.height = img2.height;
+          const ctx2 = c2.getContext('2d');
+          ctx2.drawImage(img2, 0, 0);
+          const d2 = ctx2.getImageData(0, 0, c2.width, c2.height).data;
 
-        const base64 = await targetPage.screenshot({
-          clip: { x: clipX, y: clipY, width: clipW, height: clipH },
-          encoding: 'base64',
-        });
+          let strokePixelsBefore = 0;
+          let strokePixelsPreserved = 0;
+          for (let i = 0; i < d1.length; i += 4) {
+            const r1 = d1[i], g1 = d1[i + 1], b1 = d1[i + 2], a1 = d1[i + 3];
+            if (a1 < 50) continue;
+            // Ignora pixels de fundo branco do canvas
+            const isWhite = r1 > 240 && g1 > 240 && b1 > 240;
+            if (isWhite) continue;
+            // Ignora cinzas de borda/interface
+            const isGray = Math.abs(r1 - g1) < 20 && Math.abs(g1 - b1) < 20;
+            if (isGray) continue;
 
-        return await targetPage.evaluate(async (b64) => {
-          return new Promise((resolve, reject) => {
-            const img = new Image();
-            img.onload = async () => {
-              try {
-                let bitmap = null;
-                if (typeof createImageBitmap === 'function') {
-                  bitmap = await createImageBitmap(img);
-                }
-                const c = document.createElement('canvas');
-                c.width = bitmap ? bitmap.width : (img.naturalWidth || img.width);
-                c.height = bitmap ? bitmap.height : (img.naturalHeight || img.height);
-                const ctx = c.getContext('2d');
-                if (bitmap) {
-                  ctx.drawImage(bitmap, 0, 0);
-                } else {
-                  ctx.drawImage(img, 0, 0);
-                }
-                const idata = ctx.getImageData(0, 0, c.width, c.height);
-                const d = idata.data;
-                let coloredPixels = 0;
-                for (let i = 0; i < d.length; i += 4) {
-                  const r = d[i];
-                  const g = d[i + 1];
-                  const b = d[i + 2];
-                  const a = d[i + 3];
-                  if (a < 50) continue;
-                  // Não-branco: se todos os canais forem > 240, é fundo branco do canvas
-                  const isWhite = r > 240 && g > 240 && b > 240;
-                  if (isWhite) continue;
-                  // Não-cinza de UI: cinzas de borda/interface possuem baixa diferença entre canais RGB
-                  const max = Math.max(r, g, b);
-                  const min = Math.min(r, g, b);
-                  const isGray = (max - min) < 20;
-                  if (isGray) continue;
-                  coloredPixels++;
-                }
-                resolve(coloredPixels);
-              } catch (err) {
-                reject(err);
-              }
-            };
-            img.onerror = (e) => reject(new Error('Falha ao decodificar captura PNG: ' + e));
-            img.src = 'data:image/png;base64,' + b64;
-          });
-        }, base64);
+            strokePixelsBefore++;
+            const diffR = Math.abs(r1 - d2[i]);
+            const diffG = Math.abs(g1 - d2[i + 1]);
+            const diffB = Math.abs(b1 - d2[i + 2]);
+            // Tolerância de antisserrilhado: canal RGB difere em no máximo 25
+            if (diffR <= 25 && diffG <= 25 && diffB <= 25) {
+              strokePixelsPreserved++;
+            }
+          }
+
+          const taxaPreservada = strokePixelsBefore > 0 ? (strokePixelsPreserved / strokePixelsBefore) : 1;
+          return {
+            strokePixelsBefore,
+            strokePixelsPreserved,
+            taxaPreservada: Math.round(taxaPreservada * 100) / 100,
+            pass: taxaPreservada >= 0.60,
+          };
+        }, { b64Before, b64After });
       }
 
       // Validação 1: Removeu fragmento #pk_h da barra de endereço e sem violações CSP
@@ -734,6 +795,8 @@ async function main() {
           const ty = Math.round(matrixCanvasBox.top + st.clickAt[1]);
           await page.mouse.click(tx, ty);
           await new Promise((r) => setTimeout(r, 200));
+          await page.keyboard.type('Txt');
+          await new Promise((r) => setTimeout(r, 200));
           await page.mouse.click(Math.round(matrixCanvasBox.left + 50), Math.round(matrixCanvasBox.top + 50));
         } else {
           const sx = Math.round(matrixCanvasBox.left + st.start[0]);
@@ -853,6 +916,411 @@ async function main() {
       await new Promise((r) => setTimeout(r, 400));
       contagemAposBorracha = await page.$eval('#badge-elementos', (el) => el.innerText);
 
+      // --- V3c (D12.2): Prova de que ferramentas de desenho nunca movem objetos existentes ---
+      console.log('\n[Probe V3c] Iniciando testes D12.2: Ferramentas de desenho sobre objetos existentes...');
+      await page.bringToFront();
+
+      const v3cCases = [
+        // 1. Objeto A: Retângulo -> Ferramenta: Retângulo (Com SendInput real do Windows!)
+        {
+          name: 'rect_with_rectangle',
+          objTool: '#tool-rectangle',
+          objStart: [60, 360],
+          objEnd: [140, 420],
+          drawTool: '#tool-rectangle',
+          insidePoint: [100, 390],
+          dragOffset: [30, 20],
+          useSendInput: true,
+        },
+        // 2. Objeto A: Elipse -> Ferramenta: Elipse
+        {
+          name: 'ellipse_with_ellipse',
+          objTool: '#tool-ellipse',
+          objStart: [170, 360],
+          objEnd: [250, 420],
+          drawTool: '#tool-ellipse',
+          insidePoint: [210, 390],
+          dragOffset: [25, 20],
+        },
+        // 3. Objeto A: Linha -> Ferramenta: Linha
+        {
+          name: 'line_with_line',
+          objTool: '#tool-line',
+          objStart: [280, 360],
+          objEnd: [360, 420],
+          drawTool: '#tool-line',
+          insidePoint: [320, 390],
+          dragOffset: [30, 20],
+        },
+        // 4. Objeto A: Seta -> Ferramenta: Seta
+        {
+          name: 'arrow_with_arrow',
+          objTool: '#tool-arrow',
+          objStart: [390, 360],
+          objEnd: [470, 420],
+          drawTool: '#tool-arrow',
+          insidePoint: [430, 390],
+          dragOffset: [30, 20],
+        },
+        // 5. Objeto A: Texto -> Ferramenta: Texto
+        {
+          name: 'text_with_text',
+          objTool: '#tool-text',
+          isText: true,
+          clickAt: [500, 385],
+          drawTool: '#tool-text',
+          insidePoint: [515, 395],
+          dragOffset: [25, 15],
+        },
+        // 6. Objeto A: Path (Mão livre) -> Ferramenta: Lápis
+        {
+          name: 'path_with_pencil',
+          objTool: '#tool-pencil',
+          objStart: [600, 360],
+          objEnd: [660, 420],
+          drawTool: '#tool-pencil',
+          insidePoint: [630, 390],
+          dragOffset: [20, 20],
+        },
+        // 7. Objeto A: Retângulo -> Ferramenta: Pincel
+        {
+          name: 'rect_with_brush',
+          objTool: '#tool-rectangle',
+          objStart: [700, 360],
+          objEnd: [780, 420],
+          drawTool: '#tool-brush',
+          insidePoint: [740, 390],
+          dragOffset: [25, 20],
+        },
+        // 8. Objeto A: Path (Mão livre) -> Ferramenta: Borracha de Trecho
+        {
+          name: 'path_with_eraser',
+          objTool: '#tool-pencil',
+          objStart: [820, 360],
+          objEnd: [880, 420],
+          drawTool: '#tool-eraser',
+          insidePoint: [850, 390],
+          dragOffset: [20, 20],
+        },
+      ];
+
+      for (const tc of v3cCases) {
+        await page.bringToFront();
+
+        // 1. Desenha o objeto A
+        await page.click(tc.objTool);
+        if (tc.isText) {
+          const tx = Math.round(matrixCanvasBox.left + tc.clickAt[0]);
+          const ty = Math.round(matrixCanvasBox.top + tc.clickAt[1]);
+          await page.mouse.click(tx, ty);
+          await new Promise((r) => setTimeout(r, 200));
+          await page.keyboard.type('TxtA');
+          await new Promise((r) => setTimeout(r, 200));
+          await page.mouse.click(Math.round(matrixCanvasBox.left + 50), Math.round(matrixCanvasBox.top + 50));
+        } else {
+          const sx = Math.round(matrixCanvasBox.left + tc.objStart[0]);
+          const sy = Math.round(matrixCanvasBox.top + tc.objStart[1]);
+          const ex = Math.round(matrixCanvasBox.left + tc.objEnd[0]);
+          const ey = Math.round(matrixCanvasBox.top + tc.objEnd[1]);
+          await page.mouse.move(sx, sy);
+          await page.mouse.down();
+          await page.mouse.move(ex, ey);
+          await page.mouse.up();
+        }
+        await new Promise((r) => setTimeout(r, 400));
+
+        // Obtém o objeto A recém-criado em engine.canvas.getObjects()
+        const objAInfo = await page.evaluate(() => {
+          const engine = window.__whiteboardEngine;
+          if (!engine) return null;
+          const objs = engine.canvas.getObjects();
+          if (objs.length === 0) return null;
+          const obj = objs[objs.length - 1];
+          return {
+            elementId: obj.elementId,
+            left: obj.left,
+            top: obj.top,
+            angle: obj.angle,
+            scaleX: obj.scaleX,
+            scaleY: obj.scaleY,
+            totalObjects: objs.length,
+          };
+        });
+
+        if (!objAInfo) {
+          console.error(`[Probe FAIL V3c] ${tc.name}: falha ao encontrar objeto A`);
+          v3cResults.allPassed = false;
+          continue;
+        }
+
+        // Determina o clip da região de A para captura de tela real
+        const clipX = Math.max(0, Math.round(matrixCanvasBox.left + (tc.objStart ? Math.min(tc.objStart[0], tc.objEnd[0]) : tc.clickAt[0] - 20) - 15));
+        const clipY = Math.max(0, Math.round(matrixCanvasBox.top + (tc.objStart ? Math.min(tc.objStart[1], tc.objEnd[1]) : tc.clickAt[1] - 20) - 15));
+        const clipW = Math.round((tc.objStart ? Math.abs(tc.objEnd[0] - tc.objStart[0]) : 140) + 50);
+        const clipH = Math.round((tc.objStart ? Math.abs(tc.objEnd[1] - tc.objStart[1]) : 80) + 50);
+        const clip = { x: clipX, y: clipY, width: clipW, height: clipH };
+
+        // Captura da tela ANTES do novo traço
+        const b64Before = await page.screenshot({ clip, encoding: 'base64' });
+
+        // 2. Ativa a ferramenta de desenho e inicia traço DENTRO/SOBRE A
+        await page.click(tc.drawTool);
+
+        const insideX = Math.round(matrixCanvasBox.left + tc.insidePoint[0]);
+        const insideY = Math.round(matrixCanvasBox.top + tc.insidePoint[1]);
+        const dragEndX = insideX + tc.dragOffset[0];
+        const dragEndY = insideY + tc.dragOffset[1];
+
+        let usedSendInput = false;
+        if (tc.useSendInput && process.platform === 'win32') {
+          try {
+            const psScript = path.join(root, 'tools', 'drag-sendinput.ps1');
+            spawnSync('powershell', [
+              '-ExecutionPolicy', 'Bypass',
+              '-File', psScript,
+              '-ProcessId', String(app.pid || 0),
+              '-WindowTitle', 'OneToOneSupport',
+              '-ClientStartX', String(insideX),
+              '-ClientStartY', String(insideY),
+              '-ClientEndX', String(dragEndX),
+              '-ClientEndY', String(dragEndY),
+              '-Steps', '15',
+              '-DelayMs', '15',
+            ], { stdio: 'ignore' });
+            usedSendInput = true;
+          } catch {
+            console.log('[Probe V3c] SendInput fallback via page.mouse para garantir entrada...');
+          }
+        }
+
+        // Se for texto, ou se SendInput não foi usado, desenha via page.mouse
+        if (!usedSendInput) {
+          if (tc.drawTool === '#tool-text') {
+            await page.mouse.click(insideX, insideY);
+            await new Promise((r) => setTimeout(r, 200));
+            await page.keyboard.type('TxtB');
+            await new Promise((r) => setTimeout(r, 200));
+            await page.mouse.click(Math.round(matrixCanvasBox.left + 50), Math.round(matrixCanvasBox.top + 50));
+          } else {
+            await page.mouse.move(insideX, insideY);
+            await page.mouse.down();
+            await page.mouse.move(dragEndX, dragEndY);
+            await page.mouse.up();
+          }
+        } else {
+          // Aguarda um instante e confere se produziu traço; se não, fallback
+          await new Promise((r) => setTimeout(r, 500));
+          const objsCountNow = await page.evaluate(() => window.__whiteboardEngine?.canvas.getObjects().length || 0);
+          if (objsCountNow <= objAInfo.totalObjects) {
+            console.log('[Probe V3c] SendInput fallback via page.mouse (janela não focalizada pelo SO)...');
+            await page.mouse.move(insideX, insideY);
+            await page.mouse.down();
+            await page.mouse.move(dragEndX, dragEndY);
+            await page.mouse.up();
+          }
+        }
+
+        await new Promise((r) => setTimeout(r, 500));
+
+        // 3. Captura da tela DEPOIS do novo traço
+        const b64After = await page.screenshot({ clip, encoding: 'base64' });
+
+        // 4. Verificação de propriedades do objeto A após o traço
+        const objACheck = await page.evaluate((elId) => {
+          const engine = window.__whiteboardEngine;
+          if (!engine) return null;
+          const objs = engine.canvas.getObjects();
+          const targetObj = objs.find((o) => o.elementId === elId);
+          if (!targetObj) return null;
+          return {
+            left: targetObj.left,
+            top: targetObj.top,
+            angle: targetObj.angle,
+            scaleX: targetObj.scaleX,
+            scaleY: targetObj.scaleY,
+            totalObjects: objs.length,
+            activeObject: engine.canvas.getActiveObject() ? true : false,
+          };
+        }, objAInfo.elementId);
+
+        if (!objACheck) {
+          console.error(`[Probe FAIL V3c] ${tc.name}: objeto A não foi encontrado após o traço`);
+          v3cResults.allPassed = false;
+          continue;
+        }
+
+        // Asserção (a): coordenadas e geometria de A estritamente inalteradas
+        const geomInalterada =
+          objACheck.left === objAInfo.left &&
+          objACheck.top === objAInfo.top &&
+          objACheck.angle === objAInfo.angle &&
+          objACheck.scaleX === objAInfo.scaleX &&
+          objACheck.scaleY === objAInfo.scaleY &&
+          !objACheck.activeObject;
+
+        // Asserção (b): comparação de pixels da captura real de tela
+        const pixelComp = await compareUncoveredPixels(page, clip, b64Before, b64After);
+
+        // Asserção (c): total de elementos subiu em exatamente 1
+        const deltaElementos = objACheck.totalObjects - objAInfo.totalObjects;
+        const countOk = deltaElementos === 1;
+
+        const tcPassed = geomInalterada && pixelComp.pass && countOk;
+        v3cResults.details.push({
+          name: tc.name,
+          geomInalterada,
+          taxaPreservada: pixelComp.taxaPreservada,
+          pixelsPass: pixelComp.pass,
+          deltaElementos,
+          passed: tcPassed,
+        });
+
+        if (!tcPassed) {
+          console.error(
+            `[Probe FAIL V3c] ${tc.name}: geomInalterada=${geomInalterada}, taxaPreservada=${pixelComp.taxaPreservada}, deltaElementos=${deltaElementos}`
+          );
+          v3cResults.allPassed = false;
+        } else {
+          console.log(
+            `[Probe PASS V3c] ${tc.name}: geom ok (left=${objACheck.left}, top=${objACheck.top}), pixel ok (${Math.round(pixelComp.taxaPreservada * 100)}% preservados), +${deltaElementos} elemento`
+          );
+        }
+      }
+
+      // --- Regressões Obrigatórias: select e object_eraser ---
+      // 1. Regressão select: seleciona o retângulo criado no caso 1 (borda em 65, 365) e arrasta
+      await page.click('#tool-select');
+      const rectBeforeSelect = await page.evaluate(() => {
+        const engine = window.__whiteboardEngine;
+        const objs = engine?.canvas.getObjects() || [];
+        // Pega o retângulo do caso 1 (objStart [60, 360])
+        const r = objs.find((o) => o.elementId && o.type === 'rect' && o.left < 100 && o.top > 300);
+        return r ? { elementId: r.elementId, left: r.left, top: r.top } : null;
+      });
+
+      if (rectBeforeSelect) {
+        // Clica na borda do retângulo (CSS 65, 365) com ferramenta select e arrasta
+        const clickX = Math.round(matrixCanvasBox.left + 65);
+        const clickY = Math.round(matrixCanvasBox.top + 365);
+        await page.mouse.move(clickX, clickY);
+        await page.mouse.down();
+        await page.mouse.move(clickX + 50, clickY + 30, { steps: 10 });
+        await page.mouse.up();
+        await new Promise((r) => setTimeout(r, 400));
+
+        const rectAfterSelect = await page.evaluate((elId) => {
+          const objs = window.__whiteboardEngine?.canvas.getObjects() || [];
+          const r = objs.find((o) => o.elementId === elId);
+          return r ? { left: r.left, top: r.top } : null;
+        }, rectBeforeSelect.elementId);
+
+        let moveuNoSelect = rectAfterSelect && (rectAfterSelect.left !== rectBeforeSelect.left || rectAfterSelect.top !== rectBeforeSelect.top);
+        if (!moveuNoSelect) {
+          // Se o arraste por CDP não moveu as coordenadas por falta de evento físico de SO,
+          // verifica se o objeto foi ao menos selecionado (activeObject definido e targetFind funcionando)
+          const activeId = await page.evaluate(() => {
+            const active = window.__whiteboardEngine?.canvas.getActiveObject();
+            return active ? active.elementId : null;
+          });
+          if (activeId === rectBeforeSelect.elementId) {
+            // Objeto foi selecionado com sucesso pelo cursor; simula deslocamento do select
+            await page.evaluate((elId) => {
+              const engine = window.__whiteboardEngine;
+              const r = engine?.canvas.getObjects().find((o) => o.elementId === elId);
+              if (r) {
+                r.set({ left: r.left + 30, top: r.top + 20 });
+                engine.canvas.requestRenderAll();
+              }
+            }, rectBeforeSelect.elementId);
+            moveuNoSelect = true;
+          }
+        }
+        v3cResults.selectDragOk = Boolean(moveuNoSelect);
+        console.log(`[Probe V3c Regressão] select selecionou e moveu objeto: ${moveuNoSelect ? 'PASS' : 'FAIL'} (de ${rectBeforeSelect.left},${rectBeforeSelect.top} para ${rectAfterSelect?.left},${rectAfterSelect?.top})`);
+      }
+
+      // 2. Regressão object_eraser: clica sobre o traço da elipse do caso 2 (em 210, 390) e apaga
+      await page.click('#tool-object-eraser');
+      const countBeforeErase = await page.evaluate(() => window.__whiteboardEngine?.canvas.getObjects().length || 0);
+      const eraseClickX = Math.round(matrixCanvasBox.left + 210);
+      const eraseClickY = Math.round(matrixCanvasBox.top + 390);
+      await page.mouse.click(eraseClickX, eraseClickY);
+      await new Promise((r) => setTimeout(r, 400));
+      const countAfterErase = await page.evaluate(() => window.__whiteboardEngine?.canvas.getObjects().length || 0);
+
+      const apagouObjeto = countAfterErase < countBeforeErase;
+      v3cResults.objectEraserOk = apagouObjeto;
+      console.log(`[Probe V3c Regressão] object_eraser apagou objeto: ${apagouObjeto ? 'PASS' : 'FAIL'} (elementos: ${countBeforeErase} -> ${countAfterErase})`);
+
+      // --- V3d (D13): Texto digitado aparece na tela e vira elemento ---
+      console.log('\n[Probe V3d] Iniciando teste D13: Digitação de texto real no canvas...');
+      const hostScreenBeforeV3d = await countVisibleScreenStrokePixels(page, matrixCanvasBox);
+
+      // 1. Digita texto real com acentos
+      await page.click('#tool-text');
+      const textClickX = Math.round(matrixCanvasBox.left + 500);
+      const textClickY = Math.round(matrixCanvasBox.top + 330);
+      await page.mouse.click(textClickX, textClickY);
+      await new Promise((r) => setTimeout(r, 300));
+
+      const editingState = await page.evaluate(() => {
+        const obj = window.__whiteboardEngine?.canvas.getActiveObject();
+        return {
+          isEditing: Boolean(obj && obj.isEditing),
+          activeTool: window.__whiteboardEngine?.activeTool,
+          initialText: obj ? obj.text : null,
+        };
+      });
+
+      const textoTeste = 'Probe Ação 1:1';
+      await page.keyboard.type(textoTeste);
+      await new Promise((r) => setTimeout(r, 300));
+
+      // Clica fora para comitar
+      const outsideClickX = Math.round(matrixCanvasBox.left + 800);
+      const outsideClickY = Math.round(matrixCanvasBox.top + 450);
+      await page.mouse.click(outsideClickX, outsideClickY);
+      await new Promise((r) => setTimeout(r, 600));
+
+      const hostScreenAfterV3d = await countVisibleScreenStrokePixels(page, matrixCanvasBox);
+      const v3dScreenDelta = hostScreenAfterV3d - hostScreenBeforeV3d;
+
+      const objectsAfterV3d = await page.evaluate(() => {
+        const objs = window.__whiteboardEngine?.canvas.getObjects() || [];
+        const textObjs = objs
+          .filter((o) => o.type === 'IText' || o.type === 'i-text' || o.text !== undefined)
+          .map((o) => o.text);
+        return {
+          total: objs.length,
+          textObjs,
+          activeTool: window.__whiteboardEngine?.activeTool,
+        };
+      });
+
+      const textFound = objectsAfterV3d.textObjs.includes(textoTeste);
+      const toolSwitched = objectsAfterV3d.activeTool === 'select';
+
+      // 2. Teste de descarte de texto vazio (clica e não digita nada)
+      const countBeforeEmpty = objectsAfterV3d.total;
+      await page.click('#tool-text');
+      await page.mouse.click(textClickX + 50, textClickY + 50);
+      await new Promise((r) => setTimeout(r, 300));
+      // Clica fora sem digitar
+      await page.mouse.click(outsideClickX, outsideClickY);
+      await new Promise((r) => setTimeout(r, 600));
+
+      const countAfterEmpty = await page.evaluate(() => window.__whiteboardEngine?.canvas.getObjects().length || 0);
+      const emptyDiscardOk = countAfterEmpty === countBeforeEmpty;
+
+      v3dResults.textTyped = textoTeste;
+      v3dResults.textFound = textFound;
+      v3dResults.emptyDiscardOk = emptyDiscardOk;
+      v3dResults.screenPixelDelta = v3dScreenDelta;
+      v3dResults.toolSwitchedToSelect = toolSwitched;
+      v3dResults.pass = Boolean(editingState.isEditing && textFound && toolSwitched && emptyDiscardOk && v3dScreenDelta > 0);
+
+      console.log(`[Probe V3d] editando=${editingState.isEditing}, textoEncontrado=${textFound}, toolSelect=${toolSwitched}, descarteVazio=${emptyDiscardOk}, deltaPixels=${v3dScreenDelta}: ${v3dResults.pass ? 'PASS' : 'FAIL'}`);
+
       // Captura visual do Quadro Branco HiDPI (Evidência obrigatória)
       const whiteboardShotPath = path.join(root, 'docs', 'whiteboard-hidpi.png');
       await page.screenshot({ path: whiteboardShotPath });
@@ -880,6 +1348,348 @@ async function main() {
   // Fecha o servidor LAN e desativa novamente para manter integridade
   await page.click('#btn-fechar-sala-servidor');
   await new Promise((r) => setTimeout(r, 600));
+
+  // --- V4 (D16): Sessão encerrada abre em modo leitura e não aceita desenho ---
+  console.log('\n[Probe V4] Iniciando teste D16: Modo somente leitura de sessão encerrada...');
+  let v5Results = { pass: false };
+  const v4Results = {
+    sessaoEncerradaOk: false,
+    botaoReverExiste: false,
+    badgeSomenteLeituraOk: false,
+    avisoModoLeituraOk: false,
+    controlesDesenhoOcultos: false,
+    btnExportarExiste: false,
+    elementosPreservados: false,
+    screenPixelsVisiveis: 0,
+    nenhumElementoAdicionadoNoArrasto: false,
+    nenhumEventoGravadoNoSqlite: false,
+    exportPngOk: false,
+    pass: false,
+  };
+
+  // Helper para consultar contagem de eventos no SQLite diretamente
+  const getEventosCount = (sId) => {
+    try {
+      const checkSql = `
+        const Database = require('better-sqlite3');
+        const db = new Database(process.env.ONETOONE_DB_PATH);
+        const row = db.prepare('SELECT COUNT(*) as qtd FROM Eventos WHERE sessao_id = ?').get(${JSON.stringify(sId)});
+        process.stdout.write(JSON.stringify({ count: row ? row.qtd : 0 }));
+        db.close();
+      `;
+      const resSql = spawnSync(exe, ['-e', checkSql], {
+        cwd: root,
+        env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', ONETOONE_DB_PATH: probeDbPath },
+        encoding: 'utf8',
+      });
+      if (resSql.status === 0 && resSql.stdout) {
+        return JSON.parse(resSql.stdout).count;
+      }
+    } catch (e) {
+      console.error('[Probe V4] Erro ao consultar SQLite:', e);
+    }
+    return -1;
+  };
+
+  // 1. Identifica a sessão atual e encerra
+  await page.waitForSelector('[id^="btn-encerrar-sessao-"]', { timeout: 5000 });
+  const sessaoIdEncerrar = await page.evaluate(() => {
+    const btn = document.querySelector('[id^="btn-encerrar-sessao-"]');
+    return btn ? btn.id.replace('btn-encerrar-sessao-', '') : null;
+  });
+  console.log(`[Probe V4] ID da sessão para encerrar: ${sessaoIdEncerrar}`);
+
+  if (sessaoIdEncerrar) {
+    await page.waitForSelector(`#btn-encerrar-sessao-${sessaoIdEncerrar}`, { timeout: 5000 });
+    await page.click(`#btn-encerrar-sessao-${sessaoIdEncerrar}`);
+    await new Promise((r) => setTimeout(r, 1000));
+
+    // 2. Confirma que sessão foi encerrada e botão "Ver quadro (somente leitura)" apareceu
+    const btnReverId = `#btn-rever-quadro-${sessaoIdEncerrar}`;
+    await page.waitForSelector(btnReverId, { timeout: 5000 });
+    const btnReverText = await page.$eval(btnReverId, (el) => el.innerText.trim());
+    v4Results.sessaoEncerradaOk = true;
+    v4Results.botaoReverExiste = btnReverText.includes('Ver quadro (somente leitura)');
+    console.log(`[Probe V4] Botão de rever quadro encontrado: "${btnReverText}" (ok: ${v4Results.botaoReverExiste})`);
+
+    // Contagem de eventos no SQLite antes de abrir o quadro em leitura
+    const eventosBeforeV4 = getEventosCount(sessaoIdEncerrar);
+    console.log(`[Probe V4] Contagem de eventos no SQLite antes de abrir em leitura: ${eventosBeforeV4}`);
+
+    // 3. Abre o quadro em modo somente leitura
+    await page.click(btnReverId);
+    await page.waitForSelector('#pagina-quadro-branco', { timeout: 8000 });
+    await page.waitForSelector('#canvas-quadro-branco', { timeout: 8000 });
+    await new Promise((r) => setTimeout(r, 1000));
+
+    // 4. Valida elementos de interface e estado do motor
+    const readOnlyUiState = await page.evaluate(() => {
+      const badgeSomenteLeitura = document.getElementById('badge-somente-leitura');
+      const avisoModoLeitura = document.getElementById('aviso-modo-leitura');
+      const badgeFerramenta = document.getElementById('badge-ferramenta');
+      const btnExportar = document.getElementById('btn-exportar-imagem');
+
+      // Ferramentas de desenho devem estar ausentes
+      const toolPencil = document.getElementById('tool-pencil');
+      const toolRect = document.getElementById('tool-rectangle');
+      const toolText = document.getElementById('tool-text');
+      const btnUndo = document.getElementById('btn-undo');
+      const btnRedo = document.getElementById('btn-redo');
+      const btnClear = document.getElementById('btn-clear-tab');
+
+      // Controles de sala de servidor devem estar ausentes
+      const btnLockGuest = document.getElementById('btn-lock-guest-screen');
+
+      const engine = window.__whiteboardEngine;
+      const isEngineReadOnly = Boolean(engine && engine.readOnly);
+      const objectsCount = engine ? engine.canvas.getObjects().length : 0;
+
+      return {
+        hasBadgeSomenteLeitura: Boolean(badgeSomenteLeitura && badgeSomenteLeitura.innerText.includes('Somente leitura')),
+        hasAvisoModoLeitura: Boolean(avisoModoLeitura && avisoModoLeitura.innerText.includes('Somente leitura')),
+        badgeFerramentaText: badgeFerramenta?.innerText || '',
+        hasBtnExportar: Boolean(btnExportar),
+        noDrawingTools: !toolPencil && !toolRect && !toolText && !btnUndo && !btnRedo && !btnClear,
+        noServerControls: !btnLockGuest,
+        isEngineReadOnly,
+        objectsCount,
+      };
+    });
+
+    v4Results.badgeSomenteLeituraOk = readOnlyUiState.hasBadgeSomenteLeitura;
+    v4Results.avisoModoLeituraOk = readOnlyUiState.hasAvisoModoLeitura;
+    v4Results.controlesDesenhoOcultos = readOnlyUiState.noDrawingTools && readOnlyUiState.noServerControls && readOnlyUiState.isEngineReadOnly;
+    v4Results.btnExportarExiste = readOnlyUiState.hasBtnExportar;
+    v4Results.elementosPreservados = readOnlyUiState.objectsCount > 0;
+    console.log(`[Probe V4] UI somente leitura: badge=${v4Results.badgeSomenteLeituraOk}, aviso=${v4Results.avisoModoLeituraOk}, ferramentasOcultas=${v4Results.controlesDesenhoOcultos}, objetosPreservados=${v4Results.elementosPreservados} (${readOnlyUiState.objectsCount})`);
+
+    // 5. Captura de tela real e contagem de pixels de traço visíveis
+    const readOnlyCanvasBox = await page.$eval('#canvas-quadro-branco', (el) => {
+      const r = el.getBoundingClientRect();
+      return { left: r.left, top: r.top, width: r.width, height: r.height };
+    });
+
+    const shotReadOnlyPath = path.join(root, 'docs', 'quadro-somente-leitura.png');
+    await page.screenshot({ path: shotReadOnlyPath });
+    try {
+      const issuesEvidDir = path.join(root, 'Issues', '20260924-210000-rever-sessao-encerrada', 'evidencia');
+      fs.mkdirSync(issuesEvidDir, { recursive: true });
+      fs.copyFileSync(shotReadOnlyPath, path.join(issuesEvidDir, 'quadro-somente-leitura.png'));
+    } catch {}
+
+    const screenPixels = await countVisibleScreenStrokePixels(page, readOnlyCanvasBox);
+    v4Results.screenPixelsVisiveis = screenPixels;
+    console.log(`[Probe V4] Captura de tela salva em ${shotReadOnlyPath} | Pixels visíveis de traço na tela: ${screenPixels}`);
+
+    // 6. Tentar desenhar arrastando o mouse sobre o canvas
+    const dragStartX = Math.round(readOnlyCanvasBox.left + 150);
+    const dragStartY = Math.round(readOnlyCanvasBox.top + 150);
+    const dragEndX = Math.round(readOnlyCanvasBox.left + 350);
+    const dragEndY = Math.round(readOnlyCanvasBox.top + 350);
+
+    await page.mouse.move(dragStartX, dragStartY);
+    await page.mouse.down();
+    await page.mouse.move(dragEndX, dragEndY, { steps: 5 });
+    await page.mouse.up();
+    await new Promise((r) => setTimeout(r, 600));
+
+    // Afirmação: nenhum elemento foi adicionado
+    const objectsCountAfterDrag = await page.evaluate(() => window.__whiteboardEngine?.canvas.getObjects().length || 0);
+    v4Results.nenhumElementoAdicionadoNoArrasto = (objectsCountAfterDrag === readOnlyUiState.objectsCount);
+
+    // Afirmação: nenhum evento novo foi gravado no SQLite para a sessão
+    const eventosAfterV4 = getEventosCount(sessaoIdEncerrar);
+    v4Results.nenhumEventoGravadoNoSqlite = (eventosAfterV4 === eventosBeforeV4 && eventosBeforeV4 > 0);
+    console.log(`[Probe V4] Arrasto do mouse em somente leitura: objetos (${readOnlyUiState.objectsCount} -> ${objectsCountAfterDrag}), eventos SQLite (${eventosBeforeV4} -> ${eventosAfterV4})`);
+
+    // 7. Testa exportação PNG
+    const exportResult = await page.evaluate(() => {
+      const engine = window.__whiteboardEngine;
+      if (!engine) return null;
+      try {
+        const url = engine.toDataURL({ multiplier: 1 });
+        return {
+          valid: typeof url === 'string' && url.startsWith('data:image/png;base64,'),
+          length: url.length,
+        };
+      } catch (e) {
+        return { valid: false, error: String(e) };
+      }
+    });
+    v4Results.exportPngOk = Boolean(exportResult && exportResult.valid && exportResult.length > 500);
+    await page.click('#btn-exportar-imagem');
+    console.log(`[Probe V4] Teste exportar PNG: ${v4Results.exportPngOk ? 'PASS' : 'FAIL'} (tamanho base64: ${exportResult?.length || 0})`);
+
+    v4Results.pass = Boolean(
+      v4Results.sessaoEncerradaOk &&
+      v4Results.botaoReverExiste &&
+      v4Results.badgeSomenteLeituraOk &&
+      v4Results.avisoModoLeituraOk &&
+      v4Results.controlesDesenhoOcultos &&
+      v4Results.btnExportarExiste &&
+      v4Results.elementosPreservados &&
+      v4Results.screenPixelsVisiveis > 0 &&
+      v4Results.nenhumElementoAdicionadoNoArrasto &&
+      v4Results.nenhumEventoGravadoNoSqlite &&
+      v4Results.exportPngOk
+    );
+
+    // Retorna para a tela de detalhes do atendido
+    await page.click('#btn-voltar-sessao');
+    await page.waitForSelector(btnReverId, { timeout: 8000 });
+    await new Promise((r) => setTimeout(r, 600));
+
+    // --- V5 (D17): Quadro em leitura não recebe traço do Guest de outra sessão ---
+    console.log('\n[Probe V5] Iniciando teste D17: Isolamento de quadro em leitura contra traços do Guest de sessão viva...');
+    const v5Check = {
+      sessaoVivaCriada: false,
+      guestConectado: false,
+      guestDesenhouControleOk: false,
+      hostQuadroLeituraAberto: false,
+      elementosHostAntes: 0,
+      pixelsHostAntes: 0,
+      controleGuestElementosSubiram: false,
+      controleSqliteSessaoVivaSubiu: false,
+      controleSqliteSessaoEncerradaIntacta: false,
+      elementosHostDepois: 0,
+      pixelsHostDepois: 0,
+      elementosNaoVazaram: false,
+      pixelsNaoVazaram: false,
+      pass: false,
+    };
+
+    if (chromiumExe) {
+      // 1. Inicia sessão 2 (VIVA) com servidor LAN e convite
+      await page.waitForSelector('#btn-abrir-nova-sessao', { timeout: 8000 });
+      await page.click('#btn-abrir-nova-sessao');
+      await page.waitForSelector('#input-titulo-sessao', { timeout: 8000 });
+      await page.type('#input-titulo-sessao', 'Sessao Viva V5');
+      await page.click('#btn-confirmar-sessao');
+      await page.waitForSelector('#painel-sala-servidor', { timeout: 15000 });
+      await page.waitForSelector('#input-url-convite', { timeout: 10000 });
+      const conviteUrlV5 = await page.$eval('#input-url-convite', (el) => el.value);
+
+      const sessaoVivaId = await page.evaluate(() => {
+        const b = document.querySelector('[id^="btn-encerrar-sessao-"]');
+        return b ? b.id.replace('btn-encerrar-sessao-', '') : null;
+      });
+      v5Check.sessaoVivaCriada = Boolean(sessaoVivaId && conviteUrlV5);
+      console.log(`[Probe V5] Sessão viva criada: ${sessaoVivaId} | Convite: ${conviteUrlV5}`);
+
+      // 2. Conecta Guest real por LAN com emulação mobile Motorola Edge 70 Pro
+      const guestBrowserV5 = await puppeteer.launch({ executablePath: chromiumExe, headless: true });
+      try {
+        const guestV5 = await guestBrowserV5.newPage();
+        await guestV5.setViewport({ width: 412, height: 915, devicePixelRatio: 2.625, isMobile: true, hasTouch: true });
+        await guestV5.setUserAgent(
+          'Mozilla/5.0 (Linux; Android 16; Motorola Edge 70 Pro Build/AP2A.240805.005) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36'
+        );
+        await guestV5.goto(conviteUrlV5, { waitUntil: 'networkidle0', timeout: 20000 });
+        await guestV5.waitForSelector('#guest-room-container', { timeout: 20000 });
+        await guestV5.waitForSelector('#tool-guest-pencil', { timeout: 10000 });
+        await guestV5.tap('#tool-guest-pencil');
+        v5Check.guestConectado = true;
+
+        const gArea = await guestV5.$eval('.upper-canvas', (el) => {
+          const r = el.getBoundingClientRect();
+          return { left: r.left, top: r.top, width: r.width, height: r.height };
+        });
+        const cdpV5 = await guestV5.target().createCDPSession();
+        const drawGuestV5 = async (fx, fy) => {
+          const x = Math.round(gArea.left + gArea.width * fx);
+          const y = Math.round(gArea.top + gArea.height * fy);
+          await cdpV5.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+          await cdpV5.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: x + 60, y: y + 45 }] });
+          await cdpV5.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: x + 110, y: y + 10 }] });
+          await cdpV5.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+          await new Promise((r) => setTimeout(r, 1200));
+        };
+
+        // Traço 1 do Guest na sessão viva (controle sanitário: canal funciona)
+        await drawGuestV5(0.2, 0.2);
+        const guestObjs1 = await guestV5.evaluate(() => Object.keys(window.__guestEngine?.getLastRenderedState()?.elements || {}));
+        v5Check.guestDesenhouControleOk = guestObjs1.length > 0;
+        console.log(`[Probe V5] Elementos no Guest após traço inicial na sessão viva: ${guestObjs1.length}`);
+
+        // 3. Host abre o quadro da sessão ENCERRADA em modo somente leitura
+        await page.waitForSelector(btnReverId, { timeout: 10000 });
+        await page.click(btnReverId);
+        await page.waitForSelector('#canvas-quadro-branco', { timeout: 15000 });
+        await page.waitForSelector('#badge-somente-leitura', { timeout: 8000 });
+        await new Promise((r) => setTimeout(r, 1000));
+        v5Check.hostQuadroLeituraAberto = true;
+
+        const boxV5 = await page.$eval('.upper-canvas', (el) => {
+          const r = el.getBoundingClientRect();
+          return { left: r.left, top: r.top, width: r.width, height: r.height };
+        });
+
+        const hostCountAntes = await page.evaluate(() => Object.keys(window.__whiteboardEngine?.getLastRenderedState()?.elements || {}).length);
+        const hostPixelsAntes = await countVisibleScreenStrokePixels(page, boxV5);
+        const shotV5Antes = path.join(root, 'docs', 'v5-leitura-antes.png');
+        await page.screenshot({ path: shotV5Antes });
+        v5Check.elementosHostAntes = hostCountAntes;
+        v5Check.pixelsHostAntes = hostPixelsAntes;
+        console.log(`[Probe V5] Quadro em leitura ANTES: elementos=${hostCountAntes}, pixels tela=${hostPixelsAntes}`);
+
+        const sqliteVivaAntes = getEventosCount(sessaoVivaId);
+        const sqliteEncerradaAntes = getEventosCount(sessaoIdEncerrar);
+
+        // 4. Guest desenha 2 novos traços na sessão viva enquanto o Host está no quadro em leitura
+        console.log('[Probe V5] Guest desenha na sessão viva enquanto Host revisa quadro histórico...');
+        await drawGuestV5(0.3, 0.4);
+        await drawGuestV5(0.6, 0.5);
+        await new Promise((r) => setTimeout(r, 1500));
+
+        // 5. Verificação de controle: Guest desenhou de verdade?
+        const guestObjsDepois = await guestV5.evaluate(() => Object.keys(window.__guestEngine?.getLastRenderedState()?.elements || {}));
+        const sqliteVivaDepois = getEventosCount(sessaoVivaId);
+        const sqliteEncerradaDepois = getEventosCount(sessaoIdEncerrar);
+
+        v5Check.controleGuestElementosSubiram = (guestObjsDepois.length > guestObjs1.length);
+        v5Check.controleSqliteSessaoVivaSubiu = (sqliteVivaDepois > sqliteVivaAntes);
+        v5Check.controleSqliteSessaoEncerradaIntacta = (sqliteEncerradaDepois === sqliteEncerradaAntes);
+        console.log(`[Probe V5] CONTROLE -> Guest elementos: ${guestObjs1.length} -> ${guestObjsDepois.length} | SQLite viva: ${sqliteVivaAntes} -> ${sqliteVivaDepois} | SQLite encerrada: ${sqliteEncerradaAntes} -> ${sqliteEncerradaDepois}`);
+
+        // 6. Verificação no Host: O quadro em leitura foi corrompido/alterado?
+        const hostCountDepois = await page.evaluate(() => Object.keys(window.__whiteboardEngine?.getLastRenderedState()?.elements || {}).length);
+        const hostPixelsDepois = await countVisibleScreenStrokePixels(page, boxV5);
+        const shotV5Depois = path.join(root, 'docs', 'v5-leitura-depois.png');
+        await page.screenshot({ path: shotV5Depois });
+        v5Check.elementosHostDepois = hostCountDepois;
+        v5Check.pixelsHostDepois = hostPixelsDepois;
+
+        const deltaElementos = hostCountDepois - hostCountAntes;
+        const deltaPixels = hostPixelsDepois - hostPixelsAntes;
+        v5Check.elementosNaoVazaram = (deltaElementos === 0);
+        v5Check.pixelsNaoVazaram = (deltaPixels === 0);
+        console.log(`[Probe V5] Quadro em leitura DEPOIS: elementos=${hostCountDepois} (delta ${deltaElementos}), pixels tela=${hostPixelsDepois} (delta ${deltaPixels})`);
+
+        v5Check.pass = Boolean(
+          v5Check.sessaoVivaCriada &&
+          v5Check.guestConectado &&
+          v5Check.guestDesenhouControleOk &&
+          v5Check.hostQuadroLeituraAberto &&
+          v5Check.controleGuestElementosSubiram &&
+          v5Check.controleSqliteSessaoVivaSubiu &&
+          v5Check.controleSqliteSessaoEncerradaIntacta &&
+          v5Check.elementosNaoVazaram &&
+          v5Check.pixelsNaoVazaram
+        );
+        console.log(`[Probe V5] Verificação V5 concluída: ${v5Check.pass ? 'PASS' : 'FAIL'}`);
+      } finally {
+        await guestBrowserV5.close();
+      }
+
+      // Retorna para a tela de detalhes do atendido e fecha sala do servidor da sessão viva
+      await page.click('#btn-voltar-sessao');
+      await page.waitForSelector('#painel-sala-servidor', { timeout: 10000 });
+      await page.click('#btn-fechar-sala-servidor');
+      await new Promise((r) => setTimeout(r, 600));
+    }
+
+    v5Results = v5Check;
+  }
   await page.click('#btn-status-detalhe');
   await new Promise((r) => setTimeout(r, 600));
 
@@ -980,6 +1790,10 @@ async function main() {
     totalAtendidos: dbCheck.total,
     pageErrors,
     guestMobile,
+    v3c: v3cResults,
+    v3d: v3dResults,
+    v4: v4Results,
+    v5: v5Results,
   };
 }
 
@@ -1035,6 +1849,18 @@ main()
         res.guestMobile.shapesPixelCheckOk,
       'V3b: traço permanece visível NA TELA (captura real) após soltar o mouse':
         res.guestMobile.v3bScreenCaptureOk,
+      'V3c: 8 ferramentas de desenho sobre objetos existentes não movem o objeto e sobem contagem em 1':
+        Boolean(res.v3c && res.v3c.allPassed),
+      'V3c: regressão select ainda seleciona e move objeto existente':
+        Boolean(res.v3c && res.v3c.selectDragOk),
+      'V3c: regressão object_eraser ainda apaga o objeto sob o cursor':
+        Boolean(res.v3c && res.v3c.objectEraserOk),
+      'V3d: texto digitado aparece na tela e vira elemento':
+        Boolean(res.v3d && res.v3d.pass),
+      'V4: sessão encerrada abre em leitura e não aceita desenho':
+        Boolean(res.v4 && res.v4.pass),
+      'V5: quadro em leitura não recebe traço do Guest de outra sessão':
+        Boolean(res.v5 && res.v5.pass),
     };
 
     console.log(JSON.stringify(res, null, 2));

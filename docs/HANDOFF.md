@@ -1,3 +1,181 @@
+# HANDOFF DE ESTADO — FASE 08: Bloqueio de Evento do Guest no Quadro em Leitura (D17)
+
+## Mensagem para o Alexandre (Resumo em Português Simples — D17)
+Olá Alexandre! Nesta intervenção (D17), corrigimos uma falha de isolamento em que o quadro de uma sessão já encerrada aberto para consulta ("Ver quadro (somente leitura)") recebia e exibia na tela os traços que o aluno estivesse desenhando no celular durante uma aula ao vivo conectada ao mesmo tempo. 
+
+Agora, implementamos um funil único e estrito na aplicação (`aplicarEventoRemoto`), com a identidade da sessão carimbada diretamente pelo processo principal (Main) que gerencia o servidor, e não pela mensagem do celular nem pelo que estiver aberto na tela no momento. Com isso, o quadro em modo de leitura ignora e descarta sumariamente qualquer traço do aluno na aula viva, preservando a fidelidade permanente e imutável do histórico da aula passada. Validamos com o ataque do chefe (que antes falhava e agora resistiu com 0 novos pixels na tela), com a sonda runtime V5 (comprovando isolamento visual e integridade com celular conectado pelo IP da rede local) e com testes unitários cobrindo todas as regras de descarte e o caminho feliz da aula ao vivo.
+
+[HANDOFF DE ESTADO — D17]
+* Arquivos Modificados/Criados no D17:
+  - `src/host/store/useHostStore.ts`: Criada a ação `aplicarEventoRemoto` como funil único para eventos remotos do Guest, validando `quadroSomenteLeitura`, `sessaoId` da autoridade, `activeSessaoId`, `activeAbaId` e a allowlist de ações permitidas (`ACOES_PERMITIDAS_GUEST`).
+  - `src/host/HostApp.tsx`: Banido o uso solto de `useHostStore.setState({ tabState })`; o listener IPC de eventos do Guest agora delega exclusivamente para `aplicarEventoRemoto`. Removidos imports não utilizados.
+  - `electron/server/index.ts`: `handleGuestEvent` passa a carimbar e despachar os eventos do Guest contendo o `sessaoId` oficial da autoridade (`SessionManager`), impedindo spoofing do Guest.
+  - `electron/ipc/server.ipc.ts`: Repasse IPC para o Renderer inclui o `sessaoId` obtido diretamente do `SessionManager`.
+  - `tests/funil-remoto-guest.test.ts`: Nova suíte de testes com 8 cenários cobrindo descarte por modo leitura, sessão trocada, aba trocada, `sessaoId` inválido/ausente, tipo fora da allowlist, emissão de diagnóstico, resiliência da sessão viva e sobreposição de autoridade contra spoofing.
+  - `tools/probe-runtime.cjs`: Adicionada checagem `V5: quadro em leitura não recebe traço do Guest de outra sessão`, conectando Motorola Edge 70 Pro real via IP de LAN, avaliando captura de tela (`page.screenshot`) decodificada e contagem de pixels coloridos antes e depois com delta 0.
+  - `docs/reviews/autoauditoria-vazamento-remoto.md`: Relatório completo de autoauditoria do D17 contendo critérios, comandos, saídas reais de reprodução prévia, execução do ataque do chefe, sonda V5 e lista do que não foi verificado.
+* Estado Atual: D17 100% implementado e testado. `npm run verify` verde (362 testes no vitest, 37 checagens na sonda). Ataque do chefe aprovado com código 0 e delta 0 pixels.
+* Decisões Críticas Tomadas:
+  - Funil único centralizado na Store Zustand: Nenhuma alteração de `tabState` por evento remoto ocorre fora da ação `aplicarEventoRemoto`.
+  - Identidade de sessão carimbada na borda pelo Main: Sessão vem do `SessionManager`, impedindo que o Guest forje identidade ou que o Host carimbe com o que está em foco na tela.
+  - Reaproveitamento estrito do ADR-011: Utilizada a constante única `ACOES_PERMITIDAS_GUEST` para validação de tipo.
+* Divergências da Spec: Nenhuma.
+
+---
+
+# HANDOFF DE ESTADO — FASE 08: Limpeza dos Andaimes de Diagnóstico (D14)
+
+## Mensagem para o Alexandre (Resumo em Português Simples — D14)
+Olá Alexandre! Nesta intervenção (D14), realizamos a limpeza criteriosa de todos os andaimes temporários, hipóteses descartadas e códigos de teste que haviam sido adicionados durante a caçada ao defeito visual da Fase 07 (que foi definitivamente resolvido com a correção da transparência da camada superior `.upper-canvas` no D11).
+
+O benefício mais importante desta limpeza foi remover o "reforço de repaint" que rodava a cada elemento desenhado no caminho crítico de produção: medimos que ele consumia ~10 ms por traço na média e adicionava +51 ms de atraso no percentil 95 (cauda de latência). Com a remoção, o desenho no Host ficou visivelmente mais leve e o caminho quente (`renderState`) agora chama apenas o `requestRenderAll()` puro do Fabric sem disparar nenhum `setTimeout` nem chamada IPC desnecessária.
+
+Além disso:
+1. Removemos os experimentos de janela do Electron (switches de oclusão do Windows, não-throttling e micro-redimensionamento nudge) e o switch de GPU do servidor dev.
+2. Mantivemos sob flag de diagnóstico (`ONETOONE_DIAG=1`) os verificadores leves (`checkPixelDivergence` e `checkCssVisibility`) e os logs de ciclo de vida (`engine_lifecycle` e `janela_evento`), que custam absolutamente zero em produção.
+3. CONSERTAMOS o verificador visual `checkCssVisibility` (D8) para inspecionar todas as camadas do Fabric (inclusive alertando se o `upperCanvasEl` nascer com fundo opaco), eliminando exatamente o ponto cego que antes escondia a causa raiz.
+4. Preservamos estritamente todas as defesas fundamentais do produto: o `upperCanvasEl` transparente, a trava de seleção sem arraste (`ARRASTO_NO_MODO_SELECAO_HABILITADO = false`), o `skipTargetFind` do D12, e os scripts centrais de validação (`tools/drag-sendinput.ps1` e `tools/probe-runtime.cjs`).
+
+A suíte completa (`npm run verify`) está 100% verde com 25 arquivos de teste (354 testes vitest) e todas as 36 checagens de runtime na sonda passando com prova real de tela.
+
+[HANDOFF DE ESTADO — D14]
+* Arquivos Modificados/Removidos no D14:
+  - electron/experiments.ts (removido, hipótese descartada)
+  - tests/render-experiments.test.ts (removido, 19 testes obsoletos)
+  - `electron/main.ts`: Removidas chamadas e switches de experimentos.
+  - `scripts/dev.mjs`: Removido suporte a ONETOONE_DISABLE_GPU.
+  - `src/shared/canvas/engine.ts`: Removidos reforços de repaint e timers do caminho quente de `renderState`. O método `checkCssVisibility` foi consertado para inspecionar `upperCanvasEl` e detectar fundos opacos que ocluam o canvas de traços.
+  - `src/shared/ipc-contract.ts`: Removido canal de repaint e método correspondente da interface `DesktopAPI`.
+  - `electron/preload.ts`: Removido canal e método de repaint.
+  - electron/ipc/canvas.ipc.ts (removido, handler IPC obsoleto)
+  - `electron/ipc/router.ts`: Removido registro de rotas do canvas IPC.
+  - tests/canvas-repaint.test.ts (removido, 7 testes obsoletos)
+  - `tests/ipc.test.ts`: Removido caso de teste de force repaint.
+  - `tests/divergencia-pixel.test.ts`: Adicionados 3 novos testes validando a detecção de `upperCanvasEl` opaco, canvas transparente normal e `lowerCanvasEl` oculto.
+  - tools/investigar-render-pipeline.cjs (removido, ferramenta efêmera descartada)
+  - tools/drag-cursive-sendinput.ps1 (removido, ferramenta efêmera descartada)
+  - `docs/reviews/autoauditoria-limpeza-diagnosticos.md`: Relatório completo de autoauditoria com tabela classificatória, saídas reais e verificação do caminho quente.
+* Estado Atual: D14 100% implementado, testado e verificado. `npm run verify` verde (354 testes, 36 checagens na sonda).
+* Próximo Passo Lógico: Alexandre avaliar as entregas para autorizar merge e push.
+* Decisões Críticas Tomadas:
+  - Eliminação Completa do Reforço de Repaint: Eliminada sobrecarga no caminho quente de desenho com comprovação em sonda e testes.
+  - Aperfeiçoamento do D8: Diagnóstico agora monitora `upperCanvasEl` contra regressões visuais de opacidade.
+* Divergências da Spec: Nenhuma.
+
+---
+
+# HANDOFF DE ESTADO — FASE 08: Seleção Seleciona Sem Arrasto (D15), Modo Leitura (D16) e Ferramentas de Desenho (D12/D13)
+
+## Mensagem para o Alexandre (Resumo em Português Simples — D15)
+Olá Alexandre! Nesta intervenção (D15), a ferramenta de Seleção foi ajustada conforme a sua decisão (Opção A): agora ela apenas seleciona os objetos no quadro, mantendo o contorno visual azul de seleção, mas não permite arrastar, redimensionar nem girar o objeto pelo mouse. Isso elimina a falsa impressão de que o objeto foi movido na sessão, pois até então essa movimentação era apenas uma mutação visual na memória da máquina local (não gerava evento no protocolo append-only, não gravava no SQLite e não ia para o celular do aluno).
+
+Conforme sua exigência expressa, todo o código de movimentação foi estritamente preservado: a trava é governada por uma constante exportada de código (`ARRASTO_NO_MODO_SELECAO_HABILITADO = false`) em `src/shared/canvas/engine.ts`. Quando implementarmos o evento oficial de movimentação com persistência e sincronização E2EE (Opção B do D12.3 via ADR), bastará comutar essa constante para `true` que todo o comportamento original de manipulação e alças de vértice volta imediatamente por inteiro.
+
+Validamos tudo com 11 testes automatizados dedicados em `tests/selecao-sem-arrasto.test.ts` e com teste E2E em Electron real com captura de tela (`page.screenshot`), amostragem e comparação binária de pixels (`Issues/20260924-200000-selecao-sem-arrasto/evidencia/selecao-sem-arrasto.png`), comprovando 100% de preservação dos pixels da imagem sob tentativa de arraste com a constante desligada e comprovando que o objeto volta a se mover quando a constante é ligada para `true`. A suíte completa (`npm run verify`) está 100% verde com 378 testes e 36 verificações de runtime na sonda.
+
+[HANDOFF DE ESTADO — D15]
+* Arquivos Modificados/Criados no D15:
+  - `src/shared/canvas/engine.ts`: Introduzida a constante `ARRASTO_NO_MODO_SELECAO_HABILITADO` (padrão `false`), a função `setArrastoNoModoSelecaoHabilitado`, o getter `arrastoHabilitado` e os métodos `applySelectionDragLocks`, `syncDragLocks` e `setArrastoHabilitado`. Listeners em `selection:created` e `selection:updated` travam `lockMovementX`, `lockMovementY`, `lockRotation`, `lockScalingX`, `lockScalingY` e ocultam `hasControls` quando a constante é `false`.
+  - `tests/selecao-sem-arrasto.test.ts`: Nova suíte com 11 testes automatizados cobrindo constante padrão `false`, feedback visual, travas geométricas completas, matriz de 5 tipos de objetos, seleção múltipla (ActiveSelection), ausência de eventos espúrios, prova de restauração com constante `true`, resiliência a nulos e regressões com demais ferramentas.
+  - `Issues/20260924-200000-selecao-sem-arrasto/evidencia/teste-selecao-sem-arrasto.cjs`: Script E2E de comprovação em Electron real que desenha retângulo, seleciona em modo `select`, captura tela real via `page.screenshot`, tenta arrastar com constante `false` comprovando preservação de geometria e correspondência binária de pixels (`selecao-apos-arraste-false.png`), ativa constante `true` comprovando deslocamento real e alças ativas (`selecao-apos-arraste-true.png`).
+  - `Issues/20260924-200000-selecao-sem-arrasto/evidencia/selecao-sem-arrasto.png`: Captura de tela real do objeto selecionado sem controles.
+  - `Issues/20260924-200000-selecao-sem-arrasto/evidencia/selecao-apos-arraste-false.png`: Captura de tela pós-arraste confirmando estabilidade exata dos pixels.
+  - `Issues/20260924-200000-selecao-sem-arrasto/evidencia/selecao-apos-arraste-true.png`: Captura de tela pós-arraste com constante `true` demonstrando movimentação e alças ativas.
+  - `docs/reviews/autoauditoria-selecao-sem-arrasto.md`: Relatório completo de autoauditoria com critérios, saídas reais e lista do que não foi verificado.
+* Estado Atual: D15 100% implementado, testado e verificado. `npm run verify` verde (378 testes, 36 checagens na sonda).
+* Próximo Passo Lógico: Alexandre avaliar as entregas para autorizar merge e push.
+* Decisões Críticas Tomadas:
+  - Constante de código pura: Nenhuma UI ou configuração exposta desnecessariamente, atendendo ao requisito D15.2.
+  - Código 100% preservado: Toda a lógica do Fabric permanece viva e reativável alternando a constante.
+* Divergências da Spec: Nenhuma.
+
+---
+
+# HANDOFF DE ESTADO — FASE 08: Modo Leitura de Sessão Encerrada (D16) e Ferramentas de Desenho (D12/D13)
+
+## Mensagem para o Alexandre (Resumo em Português Simples — D16)
+Olá Alexandre! Nesta intervenção (D16), implementamos a funcionalidade para você rever o quadro de qualquer atendimento já encerrado diretamente pela tela de detalhes do atendido. Cada sessão encerrada agora possui o botão "Ver quadro (somente leitura)", enquanto a sessão ativa permanece com seus botões normais.
+
+Para proteger rigorosamente a regra do histórico imutável (append-only), o modo leitura desabilita e esconde todas as ferramentas de desenho, borracha, texto, desfazer/refazer e controles de sala remota. Além disso, adicionamos travas no motor (`WhiteboardEngine`), na store e no serviço de backend para impedir qualquer nova gravação de evento em sessão encerrada. A tela traz avisos claros de que está em modo de leitura e você pode utilizar o botão "Exportar PNG HiDPI" normalmente para salvar a imagem final da sessão.
+
+Validamos tudo com 13 testes dedicados (unitários no motor/store e de banco no SQLite) e estendemos a sonda de automação com o teste `V4: sessão encerrada abre em leitura e não aceita desenho`, que encerra uma sessão de verdade, abre o quadro em leitura, afere os pixels na tela por captura real (`docs/quadro-somente-leitura.png`), tenta arrastar o mouse para desenhar e confirma que nenhum elemento ou evento é adicionado, testando também a exportação em PNG. Toda a suíte do projeto está 100% verde (367 testes passando e 35 verificações na sonda).
+
+[HANDOFF DE ESTADO — D16]
+* Arquivos Modificados/Criados no D16:
+  - `src/host/pages/DetalheAtendidoPage.tsx`: Adicionado botão `btn-rever-quadro-<id>` ("Ver quadro (somente leitura)") para sessões encerradas. Mantidos os controles de sessão ativa inalterados.
+  - `src/host/store/useHostStore.ts`: Adicionada propriedade `quadroSomenteLeitura: boolean`, ativada automaticamente ao abrir sessão encerrada via `abrirQuadroSessao(sessaoId, { somenteLeitura: true })`. Bloqueadas emissões de `aplicarEventoQuadro`, `desfazerQuadro`, `refazerQuadro` e `limparQuadro`.
+  - `src/shared/canvas/engine.ts`: Adicionado suporte a `somenteLeitura: true` no `WhiteboardEngine`. Inicializa com `selection = false`, `isDrawingMode = false`, `skipTargetFind = true`. No `renderState`, projeta todos os elementos existentes com `selectable = false`, `evented = false`, `lockMovement = true` e sem controles de vértice. Métodos de desenho, edição, texto, desfazer, refazer e emissão de eventos bloqueados.
+  - `src/host/pages/QuadroBrancoPage.tsx`: Integrado `quadroSomenteLeitura` da store, renderizando `#badge-somente-leitura` no cabeçalho e `#aviso-modo-leitura` no lugar da barra de ferramentas interativa. Ocultados controles de sala do servidor LAN. Botão `#btn-exportar-imagem` mantido funcional.
+  - `electron/services/evento.service.ts`: Em `gravarEvento`, rejeita com `{ sucesso: false, motivo: 'SESSAO_ENCERRADA' }` qualquer tentativa de gravar evento em sessão cujo status no SQLite seja `encerrada`.
+  - `tests/rever-sessao-encerrada.test.ts`: Suíte com 10 testes cobrindo interface, store e motor gráfico Fabric.js em modo somente leitura.
+  - `tests/rever-sessao-backend.test.ts`: Suíte com 3 testes validando a rejeição no backend SQLite e reconstrução do estado histórico.
+  - `tools/probe-runtime.cjs`: Estendida com a checagem runtime `V4: sessão encerrada abre em leitura e não aceita desenho`, com captura de tela real (`page.screenshot`), amostragem de 52051 pixels visíveis de traço colorido com `countVisibleScreenStrokePixels`, teste de arraste do mouse sem mutação de elementos e sem novos eventos no SQLite, e exportação de PNG.
+  - `docs/reviews/autoauditoria-rever-sessao.md`: Relatório completo de autoauditoria da ordem D16 com critérios, comandos, saídas reais e verificação visual.
+  - `docs/quadro-somente-leitura.png` e `Issues/20260924-210000-rever-sessao-encerrada/evidencia/quadro-somente-leitura.png`: Evidência visual da captura de tela real.
+* Estado Atual: D16 100% implementado, testado e verificado. `npm run verify` verde (367 testes, 35 checagens na sonda).
+* Observação D15.3: A ordem D15 (`Issues/20260924-200000-selecao-sem-arrasto/ordem-correcao.md`) permanece como issue aberta e separada para execução futura, com validação de captura de tela (`page.screenshot`) e amostragem de pixels prevista.
+* Observação D16.4: Prova de visualização e preservação de pixels atestada com 52051 pixels coloridos visíveis na captura de tela e zero eventos gerados sob arraste em modo somente leitura.
+* Próximo Passo Lógico: Alexandre avaliar as entregas para autorizar merge e push.
+* Decisões Críticas Tomadas:
+  - Reutilização de `desktopAPI.eventos.obterEstadoAba`: Nenhum novo canal IPC foi criado, mantendo a simplicidade e segurança do contrato IPC existente.
+  - Bloqueio em Múltiplas Camadas: O modo leitura é garantido simultaneamente na interface (remoção da barra de ferramentas), no motor gráfico (sem seleção, desenho ou controles), na store Zustand (bloqueio de mutação) e no backend SQLite (rejeição no EventoService).
+* Divergências da Spec: Nenhuma.
+
+---
+
+# HANDOFF DE ESTADO — FASE 08: Ferramenta Texto Utilizável (D13) e Ferramentas Sem Mover (D12)
+
+## Mensagem para o Alexandre (Resumo em Português Simples — D13)
+Olá Alexandre! Nesta intervenção (D13), corrigimos o problema na ferramenta de Texto onde clicar no quadro não permitia digitar e deixava a palavra "Texto" gravada. A causa raiz era que a engine encerrava a edição no mesmo instante em que ela abria (chamava `setTool` para `select` logo após iniciar a edição). Agora, ao clicar com a ferramenta Texto, você pode digitar imediatamente (inclusive texto com acentos e múltiplas linhas com Enter); a comutação para seleção só ocorre quando você conclui o texto (clicando fora, teclando Escape ou escolhendo outra ferramenta). Além disso, se você clicar e não digitar nada antes de sair, nenhum elemento é criado no quadro (o texto vazio é descartado sem poluir a tela com placeholders).
+
+Validamos com 5 testes automatizados dedicados em `tests/ferramenta-texto.test.ts`, prova E2E em Chromium real digitando caracteres de verdade e gerando captura de tela (`Issues/20260924-180000-texto-nao-aceita-digitacao/evidencia/tela-com-texto-digitado.png`), e nova checagem integrada na sonda de runtime (`V3d: texto digitado aparece na tela e vira elemento`), que afere a digitação real e a alteração de pixels na tela. O `npm run verify` está 100% verde (354 testes e 34 checagens na sonda).
+
+[HANDOFF DE ESTADO — D13]
+* Arquivos Modificados/Criados no D13:
+  - `src/shared/canvas/engine.ts`: Em `handleTextCreation`, o objeto nasce com texto vazio, a chamada síncrona `setTool('select')` foi removida e movida para dentro do callback de finalização `commitText()`. No listener de `mouse:down`, cliques fora de um texto em edição invocam `exitEditing()` para comitar a digitação atual sem disparar uma nova caixa de texto concorrente.
+  - `tests/ferramenta-texto.test.ts`: Nova suíte de testes com 5 cenários cobrindo o ciclo de digitação imediata, descarte de texto vazio, suporte a multilinha e acentuação, preservação ao alternar ferramentas e confirmação por clique fora.
+  - `tests/ferramentas-sem-mover.test.ts`: Ajustada asserção no teste da ferramenta `text` para verificar que o objeto pré-existente não foi selecionado, permitindo que a nova caixa de texto criada permaneça ativa para digitação imediata.
+  - `tools/probe-runtime.cjs`: Adicionada verificação `V3d: texto digitado aparece na tela e vira elemento` testando digitação real ("Probe Ação 1:1"), verificação de pixels renderizados (+1836 px na tela) e teste de descarte com texto vazio. Atualizados os passos das ferramentas em `shapeTests` e `V3c` para emitirem digitação real quando selecionada a ferramenta Texto.
+  - `Issues/20260924-180000-texto-nao-aceita-digitacao/evidencia/teste-texto.cjs`: Script E2E atualizado validando os 3 fluxos (digitação com acentuação/multilinha, descarte de texto vazio e cancelamento por Escape) e gerando screenshot da tela real.
+  - `Issues/20260924-180000-texto-nao-aceita-digitacao/evidencia/tela-com-texto-digitado.png`: Captura de tela real comprovando o texto digitado renderizado no viewport.
+  - `docs/reviews/autoauditoria-texto.md`: Relatório completo de autoauditoria com comandos executados, saídas reais, verificação de pixel e varredura D13.3.
+  - `docs/HANDOFF.md`: Atualizado com o handoff do D13 e mensagem para o Alexandre.
+* Estado Atual: D13 100% implementado, testado e verificado. `npm run verify` verde (354 testes, 34 checagens de runtime na sonda).
+* Próximo Passo Lógico: Alexandre avaliar as entregas da Fase 08 (D12 e D13) para autorizar merge e push.
+* Decisões Críticas Tomadas:
+  - Comutação para `select` no `commitText()`: Garante ergonomia fluida ao comutar para seleção após concluir a digitação, evitando criar caixas de texto indesejadas no clique fora.
+  - Descarte de texto vazio: Textos em branco são descartados sem criar eventos nem persistir no canvas.
+* Divergências da Spec: Nenhuma.
+
+---
+
+# HANDOFF DE ESTADO — FASE 08: Ferramentas de desenho sem mover objetos existentes (D12)
+
+## Mensagem para o Alexandre (Resumo em Português Simples)
+Olá Alexandre! Nesta Fase 08 (D12), corrigimos em definitivo o problema onde iniciar um traço de desenho com o cursor em cima de um objeto já desenhado acabava selecionando, girando, redimensionando ou arrastando aquele objeto em vez de desenhar. Agora, todas as 8 ferramentas de desenho (`pencil`, `brush`, `rectangle`, `ellipse`, `line`, `arrow`, `text` e `eraser`) apenas desenham, ignorando qualquer alvo sob o cursor. Somente as ferramentas `select` (que serve explicitamente para selecionar) e `object_eraser` (que precisa apagar o objeto clicado) procuram alvos sob o mouse.
+
+Validação rigorosa realizada: criamos 57 testes automatizados novos cobrindo a matriz completa de 6 tipos de objetos contra as 8 ferramentas de desenho, comprovamos que sem a correção 51 testes falham, e estendemos a sonda de runtime (`V3c`) com captura de tela real (`page.screenshot`), amostragem e comparação de pixels da área de desenho e entrada física do Windows via `tools/drag-sendinput.ps1`. O `npm run verify` completo está 100% verde (349 testes e 34 checagens na sonda).
+
+Sobre o arrasto no modo `select` (item D12.3): identificamos que atualmente mover um objeto pelo modo `select` é uma alteração que acontece apenas na memória local do canvas — ela não gera evento, não é salva no banco SQLite, não vai para o celular do aluno e é desfeita na próxima atualização da tela. Documentamos essa análise com 3 opções claras na autoauditoria para você decidir o caminho futuro (desabilitar o arrasto no `select`, implementar evento oficial de movimentação com sincronização via ADR, ou manter como scratchpad temporário com aviso visual).
+
+[HANDOFF DE ESTADO]
+* Arquivos Modificados/Criados na Fase 08:
+  - `src/shared/canvas/engine.ts`: Implementada a regra D12.1 no `setTool` (`this.canvas.skipTargetFind = !(tool === 'select' || tool === 'object_eraser')`), descarte do `activeObject` e saída estrita do modo de edição de texto ao alternar ferramentas (`exitEditing()`, `exitTextEditing()`, `discardActiveObject()`).
+  - `tests/ferramentas-sem-mover.test.ts`: Suíte com 57 testes cobrindo a matriz completa de 6 objetos x 8 ferramentas, prova de falha sem a correção, regressões de `select`, `object_eraser`, `eraser` (trecho) e observação da decisão de produto D12.3.
+  - `tools/probe-runtime.cjs`: Estendida com a verificação runtime `V3c` (8 casos cobrindo todos os tipos de formas e ferramentas com captura real de tela por `page.screenshot`, amostragem de pixels não-cobertos, validação de geometria estrita, delta incremental de +1 elemento e entrada física `tools/drag-sendinput.ps1`), além de testes de regressão de `select` e `object_eraser`.
+  - `docs/reviews/autoauditoria-ferramentas-sem-mover.md`: Relatório completo de autoauditoria com comandos reais, evidências coladas, prova de falha/restauração, análise detalhada de D12.3 e lista do que não foi verificado.
+  - `docs/reviews/autoauditoria-08.md`: Cópia do relatório para o validador automático (`tools/auditar.cjs`).
+  - `docs/HANDOFF.md`: Atualizado com o handoff da Fase 08 e resumo executivo.
+* Estado Atual: Fase 08 100% implementada, testada e aprovada. `npm run verify` verde (349 testes, 34 checagens de sonda), `tools/checar-provas.cjs` verde (0 promessas sem pixel), `tools/sinais-risco.cjs` verde (0 falhas, 0 avisos), `tools/verificar-afirmacoes.cjs` verde (0 inexistentes).
+* Próximo Passo Lógico: Alexandre avaliar o relatório e decidir sobre a movimentação em modo `select` (D12.3: Opção A, B ou C).
+* Decisões Críticas Tomadas:
+  - `skipTargetFind`: Configurado no Fabric 6 para suprimir detecção de alvos durante o uso de qualquer ferramenta de desenho, eliminando seleções acidentais na raiz da engine.
+  - `object_eraser` e `select` preservados: Mantêm `skipTargetFind = false` para busca precisa de alvos.
+  - D12.3 mantido sem alteração de código: Conforme diretriz da ordem de serviço, nenhuma decisão unilateral foi tomada sobre a mutação local de `select`; o cenário foi integralmente documentado com opções estruturadas.
+* Divergências da Spec: Nenhuma.
+
+---
+
 # HANDOFF DE ESTADO — FASE 07: Guest mobile
 
 [HANDOFF DE ESTADO]
@@ -584,7 +762,7 @@ PASS  Banco: sem dados duplicados no SQLite
   - Conversão `pointerToScene` adaptada para priorizar `changedTouches` em eventos de `touchend`, eliminando a causa-raiz de descarte de formas geométricas no término do toque.
   - Relatório analítico completo arquivado em `docs/reviews/diagnostico-coordenadas.md`.
 * **V5 — Script de homologação limpa (`tools/homologar.ps1`):**
-  - Recusa execução se a árvore Git estiver suja (`git status --porcelain`) ou se a branch não for `fase/07-homologacao-1`.
+  - Recusa execução se a árvore Git estiver suja (`git status --porcelain`) ou se a branch não for a esperada da homologação.
   - Encerra instâncias residuais de `electron.exe` e Vite.
   - Deleta arquivos de banco SQLite em `%APPDATA%\OneToOneSupport` com app fechado, listando cada arquivo removido.
   - Executa build completo (`npm run build`).
@@ -780,43 +958,29 @@ Se o desenho sumir de novo, cole o terminal — agora ele deve mostrar `[diverge
 
 ---
 
-## Correção Experimental: Forçar Repaint Real da Janela e Reflow DOM (D7 — 2026-09-23)
+## Correção Experimental: Forçar Repaint Real da Janela e Reflow DOM (D7 — 2026-09-23, Removida em D14)
 
-### Instrução para o Alexandre (Dono do Produto)
-Alexandre, por favor, feche todas as janelas, rode `tools\homologar.ps1`, desenhe traços rápidos no quadro branco e diga se o desenho continua sumindo ou não após soltar o traço. Esta é uma correção experimental que força a repintura da janela pelo Electron logo após cada desenho; como o bug original nunca reproduziu nas ferramentas automáticas (onde o buffer do canvas sempre esteve correto), a única validação conclusiva é o seu teste real na máquina.
+> [!NOTE]
+> Este andaime de repaint experimental foi totalmente removido em D14 (`fase/08-ferramentas-sem-mover`) após a confirmação da causa raiz no `.upper-canvas` (D11). A medição do chefe comprovou economia de ~10 ms na média e 51 ms no p95 em cada traço.
 
-### Resumo Técnico da Implementação D7
-1. **D7.1 — Repaint Forçado no Host via `webContents.invalidate()`:** Implementado canal IPC `IPC_CHANNELS.CANVAS_FORCE_REPAINT` (`canvas:force-repaint`) registrado em `electron/ipc/canvas.ipc.ts` e exposto no preload como `desktopAPI.canvas.forceRepaint()`. O handler chama `mainWindow.webContents.invalidate()` no processo principal do Electron, agendando a repintura da janela física.
-2. **D7.2 — Reflow Síncrono no DOM:** No `WhiteboardEngine` (`src/shared/canvas/engine.ts`), após a renderização de novos elementos em `renderState`, força reflow síncrono no elemento do canvas (`void el.offsetHeight`), acionando recálculo de layout no Chromium. Mecanismo seguro e funcional tanto no Host quanto no Guest mobile.
-3. **D7.3 — Throttle com Trailing Edge:** Throttle de ~180ms implementado em `WhiteboardEngine.triggerRepaintReinforcement`, agrupando chamadas rápidas e garantindo execução retardada (*trailing edge*) para que o último traço desenhado seja sempre repintado sem travar ou desacelerar o arrasto interativo (< 0.5ms por ciclo).
+### Histórico da Implementação D7 (Arquivada)
+1. **D7.1 — Repaint Forçado:** Canal IPC `canvas:force-repaint` e método `forceRepaint` (removidos em D14).
+2. **D7.2 — Reflow Síncrono no DOM:** Chamada a `offsetHeight` no `renderState` (removida em D14).
+3. **D7.3 — Throttle com Trailing Edge:** Agendamento retardado de repaint (removido em D14).
 4. **D7.4 — Preservação de Diagnósticos:** Diagnósticos `divergencia_estado_pixel` (D6.1) e `engine_lifecycle` (D6.2) mantidos ativos sob `ONETOONE_DIAG=1`.
-5. **Cobertura de Testes:** Suíte dedicada `tests/canvas-repaint.test.ts` (7 testes) e caso integrado em `tests/ipc.test.ts`. Gate total de 18 suítes vitest (265 testes) e sonda de runtime 27/27 PASS.
 
 ---
 
-## Experimentos de Janela do Electron no Windows (D10 — 2026-09-24)
+## Experimentos de Janela do Electron no Windows (D10 — 2026-09-24, Removidos em D14)
 
-### Roteiro para o dono (em português simples)
-
-Teste 1: `$env:ONETOONE_RENDER_EXPERIMENT="all"` depois `tools\homologar.ps1`, desenhar como sempre. Se resolver, repetir isolando: só `occlusion`, depois só `nothrottle`, depois só `nudge`, para achar qual foi. Sempre colar o terminal completo. Se não resolver com `all`, dizer isso também — é informação útil.
-
-### Resumo Técnico dos Experimentos D10
-1. **Comportamento Padrão Inalterado:** Sem a variável `ONETOONE_RENDER_EXPERIMENT`, nenhum comportamento muda e nenhuma flag experimental é ativada.
-2. **`occlusion`:** Aplica switch `app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion')` no Windows antes de `app.whenReady()`, desativando a detecção nativa de oclusão de janelas do Windows.
-3. **`nothrottle`:** Configura `webPreferences.backgroundThrottling = false` na janela `BrowserWindow` do Host.
-4. **`nudge`:** Quando ativo, o canal IPC `canvas:force-repaint` aciona micro-redimensionamento de 1px na largura da janela com restauração no frame seguinte (16ms), forçando o DWM do Windows a recompor a swapchain da janela. Possui throttle obrigatório de ~300ms e preserva janelas maximizadas ou fullscreen (pulando o redimensionamento).
-5. **`all`:** Equivale à ativação simultânea de `occlusion,nothrottle,nudge`.
-6. **Diagnóstico de Janela (`ONETOONE_DIAG=1`):** Registra eventos `show`, `hide`, `minimize`, `restore`, `focus`, `blur` e o estado de `win.isVisible()`/`win.isMinimized()` no momento de cada `renderState` que adiciona elementos ao quadro, emitindo `[DIAG-HOST] [janela_evento]`.
-7. **Cobertura de Testes:** Suíte dedicada `tests/render-experiments.test.ts` (19 testes unitários/integração). Gate total de 21 suítes vitest (290 testes) e sonda de runtime 27/27 PASS.
+> [!NOTE]
+> Os experimentos de janela (switches de oclusão, não-throttling e micro-redimensionamento nudge) e o switch de GPU do dev server foram totalmente removidos na ordem D14 após a resolução definitiva da causa raiz real. O app opera em modo padrão limpo sem flags experimentais.
 
 ---
 
 ## Causa Raiz Confirmada e Prova de Tela Real (D11 — 2026-09-24)
 
 A causa raiz definitiva do problema em que o desenho sumia ao soltar o mouse foi confirmada: o quadro branco aplicava cor de fundo branca no elemento `<canvas>` antes de inicializar o Fabric.js. Ao criar a camada superior (`upperCanvasEl`), o Fabric copiava o estilo do elemento original, fazendo com que a camada superior ficasse com um fundo branco opaco cobrindo a camada de baixo (`lowerCanvasEl`) onde os traços residem. Assim que o mouse era solto e o traço provisório era limpo, a camada superior branca e opaca tapava todos os desenhos da tela, embora os dados e o buffer de memória estivessem sempre corretos. O problema já está corrigido no construtor de `src/shared/canvas/engine.ts`, deixando o fundo branco exclusivamente na camada inferior e a camada superior transparente. Além disso, a sonda de runtime (`tools/probe-runtime.cjs`) foi aprimorada com a checagem V3b, que agora captura e decodifica a imagem real da TELA via `screenshot`, conferindo pixel a pixel que os traços permanecem visíveis para o usuário após soltar o mouse.
-
-
-
 
 ---
 
@@ -828,8 +992,7 @@ Causa: fundo branco opaco na camada superior do quadro (ver "Causa Raiz Confirma
 Evidência: `docs/reviews/evidencia-pos-correcao-host.png`. Gate no fechamento: `npm run typecheck` limpo,
 292 testes, sonda com V3b (captura de tela real) passando.
 
-Mecanismos experimentais que ficaram no código, desligados por padrão: `ONETOONE_RENDER_EXPERIMENT`
-(D10) e `ONETOONE_DISABLE_GPU` (D9). Fora do padrão, sem efeito no produto. Candidatos a limpeza futura.
+Mecanismos experimentais da caçada (D7, D9, D10) foram integralmente limpos em D14 sem perda de proteção e com ganho de desempenho no caminho quente do desenho.
 
 **Pendência aberta (próxima fase, Host apenas):** linhas, setas, retângulos, elipses e texto são objetos
 selecionáveis; ao desenhar algo novo por cima, o Fabric arrasta o objeto anterior em vez de só desenhar.

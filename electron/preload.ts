@@ -52,9 +52,6 @@ const IPC_CHANNELS = {
 
   // Diagnóstico Forward (D1)
   DIAG_FORWARD: 'diag:forward',
-
-  // Forçar repaint da janela do Host (D7)
-  CANVAS_FORCE_REPAINT: 'canvas:force-repaint',
 } as const;
 
 export type { DisplayMetrics, DesktopAPI };
@@ -145,10 +142,6 @@ const desktopAPI: DesktopAPI = {
     gravar: (payload) => ipcRenderer.invoke(IPC_CHANNELS.EVENTO_GRAVAR, payload),
     obterEstadoAba: (sessao_id, aba_id) =>
       ipcRenderer.invoke(IPC_CHANNELS.EVENTO_OBTER_ESTADO, { sessao_id, aba_id }),
-  },
-
-  canvas: {
-    forceRepaint: () => ipcRenderer.invoke(IPC_CHANNELS.CANVAS_FORCE_REPAINT),
   },
 };
 

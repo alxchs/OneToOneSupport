@@ -15,6 +15,7 @@ import {
 } from '../../shared/events/reducer';
 import { generateUUID } from '../../shared/events/protocol';
 import { diagLog } from '../../shared/diag';
+import { ACOES_PERMITIDAS_GUEST } from '../../shared/autoridade';
 
 export type HostView = 'lista' | 'form' | 'detalhes' | 'configuracoes' | 'quadro';
 
@@ -56,11 +57,12 @@ interface HostState {
   selecionarIpServidor: (ip: string) => Promise<boolean>;
   carregarStatusServidor: () => Promise<void>;
 
-  // Quadro Branco HiDPI (Fase 06 e 07)
+  // Quadro Branco HiDPI (Fase 06 e 07, D16)
   activeSessaoId: string | null;
   activeAbaId: string;
   tabState: TabState;
-  abrirQuadroSessao: (sessaoId: string) => Promise<void>;
+  quadroSomenteLeitura: boolean;
+  abrirQuadroSessao: (sessaoId: string, options?: { somenteLeitura?: boolean }) => Promise<void>;
   aplicarEventoQuadro: (evento: WhiteboardEvent) => Promise<void>;
   desfazerQuadro: () => Promise<void>;
   refazerQuadro: () => Promise<void>;
@@ -68,6 +70,7 @@ interface HostState {
   bloquearTelaGuest: (locked: boolean) => Promise<boolean>;
   liberarMidiaGuest: (unlocked: boolean) => Promise<boolean>;
   trocarAba: (abaId: string) => Promise<boolean>;
+  aplicarEventoRemoto: (event: any) => boolean;
 }
 
 export const useHostStore = create<HostState>((set, get) => ({
@@ -91,8 +94,15 @@ export const useHostStore = create<HostState>((set, get) => ({
   activeSessaoId: null,
   activeAbaId: 'default',
   tabState: createInitialTabState('default'),
+  quadroSomenteLeitura: false,
 
-  setView: (view) => set({ view, mensagemAlerta: null, erroDuplicado: null }),
+  setView: (view) =>
+    set((state) => ({
+      view,
+      quadroSomenteLeitura: view === 'quadro' ? state.quadroSomenteLeitura : false,
+      mensagemAlerta: null,
+      erroDuplicado: null,
+    })),
 
   setFiltroBusca: (busca) => {
     set({ filtroBusca: busca });
@@ -383,8 +393,17 @@ export const useHostStore = create<HostState>((set, get) => ({
     }
   },
 
-  abrirQuadroSessao: async (sessaoId: string) => {
-    set({ activeSessaoId: sessaoId, activeAbaId: 'default', carregando: true });
+  abrirQuadroSessao: async (sessaoId: string, options?: { somenteLeitura?: boolean }) => {
+    const { sessoes } = get();
+    const sessao = sessoes.find((s) => s.id === sessaoId);
+    const isEncerrada = sessao?.status === 'encerrada';
+    const somenteLeitura = Boolean(options?.somenteLeitura || isEncerrada);
+    set({
+      activeSessaoId: sessaoId,
+      activeAbaId: 'default',
+      quadroSomenteLeitura: somenteLeitura,
+      carregando: true,
+    });
     let state = createInitialTabState('default');
     if (window.desktopAPI?.eventos) {
       try {
@@ -400,7 +419,17 @@ export const useHostStore = create<HostState>((set, get) => ({
   },
 
   aplicarEventoQuadro: async (evento: WhiteboardEvent) => {
-    const { tabState, activeSessaoId, activeAbaId } = get();
+    const { tabState, activeSessaoId, activeAbaId, quadroSomenteLeitura } = get();
+    if (quadroSomenteLeitura) {
+      diagLog('aplicarEventoQuadro_bloqueado_readonly', {
+        tipo: evento.tipo,
+        abaId: activeAbaId,
+        sessaoId: activeSessaoId,
+      });
+      console.warn('[HostStore] Modo somente leitura: emissão de evento bloqueada.');
+      return;
+    }
+
     const visiveisAntes = getVisibleElements(tabState).length;
     const proximoEstado = reduceEvent(tabState, evento);
     const visiveisDepois = getVisibleElements(proximoEstado).length;
@@ -468,6 +497,7 @@ export const useHostStore = create<HostState>((set, get) => ({
   },
 
   desfazerQuadro: async () => {
+    if (get().quadroSomenteLeitura) return;
     const { aplicarEventoQuadro, activeSessaoId, activeAbaId } = get();
     const ev: WhiteboardEvent = {
       id: generateUUID(),
@@ -482,6 +512,7 @@ export const useHostStore = create<HostState>((set, get) => ({
   },
 
   refazerQuadro: async () => {
+    if (get().quadroSomenteLeitura) return;
     const { aplicarEventoQuadro, activeSessaoId, activeAbaId } = get();
     const ev: WhiteboardEvent = {
       id: generateUUID(),
@@ -496,6 +527,7 @@ export const useHostStore = create<HostState>((set, get) => ({
   },
 
   limparQuadro: async () => {
+    if (get().quadroSomenteLeitura) return;
     const { aplicarEventoQuadro, activeSessaoId, activeAbaId } = get();
     const ev: WhiteboardEvent = {
       id: generateUUID(),
@@ -510,6 +542,7 @@ export const useHostStore = create<HostState>((set, get) => ({
   },
 
   bloquearTelaGuest: async (locked: boolean) => {
+    if (get().quadroSomenteLeitura) return false;
     if (!window.desktopAPI?.serverSession) return false;
     const res = await window.desktopAPI.serverSession.lockScreen(locked);
     if (res.success && res.data) {
@@ -520,6 +553,7 @@ export const useHostStore = create<HostState>((set, get) => ({
   },
 
   liberarMidiaGuest: async (unlocked: boolean) => {
+    if (get().quadroSomenteLeitura) return false;
     if (!window.desktopAPI?.serverSession) return false;
     const res = await window.desktopAPI.serverSession.unlockMedia(unlocked);
     if (res.success && res.data) {
@@ -546,5 +580,129 @@ export const useHostStore = create<HostState>((set, get) => ({
       }
     }
     return true;
+  },
+
+  aplicarEventoRemoto: (event: any): boolean => {
+    // 1. Validação básica de envelope
+    if (!event || typeof event !== 'object') {
+      diagLog('aplicarEventoRemoto_descarte', { motivo: 'EVENTO_INVALIDO' });
+      return false;
+    }
+
+    // 2. Quadro em modo somente leitura: bloqueia sumariamente qualquer evento remoto (D17.2.3)
+    if (get().quadroSomenteLeitura) {
+      diagLog('aplicarEventoRemoto_descarte', {
+        motivo: 'QUADRO_SOMENTE_LEITURA',
+        tipo: event.type,
+        sessaoId: event.sessaoId,
+        abaId: event.abaId,
+      });
+      return false;
+    }
+
+    // 3. Validação estrita de sessaoId da autoridade (obrigatório, string não-vazia) (D17.2.3)
+    if (typeof event.sessaoId !== 'string' || !event.sessaoId.trim()) {
+      diagLog('aplicarEventoRemoto_descarte', {
+        motivo: 'SESSAO_ID_INVALIDO',
+        tipo: event.type,
+        sessaoId: event.sessaoId,
+      });
+      return false;
+    }
+
+    // 4. Tipo de evento deve estar na allowlist estrita do Guest (ADR-011) (D17.2.3)
+    if (typeof event.type !== 'string' || !ACOES_PERMITIDAS_GUEST.includes(event.type as any)) {
+      diagLog('aplicarEventoRemoto_descarte', {
+        motivo: 'TIPO_NAO_PERMITIDO',
+        tipo: event.type,
+        sessaoId: event.sessaoId,
+      });
+      return false;
+    }
+
+    // 5. sessaoId do evento deve coincidir com a sessão ativa aberta na tela (D17.2.3)
+    const { activeSessaoId, activeAbaId } = get();
+    if (!activeSessaoId || event.sessaoId !== activeSessaoId) {
+      diagLog('aplicarEventoRemoto_descarte', {
+        motivo: 'SESSAO_DIVERGENTE',
+        eventSessaoId: event.sessaoId,
+        activeSessaoId,
+        tipo: event.type,
+      });
+      return false;
+    }
+
+    // 6. abaId do evento deve coincidir com a aba ativa aberta na tela (D17.2.3)
+    const eventAbaId =
+      (typeof event.abaId === 'string' && event.abaId.trim() ? event.abaId.trim() : undefined) ||
+      (typeof event.payload === 'object' && event.payload && typeof event.payload.abaId === 'string' && event.payload.abaId.trim()
+        ? event.payload.abaId.trim()
+        : undefined) ||
+      'default';
+
+    if (eventAbaId !== activeAbaId) {
+      diagLog('aplicarEventoRemoto_descarte', {
+        motivo: 'ABA_DIVERGENTE',
+        eventAbaId,
+        activeAbaId,
+        tipo: event.type,
+      });
+      return false;
+    }
+
+    // 7. Controle local de privacidade: GUEST_MUTED
+    if (event.type === 'GUEST_MUTED') {
+      const rawPayload = event.payload;
+      const parsedPayload =
+        typeof rawPayload === 'string' ? JSON.parse(rawPayload) : rawPayload;
+      const isMuted = Boolean(parsedPayload?.muted ?? event.muted);
+      set({ guestMuted: isMuted });
+      diagLog('aplicarEventoRemoto_sucesso', {
+        tipo: event.type,
+        sessaoId: event.sessaoId,
+        muted: isMuted,
+      });
+      return true;
+    }
+
+    // 8. Eventos interativos de manipulação do quadro branco (DRAW_ADD, DRAW_HIDE, UNDO, REDO)
+    if (
+      event.type === 'DRAW_ADD' ||
+      event.type === 'DRAW_HIDE' ||
+      event.type === 'UNDO' ||
+      event.type === 'REDO'
+    ) {
+      const rawPayload = event.payload;
+      let parsedPayload = rawPayload;
+      if (typeof rawPayload === 'string') {
+        try {
+          parsedPayload = JSON.parse(rawPayload);
+        } catch {
+          parsedPayload = rawPayload;
+        }
+      }
+
+      const ev: WhiteboardEvent = {
+        id: event.id || generateUUID(),
+        sessao_id: event.sessaoId,
+        aba_id: eventAbaId,
+        tipo: event.type,
+        payload: parsedPayload || {},
+        autor: 'guest',
+        criado_em: event.ts || Date.now(),
+      };
+
+      const nextState = reduceEvent(get().tabState, ev);
+      set({ tabState: nextState });
+
+      diagLog('aplicarEventoRemoto_sucesso', {
+        tipo: event.type,
+        sessaoId: event.sessaoId,
+        abaId: eventAbaId,
+      });
+      return true;
+    }
+
+    return false;
   },
 }));

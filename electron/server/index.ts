@@ -161,7 +161,15 @@ export class ServerSessionController {
       }
     }
 
-    this.notifyGuestEvent(envelope);
+    // Anexa a identidade de sessão da autoridade (SessionManager) e sobrescreve qualquer valor vindo do Guest (D17.2)
+    const authoritativeSessaoId = this.sessionManager?.sessaoId;
+    const authoritativeEnvelope = {
+      ...envelope,
+      abaId,
+      sessaoId: authoritativeSessaoId,
+    };
+
+    this.notifyGuestEvent(authoritativeEnvelope);
   }
 
   private notifyStatusChange(): void {

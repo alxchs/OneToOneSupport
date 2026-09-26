@@ -165,10 +165,16 @@ export function registerServerIpc(): void {
   });
 
   // Notifica o Renderer quando o Guest emitir um evento
+  // D17.2: O Main inclui o sessaoId da autoridade (SessionManager), nunca confiando em dados do Guest
   serverSessionController.onGuestEvent((event) => {
+    const authoritativeSessaoId = serverSessionController.getSessionManager()?.sessaoId;
+    const eventWithAuthority = {
+      ...event,
+      sessaoId: authoritativeSessaoId,
+    };
     for (const win of BrowserWindow.getAllWindows()) {
       if (!win.isDestroyed()) {
-        win.webContents.send(IPC_CHANNELS.SERVER_GUEST_EVENT_RECEIVED, event);
+        win.webContents.send(IPC_CHANNELS.SERVER_GUEST_EVENT_RECEIVED, eventWithAuthority);
       }
     }
   });

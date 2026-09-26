@@ -6,8 +6,6 @@ import { DetalheAtendidoPage } from './pages/DetalheAtendidoPage';
 import { ConfiguracoesPage } from './pages/ConfiguracoesPage';
 import { QuadroBrancoPage } from './pages/QuadroBrancoPage';
 import { useHostStore } from './store/useHostStore';
-import { reduceEvent, WhiteboardEvent } from '../shared/events/reducer';
-import { generateUUID } from '../shared/events/protocol';
 import type { VersionInfoDTO } from '../shared/ipc-contract';
 import buildInfo from '../shared/build-info.json';
 
@@ -33,42 +31,10 @@ export const HostApp: React.FC = () => {
       }
     }
 
-    // Escuta eventos em tempo real enviados pelo Guest
+    // Escuta eventos em tempo real enviados pelo Guest através do funil único no store (D17)
     if (window.desktopAPI?.serverSession) {
       const unsubGuest = window.desktopAPI.serverSession.onGuestEvent((event: any) => {
-        if (!event || !event.type) return;
-
-        if (event.type === 'GUEST_MUTED') {
-          const rawPayload = event.payload;
-          const parsedPayload =
-            typeof rawPayload === 'string' ? JSON.parse(rawPayload) : rawPayload;
-          const isMuted = Boolean(parsedPayload?.muted ?? event.muted);
-          useHostStore.setState({ guestMuted: isMuted });
-          return;
-        }
-
-        if (
-          event.type === 'DRAW_ADD' ||
-          event.type === 'DRAW_HIDE' ||
-          event.type === 'CLEAR_TAB' ||
-          event.type === 'UNDO' ||
-          event.type === 'REDO'
-        ) {
-          const rawPayload = event.payload;
-          const parsedPayload =
-            typeof rawPayload === 'string' ? JSON.parse(rawPayload) : rawPayload;
-          const ev: WhiteboardEvent = {
-            id: event.id || generateUUID(),
-            sessao_id: useHostStore.getState().activeSessaoId || undefined,
-            aba_id: event.abaId || 'default',
-            tipo: event.type,
-            payload: parsedPayload || {},
-            autor: 'guest',
-            criado_em: event.ts || Date.now(),
-          };
-          const nextState = reduceEvent(useHostStore.getState().tabState, ev);
-          useHostStore.setState({ tabState: nextState });
-        }
+        useHostStore.getState().aplicarEventoRemoto(event);
       });
 
       return () => {

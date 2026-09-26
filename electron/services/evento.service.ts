@@ -16,6 +16,7 @@ import {
   RevisaoRecord,
 } from '../db/repositories/revisao.repo';
 import { getConfig } from '../db/repositories/configuracao.repo';
+import { getSessaoById } from '../db/repositories/sessao.repo';
 import {
   createInitialTabState,
   reduceEvents,
@@ -116,6 +117,12 @@ export class EventoService {
     const validacao = this.validarAutorEPermissao(input.tipo, input.autor, screenLocked);
     if (!validacao.permitido) {
       return { sucesso: false, motivo: validacao.motivo };
+    }
+
+    // Rejeição estrita de novos eventos para sessões já encerradas (D16.2: histórico append-only imutável)
+    const sessao = getSessaoById(input.sessao_id, this.db);
+    if (sessao && sessao.status === 'encerrada') {
+      return { sucesso: false, motivo: 'SESSAO_ENCERRADA' };
     }
 
     const evento = appendEvento(input, this.db);

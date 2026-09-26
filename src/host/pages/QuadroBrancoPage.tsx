@@ -29,6 +29,7 @@ export const QuadroBrancoPage: React.FC = () => {
     activeSessaoId,
     activeAbaId,
     tabState,
+    quadroSomenteLeitura,
     selectedAtendido,
     dicionario,
     activeServerSession,
@@ -69,6 +70,7 @@ export const QuadroBrancoPage: React.FC = () => {
       autor: 'host',
       sessaoId: activeSessaoId || 'sessao-ativa',
       abaId: activeAbaId || 'default',
+      somenteLeitura: quadroSomenteLeitura,
       onEmitEvent: (evento) => {
         aplicarEventoQuadro(evento);
       },
@@ -79,9 +81,14 @@ export const QuadroBrancoPage: React.FC = () => {
 
     engine.setDimensions(displayWidth, displayHeight);
 
-    engine.setStrokeColor(corAtual);
-    engine.setStrokeWidth(espessuraAtual);
-    engine.setTool(ferramenta);
+    if (quadroSomenteLeitura) {
+      engine.setTool('select');
+      setFerramenta('select');
+    } else {
+      engine.setStrokeColor(corAtual);
+      engine.setStrokeWidth(espessuraAtual);
+      engine.setTool(ferramenta);
+    }
 
     engineRef.current = engine;
     if (typeof window !== 'undefined') {
@@ -111,7 +118,7 @@ export const QuadroBrancoPage: React.FC = () => {
       engine.dispose();
       engineRef.current = null;
     };
-  }, [activeSessaoId, activeAbaId]);
+  }, [activeSessaoId, activeAbaId, quadroSomenteLeitura]);
 
   // Sincroniza renderização com projeções do Reducer
   useEffect(() => {
@@ -220,88 +227,109 @@ export const QuadroBrancoPage: React.FC = () => {
 
         {/* Badges de Status e Exportação */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          <span
-            id="badge-status-sala"
-            style={{
-              padding: '0.25rem 0.6rem',
-              borderRadius: '9999px',
-              fontSize: '0.75rem',
-              fontWeight: 600,
-              backgroundColor:
-                activeServerSession?.status === 'conectado'
-                  ? '#064e3b'
-                  : activeServerSession
-                  ? '#0c4a6e'
-                  : '#334155',
-              color:
-                activeServerSession?.status === 'conectado'
-                  ? '#34d399'
-                  : activeServerSession
-                  ? '#38bdf8'
-                  : '#94a3b8',
-            }}
-          >
-            {activeServerSession?.status === 'conectado'
-              ? 'Convidado Conectado (E2EE)'
-              : activeServerSession
-              ? 'Sala LAN Ativa'
-              : 'Local (Sem Conexão)'}
-          </span>
+          {quadroSomenteLeitura && (
+            <span
+              id="badge-somente-leitura"
+              style={{
+                padding: '0.25rem 0.75rem',
+                borderRadius: '9999px',
+                fontSize: '0.75rem',
+                fontWeight: 700,
+                backgroundColor: '#1e293b',
+                border: '1px solid #38bdf8',
+                color: '#38bdf8',
+              }}
+            >
+              Somente leitura — sessão encerrada
+            </span>
+          )}
 
-          {/* Controles de Sessão Remota do Convidado */}
-          {activeServerSession && (
+          {!quadroSomenteLeitura && (
             <>
-              <button
-                id="btn-lock-guest-screen"
-                type="button"
-                onClick={() => bloquearTelaGuest(!activeServerSession.screenLocked)}
+              <span
+                id="badge-status-sala"
                 style={{
-                  padding: '0.4rem 0.8rem',
-                  fontSize: '0.8125rem',
+                  padding: '0.25rem 0.6rem',
+                  borderRadius: '9999px',
+                  fontSize: '0.75rem',
                   fontWeight: 600,
-                  backgroundColor: activeServerSession.screenLocked ? '#064e3b' : '#451a03',
-                  border: `1px solid ${activeServerSession.screenLocked ? '#059669' : '#b45309'}`,
-                  color: activeServerSession.screenLocked ? '#34d399' : '#fef3c7',
-                  borderRadius: '0.375rem',
-                  cursor: 'pointer',
+                  backgroundColor:
+                    activeServerSession?.status === 'conectado'
+                      ? '#064e3b'
+                      : activeServerSession
+                      ? '#0c4a6e'
+                      : '#334155',
+                  color:
+                    activeServerSession?.status === 'conectado'
+                      ? '#34d399'
+                      : activeServerSession
+                      ? '#38bdf8'
+                      : '#94a3b8',
                 }}
               >
-                {activeServerSession.screenLocked ? 'Desbloquear Convidado' : 'Bloquear Convidado'}
-              </button>
+                {activeServerSession?.status === 'conectado'
+                  ? 'Convidado Conectado (E2EE)'
+                  : activeServerSession
+                  ? 'Sala LAN Ativa'
+                  : 'Local (Sem Conexão)'}
+              </span>
 
-              <button
-                id="btn-unlock-guest-media"
-                type="button"
-                onClick={() => liberarMidiaGuest(!activeServerSession.mediaUnlocked)}
-                style={{
-                  padding: '0.4rem 0.8rem',
-                  fontSize: '0.8125rem',
-                  fontWeight: 600,
-                  backgroundColor: activeServerSession.mediaUnlocked ? '#451a03' : '#064e3b',
-                  border: `1px solid ${activeServerSession.mediaUnlocked ? '#b45309' : '#059669'}`,
-                  color: activeServerSession.mediaUnlocked ? '#fef3c7' : '#34d399',
-                  borderRadius: '0.375rem',
-                  cursor: 'pointer',
-                }}
-              >
-                {activeServerSession.mediaUnlocked ? 'Bloquear Mídia' : 'Liberar Mídia'}
-              </button>
+              {/* Controles de Sessão Remota do Convidado */}
+              {activeServerSession && (
+                <>
+                  <button
+                    id="btn-lock-guest-screen"
+                    type="button"
+                    onClick={() => bloquearTelaGuest(!activeServerSession.screenLocked)}
+                    style={{
+                      padding: '0.4rem 0.8rem',
+                      fontSize: '0.8125rem',
+                      fontWeight: 600,
+                      backgroundColor: activeServerSession.screenLocked ? '#064e3b' : '#451a03',
+                      border: `1px solid ${activeServerSession.screenLocked ? '#059669' : '#b45309'}`,
+                      color: activeServerSession.screenLocked ? '#34d399' : '#fef3c7',
+                      borderRadius: '0.375rem',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {activeServerSession.screenLocked ? 'Desbloquear Convidado' : 'Bloquear Convidado'}
+                  </button>
 
-              {guestMuted && (
-                <span
-                  id="badge-guest-muted"
-                  style={{
-                    padding: '0.25rem 0.6rem',
-                    borderRadius: '9999px',
-                    fontSize: '0.75rem',
-                    fontWeight: 600,
-                    backgroundColor: '#451a03',
-                    border: '1px solid #b45309',
-                    color: '#fef3c7',
-                  }}
-                >
-                  Convidado Mutado
-                </span>
+                  <button
+                    id="btn-unlock-guest-media"
+                    type="button"
+                    onClick={() => liberarMidiaGuest(!activeServerSession.mediaUnlocked)}
+                    style={{
+                      padding: '0.4rem 0.8rem',
+                      fontSize: '0.8125rem',
+                      fontWeight: 600,
+                      backgroundColor: activeServerSession.mediaUnlocked ? '#451a03' : '#064e3b',
+                      border: `1px solid ${activeServerSession.mediaUnlocked ? '#b45309' : '#059669'}`,
+                      color: activeServerSession.mediaUnlocked ? '#fef3c7' : '#34d399',
+                      borderRadius: '0.375rem',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {activeServerSession.mediaUnlocked ? 'Bloquear Mídia' : 'Liberar Mídia'}
+                  </button>
+
+                  {guestMuted && (
+                    <span
+                      id="badge-guest-muted"
+                      style={{
+                        padding: '0.25rem 0.6rem',
+                        borderRadius: '9999px',
+                        fontSize: '0.75rem',
+                        fontWeight: 600,
+                        backgroundColor: '#451a03',
+                        border: '1px solid #b45309',
+                        color: '#fef3c7',
+                      }}
+                    >
+                      Convidado Mutado
+                    </span>
+                  )}
+                </>
               )}
             </>
           )}
@@ -342,328 +370,377 @@ export const QuadroBrancoPage: React.FC = () => {
       </div>
 
       {/* Barra de Ferramentas Vetoriais e Controles do Quadro */}
-      <div
-        id="whiteboard-toolbar"
-        style={{
-          display: 'flex',
-          flexWrap: 'wrap',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: '0.75rem',
-          padding: '0.625rem 1rem',
-          backgroundColor: '#0c1322',
-          borderRadius: '0.5rem',
-          border: '1px solid #1e293b',
-        }}
-      >
-        {/* Grupo 1: Ferramentas Interativas */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', flexWrap: 'wrap' }}>
-          <button
-            id="tool-select"
-            type="button"
-            onClick={() => selecionarFerramenta('select')}
-            title="Selecionar e Mover Objeto"
+      {quadroSomenteLeitura ? (
+        <div
+          id="whiteboard-toolbar"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '0.75rem',
+            padding: '0.625rem 1rem',
+            backgroundColor: '#0c1322',
+            borderRadius: '0.5rem',
+            border: '1px solid #1e293b',
+          }}
+        >
+          <div
+            id="aviso-modo-leitura"
             style={{
-              padding: '0.4rem 0.75rem',
-              fontSize: '0.8125rem',
-              fontWeight: 600,
-              borderRadius: '0.375rem',
-              cursor: 'pointer',
-              backgroundColor: ferramenta === 'select' ? '#0284c7' : '#1e293b',
-              border: `1px solid ${ferramenta === 'select' ? '#38bdf8' : '#334155'}`,
-              color: ferramenta === 'select' ? '#ffffff' : '#cbd5e1',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.75rem',
+              color: '#94a3b8',
+              fontSize: '0.875rem',
             }}
           >
-            ↖ Seleção
-          </button>
-
-          <button
-            id="tool-pencil"
-            type="button"
-            onClick={() => selecionarFerramenta('pencil')}
-            title="Lápis Traço Fino"
-            style={{
-              padding: '0.4rem 0.75rem',
-              fontSize: '0.8125rem',
-              fontWeight: 600,
-              borderRadius: '0.375rem',
-              cursor: 'pointer',
-              backgroundColor: ferramenta === 'pencil' ? '#0284c7' : '#1e293b',
-              border: `1px solid ${ferramenta === 'pencil' ? '#38bdf8' : '#334155'}`,
-              color: ferramenta === 'pencil' ? '#ffffff' : '#cbd5e1',
-            }}
-          >
-            ✏ Lápis
-          </button>
-
-          <button
-            id="tool-brush"
-            type="button"
-            onClick={() => selecionarFerramenta('brush')}
-            title="Pincel Marcador"
-            style={{
-              padding: '0.4rem 0.75rem',
-              fontSize: '0.8125rem',
-              fontWeight: 600,
-              borderRadius: '0.375rem',
-              cursor: 'pointer',
-              backgroundColor: ferramenta === 'brush' ? '#0284c7' : '#1e293b',
-              border: `1px solid ${ferramenta === 'brush' ? '#38bdf8' : '#334155'}`,
-              color: ferramenta === 'brush' ? '#ffffff' : '#cbd5e1',
-            }}
-          >
-            🖌 Pincel
-          </button>
-
-          <button
-            id="tool-rectangle"
-            type="button"
-            onClick={() => selecionarFerramenta('rectangle')}
-            title="Retângulo"
-            style={{
-              padding: '0.4rem 0.75rem',
-              fontSize: '0.8125rem',
-              fontWeight: 600,
-              borderRadius: '0.375rem',
-              cursor: 'pointer',
-              backgroundColor: ferramenta === 'rectangle' ? '#0284c7' : '#1e293b',
-              border: `1px solid ${ferramenta === 'rectangle' ? '#38bdf8' : '#334155'}`,
-              color: ferramenta === 'rectangle' ? '#ffffff' : '#cbd5e1',
-            }}
-          >
-            ▭ Retângulo
-          </button>
-
-          <button
-            id="tool-ellipse"
-            type="button"
-            onClick={() => selecionarFerramenta('ellipse')}
-            title="Elipse / Círculo"
-            style={{
-              padding: '0.4rem 0.75rem',
-              fontSize: '0.8125rem',
-              fontWeight: 600,
-              borderRadius: '0.375rem',
-              cursor: 'pointer',
-              backgroundColor: ferramenta === 'ellipse' ? '#0284c7' : '#1e293b',
-              border: `1px solid ${ferramenta === 'ellipse' ? '#38bdf8' : '#334155'}`,
-              color: ferramenta === 'ellipse' ? '#ffffff' : '#cbd5e1',
-            }}
-          >
-            ◯ Elipse
-          </button>
-
-          <button
-            id="tool-line"
-            type="button"
-            onClick={() => selecionarFerramenta('line')}
-            title="Linha Reta"
-            style={{
-              padding: '0.4rem 0.75rem',
-              fontSize: '0.8125rem',
-              fontWeight: 600,
-              borderRadius: '0.375rem',
-              cursor: 'pointer',
-              backgroundColor: ferramenta === 'line' ? '#0284c7' : '#1e293b',
-              border: `1px solid ${ferramenta === 'line' ? '#38bdf8' : '#334155'}`,
-              color: ferramenta === 'line' ? '#ffffff' : '#cbd5e1',
-            }}
-          >
-            ― Linha
-          </button>
-
-          <button
-            id="tool-arrow"
-            type="button"
-            onClick={() => selecionarFerramenta('arrow')}
-            title="Seta Indicativa"
-            style={{
-              padding: '0.4rem 0.75rem',
-              fontSize: '0.8125rem',
-              fontWeight: 600,
-              borderRadius: '0.375rem',
-              cursor: 'pointer',
-              backgroundColor: ferramenta === 'arrow' ? '#0284c7' : '#1e293b',
-              border: `1px solid ${ferramenta === 'arrow' ? '#38bdf8' : '#334155'}`,
-              color: ferramenta === 'arrow' ? '#ffffff' : '#cbd5e1',
-            }}
-          >
-            ➔ Seta
-          </button>
-
-          <button
-            id="tool-text"
-            type="button"
-            onClick={() => selecionarFerramenta('text')}
-            title="Texto Rotacionável"
-            style={{
-              padding: '0.4rem 0.75rem',
-              fontSize: '0.8125rem',
-              fontWeight: 600,
-              borderRadius: '0.375rem',
-              cursor: 'pointer',
-              backgroundColor: ferramenta === 'text' ? '#0284c7' : '#1e293b',
-              border: `1px solid ${ferramenta === 'text' ? '#38bdf8' : '#334155'}`,
-              color: ferramenta === 'text' ? '#ffffff' : '#cbd5e1',
-            }}
-          >
-            T Texto
-          </button>
-
-          <button
-            id="tool-eraser"
-            type="button"
-            onClick={() => selecionarFerramenta('eraser')}
-            title="Borracha de Trecho (Apaga o traço por onde passa)"
-            style={{
-              padding: '0.4rem 0.75rem',
-              fontSize: '0.8125rem',
-              fontWeight: 600,
-              borderRadius: '0.375rem',
-              cursor: 'pointer',
-              backgroundColor: ferramenta === 'eraser' ? '#451a03' : '#1e293b',
-              border: `1px solid ${ferramenta === 'eraser' ? '#d97706' : '#334155'}`,
-              color: ferramenta === 'eraser' ? '#fef3c7' : '#cbd5e1',
-            }}
-          >
-            ⌫ Borracha (Trecho)
-          </button>
-
-          <button
-            id="tool-object-eraser"
-            type="button"
-            onClick={() => selecionarFerramenta('object_eraser')}
-            title="Borracha de Objeto (Oculta o elemento inteiro ao clicar)"
-            style={{
-              padding: '0.4rem 0.75rem',
-              fontSize: '0.8125rem',
-              fontWeight: 600,
-              borderRadius: '0.375rem',
-              cursor: 'pointer',
-              backgroundColor: ferramenta === 'object_eraser' ? '#451a03' : '#1e293b',
-              border: `1px solid ${ferramenta === 'object_eraser' ? '#d97706' : '#334155'}`,
-              color: ferramenta === 'object_eraser' ? '#fef3c7' : '#cbd5e1',
-            }}
-          >
-            ✕ Borracha (Objeto)
-          </button>
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                padding: '0.2rem 0.6rem',
+                borderRadius: '0.375rem',
+                backgroundColor: '#1e293b',
+                color: '#38bdf8',
+                fontWeight: 600,
+                fontSize: '0.8125rem',
+                border: '1px solid #334155',
+              }}
+            >
+              Somente leitura — sessão encerrada
+            </span>
+            <span>
+              O histórico desta sessão é permanente e imutável. As ferramentas de desenho e edição estão desabilitadas.
+            </span>
+          </div>
+          <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
+            Para salvar o quadro, utilize o botão "Exportar PNG HiDPI".
+          </span>
         </div>
-
-        {/* Grupo 2: Paleta e Espessuras */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
-          {/* Seletor de Espessuras */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-            <span style={{ fontSize: '0.75rem', color: '#64748b', marginRight: '0.25rem' }}>Traço:</span>
-            {ESPESSURAS.map((esp) => (
-              <button
-                key={esp.id}
-                id={esp.id}
-                type="button"
-                onClick={() => alterarEspessura(esp.valor)}
-                style={{
-                  padding: '0.25rem 0.5rem',
-                  fontSize: '0.75rem',
-                  fontWeight: 600,
-                  borderRadius: '0.25rem',
-                  cursor: 'pointer',
-                  backgroundColor: espessuraAtual === esp.valor ? '#0284c7' : '#1e293b',
-                  border: `1px solid ${espessuraAtual === esp.valor ? '#38bdf8' : '#334155'}`,
-                  color: '#f8fafc',
-                }}
-              >
-                {esp.valor}px
-              </button>
-            ))}
-          </div>
-
-          {/* Seletor de Cores (Paleta Limpa sem Vermelho) */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
-            <span style={{ fontSize: '0.75rem', color: '#64748b', marginRight: '0.25rem' }}>Cor:</span>
-            {PALETA_CORES.map((cor) => {
-              const selecionada = corAtual.toLowerCase() === cor.valor.toLowerCase();
-              return (
-                <button
-                  key={cor.id}
-                  id={cor.id}
-                  type="button"
-                  onClick={() => alterarCor(cor.valor)}
-                  title={cor.nome}
-                  style={{
-                    width: '22px',
-                    height: '22px',
-                    borderRadius: '9999px',
-                    backgroundColor: cor.valor,
-                    border: selecionada ? '2px solid #38bdf8' : '1px solid #475569',
-                    boxShadow: selecionada ? '0 0 0 2px #0c1322' : 'none',
-                    cursor: 'pointer',
-                    padding: 0,
-                  }}
-                />
-              );
-            })}
-          </div>
-
-          {/* Grupo 3: Desfazer / Refazer / Limpar Tela */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+      ) : (
+        <div
+          id="whiteboard-toolbar"
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '0.75rem',
+            padding: '0.625rem 1rem',
+            backgroundColor: '#0c1322',
+            borderRadius: '0.5rem',
+            border: '1px solid #1e293b',
+          }}
+        >
+          {/* Grupo 1: Ferramentas Interativas */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', flexWrap: 'wrap' }}>
             <button
-              id="btn-undo"
+              id="tool-select"
               type="button"
-              onClick={desfazerQuadro}
-              title="Desfazer Última Ação do Host"
-              style={{
-                padding: '0.4rem 0.65rem',
-                fontSize: '0.8125rem',
-                fontWeight: 600,
-                backgroundColor: '#1e293b',
-                border: '1px solid #334155',
-                color: '#f8fafc',
-                borderRadius: '0.375rem',
-                cursor: 'pointer',
-              }}
-            >
-              ↩ Desfazer
-            </button>
-
-            <button
-              id="btn-redo"
-              type="button"
-              onClick={refazerQuadro}
-              title="Refazer Ação Desfeita"
-              style={{
-                padding: '0.4rem 0.65rem',
-                fontSize: '0.8125rem',
-                fontWeight: 600,
-                backgroundColor: '#1e293b',
-                border: '1px solid #334155',
-                color: '#f8fafc',
-                borderRadius: '0.375rem',
-                cursor: 'pointer',
-              }}
-            >
-              ↪ Refazer
-            </button>
-
-            <button
-              id="btn-clear-tab"
-              type="button"
-              onClick={limparQuadro}
-              title="Limpar Tela (Oculta todos os elementos visíveis)"
+              onClick={() => selecionarFerramenta('select')}
+              title="Selecionar e Mover Objeto"
               style={{
                 padding: '0.4rem 0.75rem',
                 fontSize: '0.8125rem',
                 fontWeight: 600,
-                backgroundColor: '#78350f',
-                border: '1px solid #d97706',
-                color: '#fef3c7',
                 borderRadius: '0.375rem',
                 cursor: 'pointer',
+                backgroundColor: ferramenta === 'select' ? '#0284c7' : '#1e293b',
+                border: `1px solid ${ferramenta === 'select' ? '#38bdf8' : '#334155'}`,
+                color: ferramenta === 'select' ? '#ffffff' : '#cbd5e1',
               }}
             >
-              🗑 Limpar Tela
+              ↖ Seleção
+            </button>
+
+            <button
+              id="tool-pencil"
+              type="button"
+              onClick={() => selecionarFerramenta('pencil')}
+              title="Lápis Traço Fino"
+              style={{
+                padding: '0.4rem 0.75rem',
+                fontSize: '0.8125rem',
+                fontWeight: 600,
+                borderRadius: '0.375rem',
+                cursor: 'pointer',
+                backgroundColor: ferramenta === 'pencil' ? '#0284c7' : '#1e293b',
+                border: `1px solid ${ferramenta === 'pencil' ? '#38bdf8' : '#334155'}`,
+                color: ferramenta === 'pencil' ? '#ffffff' : '#cbd5e1',
+              }}
+            >
+              ✏ Lápis
+            </button>
+
+            <button
+              id="tool-brush"
+              type="button"
+              onClick={() => selecionarFerramenta('brush')}
+              title="Pincel Marcador"
+              style={{
+                padding: '0.4rem 0.75rem',
+                fontSize: '0.8125rem',
+                fontWeight: 600,
+                borderRadius: '0.375rem',
+                cursor: 'pointer',
+                backgroundColor: ferramenta === 'brush' ? '#0284c7' : '#1e293b',
+                border: `1px solid ${ferramenta === 'brush' ? '#38bdf8' : '#334155'}`,
+                color: ferramenta === 'brush' ? '#ffffff' : '#cbd5e1',
+              }}
+            >
+              🖌 Pincel
+            </button>
+
+            <button
+              id="tool-rectangle"
+              type="button"
+              onClick={() => selecionarFerramenta('rectangle')}
+              title="Retângulo"
+              style={{
+                padding: '0.4rem 0.75rem',
+                fontSize: '0.8125rem',
+                fontWeight: 600,
+                borderRadius: '0.375rem',
+                cursor: 'pointer',
+                backgroundColor: ferramenta === 'rectangle' ? '#0284c7' : '#1e293b',
+                border: `1px solid ${ferramenta === 'rectangle' ? '#38bdf8' : '#334155'}`,
+                color: ferramenta === 'rectangle' ? '#ffffff' : '#cbd5e1',
+              }}
+            >
+              ▭ Retângulo
+            </button>
+
+            <button
+              id="tool-ellipse"
+              type="button"
+              onClick={() => selecionarFerramenta('ellipse')}
+              title="Elipse / Círculo"
+              style={{
+                padding: '0.4rem 0.75rem',
+                fontSize: '0.8125rem',
+                fontWeight: 600,
+                borderRadius: '0.375rem',
+                cursor: 'pointer',
+                backgroundColor: ferramenta === 'ellipse' ? '#0284c7' : '#1e293b',
+                border: `1px solid ${ferramenta === 'ellipse' ? '#38bdf8' : '#334155'}`,
+                color: ferramenta === 'ellipse' ? '#ffffff' : '#cbd5e1',
+              }}
+            >
+              ◯ Elipse
+            </button>
+
+            <button
+              id="tool-line"
+              type="button"
+              onClick={() => selecionarFerramenta('line')}
+              title="Linha Reta"
+              style={{
+                padding: '0.4rem 0.75rem',
+                fontSize: '0.8125rem',
+                fontWeight: 600,
+                borderRadius: '0.375rem',
+                cursor: 'pointer',
+                backgroundColor: ferramenta === 'line' ? '#0284c7' : '#1e293b',
+                border: `1px solid ${ferramenta === 'line' ? '#38bdf8' : '#334155'}`,
+                color: ferramenta === 'line' ? '#ffffff' : '#cbd5e1',
+              }}
+            >
+              ― Linha
+            </button>
+
+            <button
+              id="tool-arrow"
+              type="button"
+              onClick={() => selecionarFerramenta('arrow')}
+              title="Seta Indicativa"
+              style={{
+                padding: '0.4rem 0.75rem',
+                fontSize: '0.8125rem',
+                fontWeight: 600,
+                borderRadius: '0.375rem',
+                cursor: 'pointer',
+                backgroundColor: ferramenta === 'arrow' ? '#0284c7' : '#1e293b',
+                border: `1px solid ${ferramenta === 'arrow' ? '#38bdf8' : '#334155'}`,
+                color: ferramenta === 'arrow' ? '#ffffff' : '#cbd5e1',
+              }}
+            >
+              ➔ Seta
+            </button>
+
+            <button
+              id="tool-text"
+              type="button"
+              onClick={() => selecionarFerramenta('text')}
+              title="Texto Rotacionável"
+              style={{
+                padding: '0.4rem 0.75rem',
+                fontSize: '0.8125rem',
+                fontWeight: 600,
+                borderRadius: '0.375rem',
+                cursor: 'pointer',
+                backgroundColor: ferramenta === 'text' ? '#0284c7' : '#1e293b',
+                border: `1px solid ${ferramenta === 'text' ? '#38bdf8' : '#334155'}`,
+                color: ferramenta === 'text' ? '#ffffff' : '#cbd5e1',
+              }}
+            >
+              T Texto
+            </button>
+
+            <button
+              id="tool-eraser"
+              type="button"
+              onClick={() => selecionarFerramenta('eraser')}
+              title="Borracha de Trecho (Apaga o traço por onde passa)"
+              style={{
+                padding: '0.4rem 0.75rem',
+                fontSize: '0.8125rem',
+                fontWeight: 600,
+                borderRadius: '0.375rem',
+                cursor: 'pointer',
+                backgroundColor: ferramenta === 'eraser' ? '#451a03' : '#1e293b',
+                border: `1px solid ${ferramenta === 'eraser' ? '#d97706' : '#334155'}`,
+                color: ferramenta === 'eraser' ? '#fef3c7' : '#cbd5e1',
+              }}
+            >
+              ⌫ Borracha (Trecho)
+            </button>
+
+            <button
+              id="tool-object-eraser"
+              type="button"
+              onClick={() => selecionarFerramenta('object_eraser')}
+              title="Borracha de Objeto (Oculta o elemento inteiro ao clicar)"
+              style={{
+                padding: '0.4rem 0.75rem',
+                fontSize: '0.8125rem',
+                fontWeight: 600,
+                borderRadius: '0.375rem',
+                cursor: 'pointer',
+                backgroundColor: ferramenta === 'object_eraser' ? '#451a03' : '#1e293b',
+                border: `1px solid ${ferramenta === 'object_eraser' ? '#d97706' : '#334155'}`,
+                color: ferramenta === 'object_eraser' ? '#fef3c7' : '#cbd5e1',
+              }}
+            >
+              ✕ Borracha (Objeto)
             </button>
           </div>
+
+          {/* Grupo 2: Paleta e Espessuras */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+            {/* Seletor de Espessuras */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+              <span style={{ fontSize: '0.75rem', color: '#64748b', marginRight: '0.25rem' }}>Traço:</span>
+              {ESPESSURAS.map((esp) => (
+                <button
+                  key={esp.id}
+                  id={esp.id}
+                  type="button"
+                  onClick={() => alterarEspessura(esp.valor)}
+                  style={{
+                    padding: '0.25rem 0.5rem',
+                    fontSize: '0.75rem',
+                    fontWeight: 600,
+                    borderRadius: '0.25rem',
+                    cursor: 'pointer',
+                    backgroundColor: espessuraAtual === esp.valor ? '#0284c7' : '#1e293b',
+                    border: `1px solid ${espessuraAtual === esp.valor ? '#38bdf8' : '#334155'}`,
+                    color: '#f8fafc',
+                  }}
+                >
+                  {esp.valor}px
+                </button>
+              ))}
+            </div>
+
+            {/* Seletor de Cores (Paleta Limpa sem Vermelho) */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+              <span style={{ fontSize: '0.75rem', color: '#64748b', marginRight: '0.25rem' }}>Cor:</span>
+              {PALETA_CORES.map((cor) => {
+                const selecionada = corAtual.toLowerCase() === cor.valor.toLowerCase();
+                return (
+                  <button
+                    key={cor.id}
+                    id={cor.id}
+                    type="button"
+                    onClick={() => alterarCor(cor.valor)}
+                    title={cor.nome}
+                    style={{
+                      width: '22px',
+                      height: '22px',
+                      borderRadius: '9999px',
+                      backgroundColor: cor.valor,
+                      border: selecionada ? '2px solid #38bdf8' : '1px solid #475569',
+                      boxShadow: selecionada ? '0 0 0 2px #0c1322' : 'none',
+                      cursor: 'pointer',
+                      padding: 0,
+                    }}
+                  />
+                );
+              })}
+            </div>
+
+            {/* Grupo 3: Desfazer / Refazer / Limpar Tela */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+              <button
+                id="btn-undo"
+                type="button"
+                onClick={desfazerQuadro}
+                title="Desfazer Última Ação do Host"
+                style={{
+                  padding: '0.4rem 0.65rem',
+                  fontSize: '0.8125rem',
+                  fontWeight: 600,
+                  backgroundColor: '#1e293b',
+                  border: '1px solid #334155',
+                  color: '#f8fafc',
+                  borderRadius: '0.375rem',
+                  cursor: 'pointer',
+                }}
+              >
+                ↩ Desfazer
+              </button>
+
+              <button
+                id="btn-redo"
+                type="button"
+                onClick={refazerQuadro}
+                title="Refazer Ação Desfeita"
+                style={{
+                  padding: '0.4rem 0.65rem',
+                  fontSize: '0.8125rem',
+                  fontWeight: 600,
+                  backgroundColor: '#1e293b',
+                  border: '1px solid #334155',
+                  color: '#f8fafc',
+                  borderRadius: '0.375rem',
+                  cursor: 'pointer',
+                }}
+              >
+                ↪ Refazer
+              </button>
+
+              <button
+                id="btn-clear-tab"
+                type="button"
+                onClick={limparQuadro}
+                title="Limpar Tela (Oculta todos os elementos visíveis)"
+                style={{
+                  padding: '0.4rem 0.75rem',
+                  fontSize: '0.8125rem',
+                  fontWeight: 600,
+                  backgroundColor: '#78350f',
+                  border: '1px solid #d97706',
+                  color: '#fef3c7',
+                  borderRadius: '0.375rem',
+                  cursor: 'pointer',
+                }}
+              >
+                🗑 Limpar Tela
+              </button>
+            </div>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Área Central: Canvas HiDPI com fundo branco estático */}
       <div
@@ -714,7 +791,7 @@ export const QuadroBrancoPage: React.FC = () => {
             Elementos Visíveis: <strong style={{ color: '#f8fafc' }}>{elementosVisiveis.length}</strong>
           </span>
           <span id="badge-ferramenta">
-            Ferramenta: <strong style={{ color: '#38bdf8' }}>{ferramenta.toUpperCase()}</strong>
+            Ferramenta: <strong style={{ color: '#38bdf8' }}>{quadroSomenteLeitura ? 'SOMENTE LEITURA' : ferramenta.toUpperCase()}</strong>
           </span>
         </div>
 

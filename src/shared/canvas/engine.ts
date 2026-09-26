@@ -21,6 +21,26 @@ import { diagLog, isDiagEnabled } from '../diag';
 export const CANONICAL_VIRTUAL_WIDTH = 1200;
 export const CANONICAL_VIRTUAL_HEIGHT = 800;
 
+/**
+ * D15: Controla se o arrasto (mover, redimensionar, girar) de objetos em modo de seleção está ativo.
+ *
+ * POR QUE ESTÁ DESLIGADO (false):
+ * Mover ou alterar objetos pelo modo de seleção atua apenas na memória local do canvas Fabric.js.
+ * Não gera evento no protocolo append-only, não persiste no SQLite, não replica para o Guest
+ * e o objeto retorna à posição original na primeira reconstrução do estado (renderState).
+ * Dá a impressão ao profissional de que o objeto foi movido, mas o movimento não é gravado.
+ *
+ * O QUE PRECISA EXISTIR PARA RELIGAR (true):
+ * Implementação da Opção B do D12.3 (exige ADR): evento oficial de movimentação (ex: DRAW_MOVE / DRAW_TRANSFORM),
+ * redução determinística no Reducer, persistência append-only no banco de dados SQLite, transmissão criptografada E2EE
+ * para o Guest e suporte completo a desfazer/refazer (UNDO/REDO) de transformações geométricas.
+ */
+export let ARRASTO_NO_MODO_SELECAO_HABILITADO = false;
+
+export function setArrastoNoModoSelecaoHabilitado(habilitado: boolean): void {
+  ARRASTO_NO_MODO_SELECAO_HABILITADO = habilitado;
+}
+
 export type WhiteboardTool =
   | 'select'
   | 'pencil'
@@ -232,6 +252,8 @@ export interface WhiteboardEngineOptions {
   abaId?: string;
   onEmitEvent?: (event: WhiteboardEvent) => void;
   onToolChange?: (tool: WhiteboardTool) => void;
+  somenteLeitura?: boolean;
+  readOnly?: boolean;
 }
 
 /**
@@ -251,6 +273,7 @@ let nextEngineInstanceId = 1;
 export class WhiteboardEngine {
   public readonly instanciaId: number;
   public readonly canvas: Canvas;
+  public readonly readOnly: boolean;
   public virtualWidth: number;
   public virtualHeight: number;
   public displayWidth: number;
@@ -289,11 +312,6 @@ export class WhiteboardEngine {
   private readonly pixelCheckThrottleMs: number = 500;
   private pendingPixelCheckHandle: number | null = null;
 
-  // Forçar repaint real da janela e reflow DOM (D7 - esta é uma correção experimental, não comprovada por automação)
-  private lastRepaintTimestamp: number = 0;
-  private readonly repaintThrottleMs: number = 180;
-  private pendingRepaintTimer: ReturnType<typeof setTimeout> | null = null;
-
   // D8: checagem de CSS/DOM que poderia estar escondendo ou cobrindo o canvas mesmo com pixels corretos
   private lastCssCheckTimestamp: number = 0;
   private readonly cssCheckThrottleMs: number = 500;
@@ -323,15 +341,19 @@ export class WhiteboardEngine {
     this.abaId = options.abaId || 'default';
     this.onEmitEvent = options.onEmitEvent;
     this.onToolChange = options.onToolChange;
+    this.readOnly = Boolean(options.somenteLeitura || options.readOnly);
 
     this.canvas = new Canvas(canvasElement, {
       backgroundColor: 'transparent',
       enableRetinaScaling: true,
-      selection: true,
+      selection: !this.readOnly,
       stopContextMenu: true,
       fireRightClick: true,
       allowTouchScrolling: false,
     });
+
+    // D12.1: Ferramentas de desenho nunca procuram alvos sob o cursor por padrão
+    this.canvas.skipTargetFind = true;
 
     // Fundo branco SÓ no canvas de baixo (lower-canvas) e buffer transparente para composição
     // destination-out (ADR-003, ADR-012). O fundo NÃO pode ser aplicado antes de `new Canvas`:
@@ -340,6 +362,13 @@ export class WhiteboardEngine {
     // já desenhados assim que o traço ao vivo é limpo (bug "o desenho some ao soltar o mouse").
     this.canvas.lowerCanvasEl.style.backgroundColor = '#ffffff';
     this.canvas.upperCanvasEl.style.backgroundColor = 'transparent';
+
+    if (this.readOnly) {
+      this.canvas.isDrawingMode = false;
+      this.canvas.selection = false;
+      this.canvas.skipTargetFind = true;
+      this.activeTool = 'select';
+    }
 
     // Configura Pointer Events e previne rolagem acidental no canvas
     this.setupPointerAndTouchGuards(canvasElement);
@@ -353,8 +382,12 @@ export class WhiteboardEngine {
     // Reage a mudança de DPR (matchMedia) e redimensionamento da janela
     this.setupResolutionListeners();
 
-    // Ativa a ferramenta inicial
-    this.setTool('pencil');
+    // Ativa a ferramenta inicial (select no modo leitura, pencil no modo ativo)
+    if (this.readOnly) {
+      this.setTool('select');
+    } else {
+      this.setTool('pencil');
+    }
   }
 
   /**
@@ -524,6 +557,11 @@ export class WhiteboardEngine {
       const pathObj = opt.path;
       if (!pathObj) return;
 
+      if (this.readOnly) {
+        this.canvas.remove(pathObj);
+        return;
+      }
+
       const isEraser = this.activeTool === 'eraser';
       const elementId = generateUUID();
       const pathData = pathObj.toObject();
@@ -567,6 +605,7 @@ export class WhiteboardEngine {
 
     // 2. Interações com o mouse/ponteiro para formas, texto e borracha de objeto
     this.canvas.on('mouse:down', (opt: any) => {
+      if (this.readOnly) return;
       const e = opt.e;
       if (!e) return;
 
@@ -586,12 +625,31 @@ export class WhiteboardEngine {
       }
 
       if (this.activeTool === 'text') {
+        const activeObj = this.canvas.getActiveObject();
+        if (activeObj && (activeObj as any).isEditing) {
+          const pos = this.pointerToScene(e);
+          const isTargetActive = opt.target === activeObj;
+          const containsPoint =
+            typeof (activeObj as any).containsPoint === 'function' &&
+            (activeObj as any).containsPoint(pos);
+
+          if (isTargetActive || containsPoint) {
+            // Clicou no próprio texto em edição: permite mover cursor/seleção no Fabric
+            return;
+          }
+
+          // Clicou fora do texto em edição: encerra edição atual e comita
+          (activeObj as any).exitEditing();
+          return;
+        }
+
         this.handleTextCreation(e);
         return;
       }
     });
 
     this.canvas.on('mouse:move', (opt: any) => {
+      if (this.readOnly) return;
       const e = opt.e;
       if (!e) return;
 
@@ -606,9 +664,33 @@ export class WhiteboardEngine {
     });
 
     this.canvas.on('mouse:up', (opt: any) => {
+      if (this.readOnly) return;
       const e = opt.e;
       if (this.isCreatingShape && this.shapeOrigin) {
         this.finishShapeCreation(e);
+      }
+    });
+
+    // D15: Ao criar ou atualizar uma seleção no canvas, aplica travas de movimentação conforme a constante
+    this.canvas.on('selection:created', (opt: any) => {
+      if (opt.target) {
+        this.applySelectionDragLocks(opt.target);
+      }
+      if (opt.selected && Array.isArray(opt.selected)) {
+        for (const s of opt.selected) {
+          this.applySelectionDragLocks(s);
+        }
+      }
+    });
+
+    this.canvas.on('selection:updated', (opt: any) => {
+      if (opt.target) {
+        this.applySelectionDragLocks(opt.target);
+      }
+      if (opt.selected && Array.isArray(opt.selected)) {
+        for (const s of opt.selected) {
+          this.applySelectionDragLocks(s);
+        }
       }
     });
   }
@@ -634,6 +716,7 @@ export class WhiteboardEngine {
         },
       };
       this.emitEvent(event);
+      this.canvas.discardActiveObject();
     }
   }
 
@@ -829,10 +912,11 @@ export class WhiteboardEngine {
    * Criação de texto rotacionável no ponto clicado
    */
   private handleTextCreation(e: any): void {
+    if (this.readOnly) return;
     const pos = this.pointerToScene(e);
     const elementId = generateUUID();
 
-    const textObj = new IText('Texto', {
+    const textObj = new IText('', {
       left: pos.x,
       top: pos.y,
       fontSize: 24,
@@ -845,7 +929,6 @@ export class WhiteboardEngine {
     this.canvas.add(textObj);
     this.canvas.setActiveObject(textObj);
     textObj.enterEditing();
-    textObj.selectAll();
 
     let committed = false;
     const commitText = () => {
@@ -862,6 +945,9 @@ export class WhiteboardEngine {
           dist: 0,
           descartado: true,
         });
+        if (this.activeTool === 'text') {
+          this.setTool('select');
+        }
         return;
       }
 
@@ -895,30 +981,56 @@ export class WhiteboardEngine {
       };
 
       this.emitEvent(event);
+
+      // Volta para ferramenta de seleção após confirmar o texto inserido
+      if (this.activeTool === 'text') {
+        this.setTool('select');
+      }
     };
 
     textObj.on('editing:exited', commitText);
     textObj.on('deselected', commitText);
-
-    // Volta para ferramenta de seleção após posicionar texto
-    this.setTool('select');
   }
 
   /**
    * Define a ferramenta ativa e ajusta as propriedades do canvas Fabric
    */
   public setTool(tool: WhiteboardTool): void {
+    if (this.readOnly) {
+      this.activeTool = 'select';
+      this.canvas.isDrawingMode = false;
+      this.canvas.selection = false;
+      this.canvas.skipTargetFind = true;
+      this.canvas.defaultCursor = 'default';
+      return;
+    }
+
     this.activeTool = tool;
 
     // Desativa seleção e criação anterior
     this.canvas.isDrawingMode = false;
     this.canvas.selection = false;
+
+    // D12.1: Garante que qualquer texto em edição seja encerrado e o activeObject seja descartado ao trocar de ferramenta
+    const activeObj = this.canvas.getActiveObject();
+    if (activeObj && (activeObj as any).isEditing && typeof (activeObj as any).exitEditing === 'function') {
+      (activeObj as any).exitEditing();
+    }
+    if ((this.canvas as any).textEditingManager?.exitTextEditing) {
+      (this.canvas as any).textEditingManager.exitTextEditing();
+    }
     this.canvas.discardActiveObject();
+
+    // D12.1: Ferramentas de desenho nunca procuram alvos sob o cursor (skipTargetFind = true).
+    // Apenas 'select' (seleção/manipulação) e 'object_eraser' (localização de alvo por opt.target)
+    // procuram alvos sob o cursor (skipTargetFind = false).
+    this.canvas.skipTargetFind = !(tool === 'select' || tool === 'object_eraser');
 
     switch (tool) {
       case 'select': {
         this.canvas.selection = true;
         this.canvas.defaultCursor = 'default';
+        this.syncDragLocks();
         break;
       }
 
@@ -996,6 +1108,11 @@ export class WhiteboardEngine {
    * Emite evento padronizado para o Reducer/Session Manager
    */
   private emitEvent(event: WhiteboardEvent): void {
+    if (this.readOnly) {
+      diagLog('emitEvent_blocked_readonly', { tipo: event.tipo, id: event.id });
+      return;
+    }
+
     diagLog('emitEvent', {
       tipo: event.tipo,
       autor: event.autor,
@@ -1012,6 +1129,8 @@ export class WhiteboardEngine {
    * Emite ação de Limpar Tela (CLEAR_TAB)
    */
   public clearTab(): void {
+    if (this.readOnly) return;
+
     const event: WhiteboardEvent = {
       id: generateUUID(),
       sessao_id: this.sessaoId,
@@ -1030,6 +1149,8 @@ export class WhiteboardEngine {
    * Emite ação de Desfazer (UNDO) para o respectivo autor
    */
   public undo(): void {
+    if (this.readOnly) return;
+
     const event: WhiteboardEvent = {
       id: generateUUID(),
       sessao_id: this.sessaoId,
@@ -1046,6 +1167,8 @@ export class WhiteboardEngine {
    * Emite ação de Refazer (REDO) para o respectivo autor
    */
   public redo(): void {
+    if (this.readOnly) return;
+
     const event: WhiteboardEvent = {
       id: generateUUID(),
       sessao_id: this.sessaoId,
@@ -1087,10 +1210,24 @@ export class WhiteboardEngine {
         if (fabricObj) {
           (fabricObj as any).elementId = el.id;
           (fabricObj as any).autor = el.autor;
+          if (this.readOnly) {
+            fabricObj.selectable = false;
+            fabricObj.evented = false;
+            fabricObj.lockMovementX = true;
+            fabricObj.lockMovementY = true;
+            fabricObj.lockRotation = true;
+            fabricObj.lockScalingX = true;
+            fabricObj.lockScalingY = true;
+            fabricObj.hasControls = false;
+          } else {
+            this.applySelectionDragLocks(fabricObj);
+          }
           this.canvas.add(fabricObj);
           this.objectsMap.set(el.id, fabricObj);
           idsAdicionados.push(el.id);
         }
+      } else if (!this.readOnly) {
+        this.applySelectionDragLocks(fabricObj);
       }
     }
 
@@ -1103,11 +1240,6 @@ export class WhiteboardEngine {
 
     this.canvas.requestRenderAll();
 
-    // D7: Se novos elementos foram adicionados ou alterados no canvas, força repaint real (esta é uma correção experimental, não comprovada por automação)
-    if (idsAdicionados.length > 0 || idsRemovidos.length > 0) {
-      this.triggerRepaintReinforcement();
-    }
-
     if (isDiagEnabled()) {
       this.schedulePixelDivergenceCheck();
       this.scheduleCssVisibilityCheck();
@@ -1115,72 +1247,60 @@ export class WhiteboardEngine {
   }
 
   /**
-   * D7: Correção experimental para forçar repaint da janela e reflow no DOM.
-   * Esta é uma correção experimental, não comprovada por automação - validação é o dono testando na máquina.
-   * Aplica throttle (~180ms) com trailing edge para não sobrecarregar e garantir
-   * que o último traço executado receba o repaint forçado.
+   * D15: Aplica ou remove travas de arrasto, redimensionamento e rotação em objetos do Fabric.js.
+   * Quando ARRASTO_NO_MODO_SELECAO_HABILITADO é false (padrão):
+   * - Objetos permanecem selecionáveis (selectable = true), com feedback visual de contorno (hasBorders = true)
+   * - Movimentação é travada (lockMovementX = true, lockMovementY = true)
+   * - Rotação é travada (lockRotation = true)
+   * - Redimensionamento é travado (lockScalingX = true, lockScalingY = true)
+   * - Alças de controle nos vértices são ocultadas (hasControls = false)
+   *
+   * Quando ARRASTO_NO_MODO_SELECAO_HABILITADO é true (para testes ou versão futura com evento de movimentação):
+   * - Restaura o comportamento completo de manipulação com alças e liberdade de movimento.
    */
-  public triggerRepaintReinforcement(): void {
-    const now = Date.now();
-    const elapsed = now - this.lastRepaintTimestamp;
-
-    if (elapsed < this.repaintThrottleMs) {
-      if (this.pendingRepaintTimer === null && typeof setTimeout !== 'undefined') {
-        this.pendingRepaintTimer = setTimeout(() => {
-          this.pendingRepaintTimer = null;
-          this.executeRepaintReinforcement();
-        }, this.repaintThrottleMs - elapsed);
-      }
+  public applySelectionDragLocks(obj: FabricObject | null | undefined): void {
+    if (!obj || this.readOnly) return;
+    if ((obj as any).tipo === 'eraser_stroke' || obj.selectable === false) {
       return;
     }
 
-    if (this.pendingRepaintTimer !== null && typeof clearTimeout !== 'undefined') {
-      clearTimeout(this.pendingRepaintTimer);
-      this.pendingRepaintTimer = null;
-    }
-
-    this.executeRepaintReinforcement();
+    const habilitado = ARRASTO_NO_MODO_SELECAO_HABILITADO;
+    obj.lockMovementX = !habilitado;
+    obj.lockMovementY = !habilitado;
+    obj.lockRotation = !habilitado;
+    obj.lockScalingX = !habilitado;
+    obj.lockScalingY = !habilitado;
+    obj.hasControls = habilitado;
   }
 
   /**
-   * Executa os mecanismos D7.1 (webContents.invalidate no Host via IPC)
-   * e D7.2 (reflow síncrono no DOM via offsetHeight no Host e Guest).
-   * Esta é uma correção experimental, não comprovada por automação.
+   * D15: Sincroniza as travas de arrasto em todos os objetos registrados na cena e no objeto ativo.
    */
-  private executeRepaintReinforcement(): void {
-    this.lastRepaintTimestamp = Date.now();
-
-    // D7.2: Reflow síncrono barato no DOM (funciona tanto no Host quanto no Guest)
-    try {
-      if (this.canvas) {
-        const lowerEl = this.canvas.lowerCanvasEl;
-        if (lowerEl && typeof lowerEl.offsetHeight === 'number') {
-          void lowerEl.offsetHeight; // força reflow síncrono no Chromium
-        }
-      }
-    } catch {
-      // Ignora erro em ambientes de teste sem DOM real
+  public syncDragLocks(): void {
+    if (this.readOnly) return;
+    for (const [, obj] of this.objectsMap) {
+      this.applySelectionDragLocks(obj);
     }
-
-    // D7.1: Invalidação de janela do Host via webContents.invalidate() (só Host/Electron)
-    if (
-      typeof window !== 'undefined' &&
-      window.desktopAPI?.canvas?.forceRepaint &&
-      typeof window.desktopAPI.canvas.forceRepaint === 'function'
-    ) {
-      try {
-        window.desktopAPI.canvas.forceRepaint().catch(() => {});
-      } catch {
-        // Ignora erro em caso de teardown
-      }
+    const active = this.canvas.getActiveObject();
+    if (active) {
+      this.applySelectionDragLocks(active);
     }
+    this.canvas.requestRenderAll();
   }
 
   /**
-   * Método público para acionamento explícito de repaint reforçado (D7)
+   * D15: Retorna o estado atual do arrasto no modo de seleção.
    */
-  public forceRepaint(): void {
-    this.triggerRepaintReinforcement();
+  public get arrastoHabilitado(): boolean {
+    return ARRASTO_NO_MODO_SELECAO_HABILITADO;
+  }
+
+  /**
+   * D15: Altera o estado do arrasto e sincroniza os objetos da instância.
+   */
+  public setArrastoHabilitado(habilitado: boolean): void {
+    setArrastoNoModoSelecaoHabilitado(habilitado);
+    this.syncDragLocks();
   }
 
   /**
@@ -1281,8 +1401,8 @@ export class WhiteboardEngine {
   /**
    * D8: Lê o estado real de apresentação do canvas no DOM (bounding rect, display/visibility/opacity
    * computados, e o que está de fato no topo da pilha de composição no ponto central do canvas).
-   * Registra SEMPRE que houver algo suspeito: dimensão zero, display none, visibility hidden,
-   * opacity baixa, ou um elemento diferente do canvas ocupando o centro dele.
+   * D14: Inspeciona todas as camadas do Fabric (lowerCanvasEl e upperCanvasEl), alertando caso o
+   * upperCanvasEl possua fundo opaco cobrindo os traços (causa raiz da Fase 07) ou camadas estejam ocultas.
    */
   public checkCssVisibility(): void {
     if (!isDiagEnabled()) return;
@@ -1296,8 +1416,24 @@ export class WhiteboardEngine {
 
       const rect = lowerEl.getBoundingClientRect();
       const computed = window.getComputedStyle(lowerEl);
+      const upperComputed = upperEl ? window.getComputedStyle(upperEl) : null;
       const parent = lowerEl.parentElement;
       const parentComputed = parent ? window.getComputedStyle(parent) : null;
+
+      // D14: Verifica se upperCanvasEl possui fundo opaco que cubra a camada de desenho
+      let upperOpaco = false;
+      if (upperComputed) {
+        const bg = (upperComputed.backgroundColor || '').trim().toLowerCase();
+        if (bg && bg !== 'transparent' && bg !== 'rgba(0, 0, 0, 0)') {
+          const rgbaMatch = bg.match(/^rgba\(\s*\d+\s*,\s*\d+\s*,\s*([\d.]+)\s*\)$/);
+          if (rgbaMatch) {
+            upperOpaco = parseFloat(rgbaMatch[1]) > 0;
+          } else {
+            // rgb(...), #fff, white, etc.
+            upperOpaco = true;
+          }
+        }
+      }
 
       const centerX = rect.left + rect.width / 2;
       const centerY = rect.top + rect.height / 2;
@@ -1312,12 +1448,19 @@ export class WhiteboardEngine {
         computed.display === 'none' ||
         computed.visibility === 'hidden' ||
         parseFloat(computed.opacity || '1') < 0.5 ||
+        upperOpaco ||
+        (upperComputed !== null &&
+          (upperComputed.display === 'none' ||
+            upperComputed.visibility === 'hidden' ||
+            parseFloat(upperComputed.opacity || '1') < 0.5)) ||
         (parentComputed !== null &&
           (parentComputed.display === 'none' || parentComputed.visibility === 'hidden')) ||
         (elementNoCentro !== null &&
           elementNoCentro !== lowerEl &&
           elementNoCentro !== upperEl &&
-          !lowerEl.contains(elementNoCentro));
+          !lowerEl.contains(elementNoCentro) &&
+          !(upperEl && upperEl.contains(elementNoCentro))) ||
+        (elementNoCentro === upperEl && upperOpaco);
 
       if (suspeito) {
         diagLog('canvas_possivelmente_escondido', {
@@ -1328,6 +1471,11 @@ export class WhiteboardEngine {
           display: computed.display,
           visibility: computed.visibility,
           opacity: computed.opacity,
+          upperDisplay: upperComputed?.display,
+          upperVisibility: upperComputed?.visibility,
+          upperOpacity: upperComputed?.opacity,
+          upperBackgroundColor: upperComputed?.backgroundColor,
+          upperOpaco,
           parentDisplay: parentComputed?.display,
           parentVisibility: parentComputed?.visibility,
           elementoNoCentro: elementNoCentro
@@ -1393,10 +1541,6 @@ export class WhiteboardEngine {
     ) {
       window.cancelAnimationFrame(this.pendingPixelCheckHandle);
       this.pendingPixelCheckHandle = null;
-    }
-    if (this.pendingRepaintTimer !== null && typeof clearTimeout !== 'undefined') {
-      clearTimeout(this.pendingRepaintTimer);
-      this.pendingRepaintTimer = null;
     }
     if (
       this.pendingCssCheckHandle !== null &&

@@ -507,6 +507,27 @@ export const DetalheAtendidoPage: React.FC = () => {
                     </div>
                   )}
 
+                  {!ativa && (
+                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                      <button
+                        id={`btn-rever-quadro-${s.id}`}
+                        onClick={() => abrirQuadroSessao(s.id, { somenteLeitura: true })}
+                        style={{
+                          padding: '0.5rem 1rem',
+                          fontSize: '0.8125rem',
+                          fontWeight: 600,
+                          backgroundColor: '#1e293b',
+                          border: '1px solid #475569',
+                          color: '#f8fafc',
+                          borderRadius: '0.375rem',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Ver quadro (somente leitura)
+                      </button>
+                    </div>
+                  )}
+
                   {/* Painel da Sala de Atendimento / Servidor Ativo */}
                   {ativa && activeServerSession && activeServerSession.sessaoId === s.id && (
                     <div
