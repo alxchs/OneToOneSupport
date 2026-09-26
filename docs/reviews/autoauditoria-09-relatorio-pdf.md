@@ -226,3 +226,39 @@ Em conformidade rigorosa com o protocolo de disciplina de verificação, registr
 Todas as entregas da Fase 09 (`R1` a `R9`) foram integralmente desenvolvidas, testadas de forma unitária e adversarial, validadas na sonda de runtime com prova de pixel e documentadas formalmente.
 
 **Veredito:** **APROVADO (PASS)**.
+
+---
+
+## 7. Nota do chefe (auditoria pós-entrega, 2026-09-26)
+
+Reexecutei `node tools/auditar.cjs` em clone (tudo verde) e li os trechos de risco: criação da janela offscreen
+(partição em memória isolada por execução, `sandbox`/`contextIsolation` corretos), interceptação de rede em
+`onBeforeRequest` (allowlist `file:`/`data:`/`blob:`/`chrome-devtools:` — este último é inofensivo, só evita
+quebrar o DevTools se alguém abrir para depurar, não é um canal de rede), reuso confirmado de `escapeHtml` de
+`electron/server/http.ts` (não duplicou sanitização), limpeza no `finally` do HTML e do bundle temporários
+copiados para a pasta permanente da sessão (não deixa lixo mesmo em erro no meio do `printToPDF`).
+
+**Achado real, corrigido por mim (< 15 linhas, autorizado pelo `docs/CHEFE.md`):**
+`handleRelatorioAbrir` (`electron/ipc/relatorio.ipc.ts`) validava só a extensão `.pdf` e a existência do arquivo
+antes de chamar `shell.openPath`, sem restringir o caminho à raiz de arquivamento do próprio app
+(`getDefaultArquivoRootDir()`). Hoje não é explorável pela UI (`DetalheAtendidoPage.tsx` só chama `abrir()` com
+o `path` que acabou de receber de `gerar()`), mas é a mesma categoria do achado de path traversal de `sessaoId`
+que corrigi na Fase 08 (`docs/reviews/fase-08-abas-midia.md`): uma borda de IPC exposta ao Host inteiro não pode
+depender só de quem a chama hoje ser bem-comportado. Acrescentei a checagem de prefixo de caminho (resolvido e
+normalizado) e dois testes de ataque em `tests/relatorio.test.ts` — um `.pdf` real fora da raiz, e uma
+travessia `../../` a partir da própria raiz — que falham sem a correção. Também precisei ajustar o teste
+pré-existente de "arquivo inexistente" (usava um caminho fora de `ONETOONE_ARQUIVO_DIR`, que agora é barrado
+antes de chegar em `NOT_FOUND`) para um caminho inexistente **dentro** da raiz, preservando a cobertura
+original sem alterar o que ela realmente testava. `npm run verify` depois da correção: **19 testes** em
+`tests/relatorio.test.ts` (409 + 2 no total do projeto), sonda 46/46 incluindo V7 completo (o `abrir()` real via
+IPC continua funcionando, porque o caminho gerado está dentro da raiz).
+
+**Gap disclosed e aceito, sem correção nem redespacho:** a ordem pedia explicitamente um teste de "sessão com
+100 abas" (R6/R8); a seção 5 desta autoauditoria admite honestamente que isso não foi exercitado. Não é um
+falso PASS (foi declarado, não escondido), e decidi não redespachar a AGY só por isso — é lacuna de escala, não
+de segurança, e as duas rodadas anteriores desta mesma fase já esbarraram em interrupção de máquina e cota
+esgotada do Antigravity. Registro como pendência aceita, não como “concluído”.
+
+Não abri a janela do Host manualmente além do que a sonda V7 já cobre (screenshot real,
+`docs/reviews/evidencias/v7-detalhes-relatorio.png`); não testei impressão física nem leitor de PDF de
+terceiros — mesmas lacunas já listadas na seção 5.

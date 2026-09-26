@@ -1,5 +1,6 @@
 import { ipcMain, shell } from 'electron';
 import * as fs from 'fs';
+import * as path from 'path';
 import {
   IPC_CHANNELS,
   IPCResult,
@@ -8,6 +9,7 @@ import {
 } from '../../src/shared/ipc-contract';
 import { relatorioService } from '../services/relatorio.service';
 import { isValidId } from '../services/evento.service';
+import { getDefaultArquivoRootDir } from '../services/asset.service';
 
 export async function handleRelatorioGerar(payload: unknown): Promise<IPCResult<RelatorioGeradoDTO>> {
   if (!payload || typeof payload !== 'object') {
@@ -82,6 +84,17 @@ export async function handleRelatorioAbrir(payload: unknown): Promise<IPCResult<
   const caminho = p.caminho.trim();
   if (!caminho.toLowerCase().endsWith('.pdf')) {
     return { success: false, error: 'VALIDATION', message: 'Apenas arquivos PDF podem ser abertos.' };
+  }
+
+  // Defesa em profundidade: só abre PDF dentro da raiz de arquivamento do próprio app (mesmo padrão
+  // do achado da Fase 08 para sessaoId) — mesmo não exposto hoje pela UI, essa borda de IPC não pode
+  // virar um "abrir qualquer .pdf existente no disco" caso um chamador futuro passe um caminho não confiável.
+  const raizArquivo = path.resolve(getDefaultArquivoRootDir());
+  const caminhoResolvido = path.resolve(caminho);
+  const dentroDaRaiz =
+    caminhoResolvido === raizArquivo || caminhoResolvido.startsWith(raizArquivo + path.sep);
+  if (!dentroDaRaiz) {
+    return { success: false, error: 'VALIDATION', message: 'Caminho fora da área de relatórios do aplicativo.' };
   }
 
   if (!fs.existsSync(caminho)) {

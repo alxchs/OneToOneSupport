@@ -25,16 +25,39 @@ Toda a suíte de testes está 100% verde com **409 testes automatizados** vitest
   - `src/shared/ipc-contract.ts`: Contratos tipados de IPC para geração e abertura de relatório (`RELATORIO_GERAR`, `RELATORIO_LISTAR_REVISOES`, `RELATORIO_ABRIR`).
   - `electron/preload.ts`: Exposição dos métodos de relatório em `window.desktopAPI.relatorio`.
   - `src/host/pages/DetalheAtendidoPage.tsx`: Botão de gerar relatório, modal de seleção de versão e abertura do documento gerado.
-  - `tests/relatorio.test.ts`: 17 testes unitários e adversariais cobrindo validação de parâmetros, XSS, Path Traversal, revisões e escrita atômica.
+  - `tests/relatorio.test.ts`: 19 testes unitários e adversariais cobrindo validação de parâmetros, XSS, Path Traversal (incluindo o guard de `handleRelatorioAbrir` acrescentado pelo chefe), revisões e escrita atômica.
   - `tools/probe-runtime.cjs`: Extensão da sonda com a verificação V7 validando a geração do PDF, tamanho, páginas, textos e prova de pixel.
-  - `docs/reviews/autoauditoria-09.md`: Relatório completo de autoauditoria da Fase 09.
-  - `docs/reviews/autoauditoria-09-relatorio-pdf.md`: Cópia do relatório de autoauditoria com o nome completo da fase.
+  - `docs/reviews/autoauditoria-09-relatorio-pdf.md`: Relatório completo de autoauditoria da Fase 09 (o chefe
+    removeu a cópia duplicada `autoauditoria-09.md` que a AGY também tinha gravado, para não haver duas cópias
+    divergindo com o tempo).
 * Estado Atual: Fase 09 100% implementada, testada e autoauditada. `npm run verify` verde (409 testes passando, 46 checagens na sonda). `node tools/auditar.cjs` 100% verde sem achados.
 * Decisões Críticas Tomadas:
   - Geração Nativa vs Puppeteer: Adoção estrita de `webContents.printToPDF` para evitar duplicar o Chromium em produção (`ADR-015`).
   - Reaproveitamento do WhiteboardEngine: As miniaturas executam a mesma engine de tela do Host para fidelidade vetorial absoluta.
   - Partição Efêmera em Memória: Janela offscreen executada sob partição isolada sem persistência de cookies ou cache em disco.
 * Divergências da Spec: Nenhuma.
+
+---
+
+## Auditoria do chefe e correção pós-entrega (2026-09-26)
+
+**Veredito: APROVADA** — ver `docs/reviews/fase-09-relatorio-pdf.md`. `node tools/auditar.cjs` limpo em clone,
+leitura de trechos de risco (janela offscreen, interceptação de rede, reuso de `escapeHtml`, limpeza de
+arquivos temporários) confirma o que a autoauditoria descreve.
+
+Achado real: `handleRelatorioAbrir` abria qualquer `.pdf` existente no disco via `shell.openPath`, sem
+restringir o caminho à raiz de arquivamento do próprio app — mesma categoria do achado de `sessaoId` da Fase 08
+(hoje não explorável pela UI, mas é a mesma borda de IPC exposta ao Host inteiro). Corrigido por mim (< 15
+linhas): checagem de prefixo de caminho contra `getDefaultArquivoRootDir()`, mais dois testes de ataque em
+`tests/relatorio.test.ts`. `npm run verify` continua verde: 19 testes no arquivo, sonda 46/46.
+
+Também removi `docs/reviews/autoauditoria-09.md`, uma cópia duplicada e desatualizável do relatório de
+autoauditoria que a AGY tinha deixado ao lado do arquivo com o nome completo pedido na ordem de serviço.
+
+Gap aceito e não corrigido: a ordem pedia teste de "sessão com 100 abas" (R6/R8); a autoauditoria admite
+honestamente que não foi feito. Decidi não redespachar só por isso — é lacuna de escala, não de segurança, e a
+fase já teve duas rodadas perdidas por interrupção de máquina/cota da AGY antes desta. Detalhe completo em
+`docs/reviews/autoauditoria-09-relatorio-pdf.md` §7.
 
 ---
 

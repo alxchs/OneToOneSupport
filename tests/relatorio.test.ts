@@ -174,11 +174,39 @@ describe('Fase 09 — Relatório em PDF da Sessão (R1..R8)', () => {
         expect(resExt.message).toContain('Apenas arquivos PDF');
       }
 
-      // 3. Arquivo PDF inexistente
-      const resNotFound = await handleRelatorioAbrir({ caminho: 'C:\\inexistente\\relatorio.pdf' });
+      // 3. Arquivo PDF inexistente, mas dentro da raiz de arquivamento (ONETOONE_ARQUIVO_DIR do teste)
+      const caminhoInexistenteDentroDaRaiz = path.join(tempArquivoDir, 'sessao-fantasma', 'relatorio.pdf');
+      const resNotFound = await handleRelatorioAbrir({ caminho: caminhoInexistenteDentroDaRaiz });
       expect(resNotFound.success).toBe(false);
       if (resNotFound.success) return;
       expect(resNotFound.error).toBe('NOT_FOUND');
+    });
+
+    it('handleRelatorioAbrir rejeita caminho .pdf existente FORA da raiz de arquivamento (ataque)', async () => {
+      // Um .pdf real, mas fora de ONETOONE_ARQUIVO_DIR — não pode ser aberto por este IPC,
+      // mesmo que hoje a UI só chame com o caminho que ela mesma acabou de gerar (defesa em profundidade,
+      // mesma categoria do achado de path traversal de sessaoId corrigido na Fase 08).
+      const dirVitima = fs.mkdtempSync(path.join(os.tmpdir(), 'onetoone-rel-fora-da-raiz-'));
+      const pdfFora = path.join(dirVitima, 'documento-de-outro-lugar.pdf');
+      fs.writeFileSync(pdfFora, '%PDF-1.4\n%fake-pdf-content\n');
+
+      try {
+        const res = await handleRelatorioAbrir({ caminho: pdfFora });
+        expect(res.success).toBe(false);
+        if (res.success) return;
+        expect(res.error).toBe('VALIDATION');
+        expect(res.message).toContain('fora da área de relatórios');
+      } finally {
+        fs.rmSync(dirVitima, { recursive: true, force: true });
+      }
+    });
+
+    it('handleRelatorioAbrir rejeita travessia de diretório (../) que escaparia da raiz de arquivamento', async () => {
+      const caminhoTraversal = path.join(tempArquivoDir, '..', '..', 'relatorio.pdf');
+      const res = await handleRelatorioAbrir({ caminho: caminhoTraversal });
+      expect(res.success).toBe(false);
+      if (res.success) return;
+      expect(res.error).toBe('VALIDATION');
     });
   });
 
