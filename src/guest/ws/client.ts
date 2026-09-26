@@ -40,6 +40,7 @@ export class GuestWsClient {
   public token: string;
   public hostPublicKey: Uint8Array;
   public reconnectToken: string | null = null;
+  public mediaToken: string | null = null;
   private webSocketClass?: any;
 
   private cryptoProvider: BrowserCryptoProvider | null = null;
@@ -73,6 +74,29 @@ export class GuestWsClient {
 
   public getReconnectToken(): string | null {
     return this.reconnectToken;
+  }
+
+  public getMediaToken(): string | null {
+    return this.mediaToken;
+  }
+
+  public on(type: string, handler: (payload: any) => void): () => void {
+    const prev = this.onMessage;
+    this.onMessage = (msg: any) => {
+      if (prev) prev(msg);
+      if (msg && msg.type === type) {
+        handler(msg.payload !== undefined ? msg.payload : msg);
+      }
+    };
+    return () => {};
+  }
+
+  public isConnected(): boolean {
+    return this.state === 'connected' && Boolean(this.ws && this.ws.readyState === 1);
+  }
+
+  public sendRawEncrypted(innerMessage: Record<string, unknown>): void {
+    this.sendEncrypted(innerMessage);
   }
 
   private setState(nextState: GuestConnectionState): void {
@@ -204,6 +228,9 @@ export class GuestWsClient {
             if (innerMsg.type === 'SESSION_READY') {
               if (innerMsg.reconnectToken && typeof innerMsg.reconnectToken === 'string') {
                 this.reconnectToken = innerMsg.reconnectToken;
+              }
+              if (innerMsg.mediaToken && typeof innerMsg.mediaToken === 'string') {
+                this.mediaToken = innerMsg.mediaToken;
               }
               this.reconnectAttempts = 0;
               this.setState('connected');

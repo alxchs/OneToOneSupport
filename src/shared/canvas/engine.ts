@@ -9,6 +9,7 @@ import {
   Triangle,
   Path,
   FabricObject,
+  FabricImage,
 } from 'fabric';
 import {
   TabState,
@@ -1528,6 +1529,60 @@ export class WhiteboardEngine {
       quality: options?.quality || 1,
       multiplier,
     });
+  }
+
+  /**
+   * Define uma imagem ou canvas renderizado (ex.: página de PDF) como fundo fixo do quadro (M4 / M5).
+   * A imagem é escalada para caber no espaço virtual (1200x800) sem distorção e centralizada.
+   * Não é selecionável, não é movida por ferramentas de desenho e não gera eventos.
+   */
+  public async setBackgroundImage(
+    source: HTMLImageElement | HTMLCanvasElement | string
+  ): Promise<void> {
+    let imgElement: HTMLImageElement | HTMLCanvasElement;
+
+    if (typeof source === 'string') {
+      imgElement = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => resolve(img);
+        img.onerror = (err) => reject(new Error('Falha ao carregar imagem de fundo: ' + err));
+        img.src = source;
+      });
+    } else {
+      imgElement = source;
+    }
+
+    const imgWidth = imgElement.width || 1;
+    const imgHeight = imgElement.height || 1;
+
+    const scale = Math.min(this.virtualWidth / imgWidth, this.virtualHeight / imgHeight);
+    const left = (this.virtualWidth - imgWidth * scale) / 2;
+    const top = (this.virtualHeight - imgHeight * scale) / 2;
+
+    const fabricImg = new FabricImage(imgElement, {
+      left,
+      top,
+      scaleX: scale,
+      scaleY: scale,
+      selectable: false,
+      evented: false,
+    });
+
+    this.canvas.backgroundImage = fabricImg;
+    this.canvas.renderAll();
+  }
+
+  /**
+   * Remove o fundo fixo do quadro branco.
+   */
+  public clearBackgroundImage(): void {
+    this.canvas.backgroundImage = undefined;
+    this.canvas.renderAll();
+  }
+
+  public hasBackgroundImage(): boolean {
+    return Boolean(this.canvas.backgroundImage);
   }
 
   /**

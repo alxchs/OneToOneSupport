@@ -4,6 +4,9 @@ import type {
   SessaoDTO,
   CreateAtendidoPayload,
   ServerSessionInfoDTO,
+  AbaDTO,
+  AssetDTO,
+  GuestEventDTO,
 } from '../../shared/ipc-contract';
 
 import {
@@ -15,7 +18,7 @@ import {
 } from '../../shared/events/reducer';
 import { generateUUID } from '../../shared/events/protocol';
 import { diagLog } from '../../shared/diag';
-import { ACOES_PERMITIDAS_GUEST } from '../../shared/autoridade';
+import { isAcaoPermitidaGuest } from '../../shared/autoridade';
 
 export type HostView = 'lista' | 'form' | 'detalhes' | 'configuracoes' | 'quadro';
 
@@ -57,9 +60,13 @@ interface HostState {
   selecionarIpServidor: (ip: string) => Promise<boolean>;
   carregarStatusServidor: () => Promise<void>;
 
-  // Quadro Branco HiDPI (Fase 06 e 07, D16)
+  // Quadro Branco HiDPI (Fase 06 e 07, D16) e Abas Multimodais (Fase 08)
   activeSessaoId: string | null;
   activeAbaId: string;
+  abas: AbaDTO[];
+  activeAsset: AssetDTO | null;
+  pdfPagina: number;
+  pdfTotalPaginas: number;
   tabState: TabState;
   quadroSomenteLeitura: boolean;
   abrirQuadroSessao: (sessaoId: string, options?: { somenteLeitura?: boolean }) => Promise<void>;
@@ -69,8 +76,14 @@ interface HostState {
   limparQuadro: () => Promise<void>;
   bloquearTelaGuest: (locked: boolean) => Promise<boolean>;
   liberarMidiaGuest: (unlocked: boolean) => Promise<boolean>;
+  carregarAbas: (sessaoId?: string) => Promise<void>;
+  criarAba: (payload: { titulo: string; tipo: 'blank' | 'image' | 'pdf' | 'video' | 'audio'; asset_id?: string | null }) => Promise<AbaDTO | null>;
+  renomearAba: (id: string, titulo: string) => Promise<boolean>;
+  reordenarAbas: (abaIdsEmOrdem: string[]) => Promise<boolean>;
+  removerAba: (id: string) => Promise<boolean>;
+  mudarPaginaPdf: (pagina: number) => Promise<boolean>;
   trocarAba: (abaId: string) => Promise<boolean>;
-  aplicarEventoRemoto: (event: any) => boolean;
+  aplicarEventoRemoto: (event: GuestEventDTO | any) => boolean;
 }
 
 export const useHostStore = create<HostState>((set, get) => ({
@@ -93,6 +106,10 @@ export const useHostStore = create<HostState>((set, get) => ({
   guestMuted: false,
   activeSessaoId: null,
   activeAbaId: 'default',
+  abas: [],
+  activeAsset: null,
+  pdfPagina: 1,
+  pdfTotalPaginas: 1,
   tabState: createInitialTabState('default'),
   quadroSomenteLeitura: false,
 
@@ -403,11 +420,31 @@ export const useHostStore = create<HostState>((set, get) => ({
       activeAbaId: 'default',
       quadroSomenteLeitura: somenteLeitura,
       carregando: true,
+      pdfPagina: 1,
+      pdfTotalPaginas: 1,
+      activeAsset: null,
     });
-    let state = createInitialTabState('default');
+
+    let activeAba = 'default';
+    if (window.desktopAPI?.abas) {
+      try {
+        const abasRes = await window.desktopAPI.abas.listBySessao(sessaoId);
+        if (abasRes.success && abasRes.data) {
+          set({ abas: abasRes.data });
+          if (abasRes.data.length > 0) {
+            activeAba = abasRes.data[0].id;
+            set({ activeAbaId: activeAba });
+          }
+        }
+      } catch (err) {
+        console.error('[HostStore] Erro ao carregar abas da sessão:', err);
+      }
+    }
+
+    let state = createInitialTabState(activeAba);
     if (window.desktopAPI?.eventos) {
       try {
-        const res = await window.desktopAPI.eventos.obterEstadoAba(sessaoId, 'default');
+        const res = await window.desktopAPI.eventos.obterEstadoAba(sessaoId, activeAba);
         if (res.success && res.data) {
           state = res.data;
         }
@@ -419,7 +456,7 @@ export const useHostStore = create<HostState>((set, get) => ({
   },
 
   aplicarEventoQuadro: async (evento: WhiteboardEvent) => {
-    const { tabState, activeSessaoId, activeAbaId, quadroSomenteLeitura } = get();
+    const { tabState, activeSessaoId, activeAbaId, abas, pdfPagina, quadroSomenteLeitura } = get();
     if (quadroSomenteLeitura) {
       diagLog('aplicarEventoQuadro_bloqueado_readonly', {
         tipo: evento.tipo,
@@ -430,6 +467,9 @@ export const useHostStore = create<HostState>((set, get) => ({
       return;
     }
 
+    const currentAba = abas.find((a) => a.id === activeAbaId);
+    const targetAbaId = currentAba?.tipo === 'pdf' ? `${activeAbaId}_p${pdfPagina}` : activeAbaId;
+
     const visiveisAntes = getVisibleElements(tabState).length;
     const proximoEstado = reduceEvent(tabState, evento);
     const visiveisDepois = getVisibleElements(proximoEstado).length;
@@ -438,7 +478,7 @@ export const useHostStore = create<HostState>((set, get) => ({
       tipo: evento.tipo,
       visiveisAntes,
       visiveisDepois,
-      abaId: activeAbaId,
+      abaId: targetAbaId,
       autor: evento.autor,
     });
 
@@ -449,13 +489,13 @@ export const useHostStore = create<HostState>((set, get) => ({
         fase: 'inicio',
         tipo: evento.tipo,
         sessaoId: activeSessaoId,
-        abaId: activeAbaId,
+        abaId: targetAbaId,
         autor: evento.autor,
       });
       try {
         const res = await window.desktopAPI.eventos.gravar({
           sessao_id: activeSessaoId,
-          aba_id: activeAbaId,
+          aba_id: targetAbaId,
           tipo: evento.tipo,
           payload: evento.payload,
           autor: evento.autor,
@@ -563,17 +603,149 @@ export const useHostStore = create<HostState>((set, get) => ({
     return false;
   },
 
+  carregarAbas: async (sessaoId?: string) => {
+    const targetSessaoId = sessaoId || get().activeSessaoId;
+    if (!targetSessaoId || !window.desktopAPI?.abas) return;
+    try {
+      const res = await window.desktopAPI.abas.listBySessao(targetSessaoId);
+      if (res.success && res.data) {
+        set({ abas: res.data });
+      }
+    } catch (err) {
+      console.error('[HostStore] Erro ao listar abas:', err);
+    }
+  },
+
+  criarAba: async (payload: { titulo: string; tipo: 'blank' | 'image' | 'pdf' | 'video' | 'audio'; asset_id?: string | null }) => {
+    const { activeSessaoId, abas } = get();
+    if (!activeSessaoId || !window.desktopAPI?.abas) return null;
+    try {
+      const res = await window.desktopAPI.abas.create({
+        sessao_id: activeSessaoId,
+        titulo: payload.titulo,
+        tipo: payload.tipo,
+        ordem: abas.length,
+        asset_id: payload.asset_id ?? null,
+      });
+      if (res.success && res.data) {
+        await get().carregarAbas();
+        await get().trocarAba(res.data.id);
+        return res.data;
+      }
+    } catch (err) {
+      console.error('[HostStore] Erro ao criar aba:', err);
+    }
+    return null;
+  },
+
+  renomearAba: async (id: string, titulo: string) => {
+    if (!window.desktopAPI?.abas) return false;
+    try {
+      const res = await window.desktopAPI.abas.rename({ id, novoTitulo: titulo });
+      if (res.success) {
+        await get().carregarAbas();
+        return true;
+      }
+    } catch (err) {
+      console.error('[HostStore] Erro ao renomear aba:', err);
+    }
+    return false;
+  },
+
+  reordenarAbas: async (abaIdsEmOrdem: string[]) => {
+    const { activeSessaoId } = get();
+    if (!activeSessaoId || !window.desktopAPI?.abas) return false;
+    try {
+      const res = await window.desktopAPI.abas.reorder({ sessaoId: activeSessaoId, abaIdsEmOrdem });
+      if (res.success) {
+        await get().carregarAbas();
+        return true;
+      }
+    } catch (err) {
+      console.error('[HostStore] Erro ao reordenar abas:', err);
+    }
+    return false;
+  },
+
+  removerAba: async (id: string) => {
+    if (!window.desktopAPI?.abas) return false;
+    try {
+      const res = await window.desktopAPI.abas.delete(id);
+      if (res.success) {
+        await get().carregarAbas();
+        const { abas, activeAbaId } = get();
+        if (activeAbaId === id) {
+          const nextAba = abas[0]?.id || 'default';
+          await get().trocarAba(nextAba);
+        }
+        return true;
+      }
+    } catch (err) {
+      console.error('[HostStore] Erro ao remover aba:', err);
+    }
+    return false;
+  },
+
+  mudarPaginaPdf: async (pagina: number) => {
+    const { activeAbaId, activeSessaoId } = get();
+    if (!activeSessaoId) return false;
+    const pag = Math.max(1, pagina);
+    set({ pdfPagina: pag });
+    if (window.desktopAPI?.serverSession) {
+      window.desktopAPI.serverSession.broadcastToGuest({
+        type: 'PDF_PAGE',
+        payload: { tabId: activeAbaId, pagina: pag },
+        tabId: activeAbaId,
+        pagina: pag,
+        ts: Date.now(),
+      });
+    }
+    const subAbaId = `${activeAbaId}_p${pag}`;
+    if (window.desktopAPI?.eventos) {
+      try {
+        const res = await window.desktopAPI.eventos.obterEstadoAba(activeSessaoId, subAbaId);
+        if (res.success && res.data) {
+          set({ tabState: res.data });
+        } else {
+          set({ tabState: createInitialTabState(subAbaId) });
+        }
+      } catch {
+        set({ tabState: createInitialTabState(subAbaId) });
+      }
+    }
+    return true;
+  },
+
   trocarAba: async (abaId: string) => {
-    set({ activeAbaId: abaId });
+    set({ activeAbaId: abaId, pdfPagina: 1 });
     if (window.desktopAPI?.serverSession) {
       await window.desktopAPI.serverSession.switchTab(abaId);
     }
-    const { activeSessaoId } = get();
+    const { activeSessaoId, abas } = get();
+    const aba = abas.find((a) => a.id === abaId);
+    if (aba?.asset_id && window.desktopAPI?.assets) {
+      try {
+        const aRes = await window.desktopAPI.assets.get(aba.asset_id);
+        if (aRes.success && aRes.data) {
+          set({ activeAsset: aRes.data });
+        } else {
+          set({ activeAsset: null });
+        }
+      } catch {
+        set({ activeAsset: null });
+      }
+    } else {
+      set({ activeAsset: null });
+    }
+
     if (activeSessaoId && window.desktopAPI?.eventos) {
       try {
-        const res = await window.desktopAPI.eventos.obterEstadoAba(activeSessaoId, abaId);
+        const contextAbaId = aba?.tipo === 'pdf' ? `${abaId}_p1` : abaId;
+        const res = await window.desktopAPI.eventos.obterEstadoAba(activeSessaoId, contextAbaId);
         if (res.success && res.data) {
           set({ tabState: res.data });
+        } else {
+          set({ tabState: createInitialTabState(contextAbaId) });
         }
       } catch (err) {
         console.error('[HostStore] Erro ao carregar estado da nova aba:', err);
@@ -582,7 +754,7 @@ export const useHostStore = create<HostState>((set, get) => ({
     return true;
   },
 
-  aplicarEventoRemoto: (event: any): boolean => {
+  aplicarEventoRemoto: (event: GuestEventDTO): boolean => {
     // 1. Validação básica de envelope
     if (!event || typeof event !== 'object') {
       diagLog('aplicarEventoRemoto_descarte', { motivo: 'EVENTO_INVALIDO' });
@@ -610,8 +782,8 @@ export const useHostStore = create<HostState>((set, get) => ({
       return false;
     }
 
-    // 4. Tipo de evento deve estar na allowlist estrita do Guest (ADR-011) (D17.2.3)
-    if (typeof event.type !== 'string' || !ACOES_PERMITIDAS_GUEST.includes(event.type as any)) {
+    // 4. Tipo de evento deve estar na allowlist estrita do Guest (ADR-011) via isAcaoPermitidaGuest (M9.1)
+    if (typeof event.type !== 'string' || !isAcaoPermitidaGuest(event.type)) {
       diagLog('aplicarEventoRemoto_descarte', {
         motivo: 'TIPO_NAO_PERMITIDO',
         tipo: event.type,
@@ -632,21 +804,28 @@ export const useHostStore = create<HostState>((set, get) => ({
       return false;
     }
 
-    // 6. abaId do evento deve coincidir com a aba ativa aberta na tela (D17.2.3)
+    // 6. abaId do evento deve coincidir com a aba ativa aberta na tela (D17.2.3 e M9.2)
+    const rawPayloadObj = (typeof event.payload === 'object' && event.payload) ? event.payload as Record<string, unknown> : null;
     const eventAbaId =
       (typeof event.abaId === 'string' && event.abaId.trim() ? event.abaId.trim() : undefined) ||
-      (typeof event.payload === 'object' && event.payload && typeof event.payload.abaId === 'string' && event.payload.abaId.trim()
-        ? event.payload.abaId.trim()
+      (rawPayloadObj && typeof rawPayloadObj.abaId === 'string' && rawPayloadObj.abaId.trim()
+        ? rawPayloadObj.abaId.trim()
         : undefined) ||
       'default';
 
-    if (eventAbaId !== activeAbaId) {
+    const { abas, pdfPagina } = get();
+    const currentAba = abas.find((a) => a.id === activeAbaId);
+    const expectedAbaId = currentAba?.tipo === 'pdf' ? `${activeAbaId}_p${pdfPagina}` : activeAbaId;
+
+    if (eventAbaId !== activeAbaId && eventAbaId !== expectedAbaId) {
       diagLog('aplicarEventoRemoto_descarte', {
         motivo: 'ABA_DIVERGENTE',
         eventAbaId,
         activeAbaId,
         tipo: event.type,
       });
+      // Evento de outra aba foi persistido pela autoridade (M9.2).
+      // Ao trocar de aba, obterEstadoAba restaura sem perda.
       return false;
     }
 
@@ -683,13 +862,15 @@ export const useHostStore = create<HostState>((set, get) => ({
       }
 
       const ev: WhiteboardEvent = {
-        id: event.id || generateUUID(),
+        id: (typeof event.id === 'string' && event.id) ? event.id : generateUUID(),
         sessao_id: event.sessaoId,
         aba_id: eventAbaId,
         tipo: event.type,
-        payload: parsedPayload || {},
+        payload: (parsedPayload && typeof parsedPayload === 'object')
+          ? (parsedPayload as Record<string, unknown>)
+          : (typeof parsedPayload === 'string' ? parsedPayload : {}),
         autor: 'guest',
-        criado_em: event.ts || Date.now(),
+        criado_em: typeof event.ts === 'number' ? event.ts : Date.now(),
       };
 
       const nextState = reduceEvent(get().tabState, ev);
@@ -706,3 +887,8 @@ export const useHostStore = create<HostState>((set, get) => ({
     return false;
   },
 }));
+
+if (typeof window !== 'undefined') {
+  (window as any).__useHostStore = useHostStore;
+}
+

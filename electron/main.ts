@@ -54,7 +54,7 @@ function createWindow(): BrowserWindow {
     const isDev = Boolean(process.env.VITE_DEV_SERVER_URL);
     const csp = isDev
       ? "default-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:* ws://localhost:*; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws: wss: http://localhost:*;"
-      : "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws: wss:;";
+      : "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: http://127.0.0.1:* http://localhost:*; connect-src 'self' ws: wss: http://127.0.0.1:* http://localhost:*; worker-src 'self' blob:; media-src 'self' blob: http://127.0.0.1:* http://localhost:*;";
 
     callback({
       responseHeaders: {

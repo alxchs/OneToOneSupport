@@ -15,6 +15,8 @@ import {
 } from '../shared/events/reducer';
 import { generateUUID } from '../shared/events/protocol';
 import { diagLog } from '../shared/diag';
+import { MediaSyncManager } from '../shared/media-sync';
+import { PdfDocumentViewer } from '../shared/pdf/pdf-loader';
 import buildInfo from '../shared/build-info.json';
 
 export interface GuestRoomProps {
@@ -58,6 +60,13 @@ export const GuestRoom: React.FC<GuestRoomProps> = ({
   const [isLocalMuted, setIsLocalMuted] = useState<boolean>(false);
 
   const [activeAbaId, setActiveAbaId] = useState<string>('default');
+  const [activeAbaTipo, setActiveAbaTipo] = useState<string>('blank');
+  const [activeAssetId, setActiveAssetId] = useState<string | null>(null);
+  const [mediaToken, setMediaToken] = useState<string | null>(wsClient.getMediaToken());
+  const [pdfPagina, setPdfPagina] = useState<number>(1);
+  const [pdfTotalPaginas, setPdfTotalPaginas] = useState<number>(1);
+  const [autoplayBloqueado, setAutoplayBloqueado] = useState<boolean>(false);
+
   const [tabStates, setTabStates] = useState<Record<string, TabState>>({
     default: createInitialTabState('default'),
   });
@@ -70,6 +79,9 @@ export const GuestRoom: React.FC<GuestRoomProps> = ({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const engineRef = useRef<WhiteboardEngine | null>(null);
+  const mediaRef = useRef<HTMLMediaElement | null>(null);
+  const mediaSyncRef = useRef<MediaSyncManager>(new MediaSyncManager());
+  const pdfViewerRef = useRef<PdfDocumentViewer | null>(null);
 
   // Manipulador de eventos de mensagens cifradas recebidas do Host
   const handleHostMessage = useCallback(
@@ -77,6 +89,13 @@ export const GuestRoom: React.FC<GuestRoomProps> = ({
       if (!msg || !msg.type) return;
 
       switch (msg.type) {
+        case 'SESSION_READY': {
+          if (msg.mediaToken && typeof msg.mediaToken === 'string') {
+            setMediaToken(msg.mediaToken);
+          }
+          break;
+        }
+
         case 'LOCK_SCREEN': {
           setScreenLocked(Boolean(msg.locked));
           break;
@@ -90,12 +109,62 @@ export const GuestRoom: React.FC<GuestRoomProps> = ({
         case 'TAB_SWITCH': {
           const novaAbaId = msg.abaId || 'default';
           setActiveAbaId(novaAbaId);
+          setActiveAbaTipo(msg.abaTipo || 'blank');
+          setActiveAssetId(msg.assetId || null);
+          setPdfPagina(1);
           setTabStates((prev) => {
             if (!prev[novaAbaId]) {
               return { ...prev, [novaAbaId]: createInitialTabState(novaAbaId) };
             }
             return prev;
           });
+          break;
+        }
+
+        case 'PDF_PAGE': {
+          const pag = typeof msg.pagina === 'number' ? msg.pagina : (msg.payload?.pagina || 1);
+          setPdfPagina(pag);
+          break;
+        }
+
+        case 'CLOCK_SYNC': {
+          const rawPayload = msg.payload ?? msg;
+          const t0 = typeof rawPayload.t0 === 'number' ? rawPayload.t0 : msg.t0;
+          const t1 = typeof rawPayload.t1 === 'number' ? rawPayload.t1 : msg.t1;
+          if (typeof t0 === 'number' && typeof t1 === 'number') {
+            mediaSyncRef.current.processClockSync(t0, t1);
+          }
+          break;
+        }
+
+        case 'MEDIA_CONTROL':
+        case 'PLAY':
+        case 'PAUSE':
+        case 'SEEK': {
+          const rawPayload = msg.payload ?? msg;
+          const mediaTime = typeof rawPayload.mediaTime === 'number' ? rawPayload.mediaTime : 0;
+          const serverTs = typeof rawPayload.serverTs === 'number' ? rawPayload.serverTs : Date.now();
+          const playing = Boolean(rawPayload.playing ?? (msg.type === 'PLAY'));
+
+          mediaSyncRef.current.updateMediaState({ mediaTime, serverTs, playing });
+
+          const mediaEl = mediaRef.current;
+          if (mediaEl) {
+            if (playing && mediaEl.paused) {
+              mediaEl.play().catch(() => setAutoplayBloqueado(true));
+            } else if (!playing && !mediaEl.paused) {
+              mediaEl.pause();
+            }
+            const acao = mediaSyncRef.current.sincronizarPlayer(mediaEl.currentTime);
+            if (acao.tipo === 'seek') {
+              mediaEl.currentTime = acao.targetTime;
+              mediaEl.playbackRate = 1.0;
+            } else if (acao.tipo === 'rate') {
+              mediaEl.playbackRate = acao.playbackRate;
+            } else {
+              mediaEl.playbackRate = 1.0;
+            }
+          }
           break;
         }
 
@@ -240,6 +309,10 @@ export const GuestRoom: React.FC<GuestRoomProps> = ({
     engineRef.current = engine;
     if (typeof window !== 'undefined') {
       (window as any).__guestEngine = engine;
+      (window as any).__guestActiveAbaId = activeAbaId;
+      (window as any).__guestActiveAbaTipo = activeAbaTipo;
+      (window as any).__guestPdfPagina = pdfPagina;
+      (window as any).__guestWsClient = wsClient;
     }
 
     const currentTabState = tabStates[activeAbaId] || createInitialTabState(activeAbaId);
@@ -271,11 +344,59 @@ export const GuestRoom: React.FC<GuestRoomProps> = ({
 
   // Atualiza renderização quando o estado da aba mudar
   useEffect(() => {
+    if (typeof window !== 'undefined') {
+      (window as any).__guestActiveAbaId = activeAbaId;
+      (window as any).__guestActiveAbaTipo = activeAbaTipo;
+      (window as any).__guestPdfPagina = pdfPagina;
+    }
     if (engineRef.current) {
       const currentTabState = tabStates[activeAbaId] || createInitialTabState(activeAbaId);
       engineRef.current.renderState(currentTabState);
     }
-  }, [tabStates, activeAbaId]);
+  }, [tabStates, activeAbaId, activeAbaTipo, pdfPagina]);
+
+  // Atualiza fundo da aba (imagem ou PDF) na engine do Guest
+  useEffect(() => {
+    const engine = engineRef.current;
+    if (!engine) return;
+
+    if (!activeAssetId || activeAbaTipo === 'blank') {
+      engine.clearBackgroundImage();
+      return;
+    }
+
+    const tokenParam = mediaToken ? `?token=${mediaToken}` : '';
+
+    if (activeAbaTipo === 'image') {
+      const url = `/midia/${activeAssetId}${tokenParam}`;
+      engine.setBackgroundImage(url).catch((err) => {
+        console.warn('[GuestRoom] Erro ao carregar imagem de fundo:', err);
+      });
+      return;
+    }
+
+    if (activeAbaTipo === 'pdf') {
+      const url = `/midia/${activeAssetId}${tokenParam}`;
+      const viewer = new PdfDocumentViewer();
+      pdfViewerRef.current = viewer;
+      viewer
+        .load(url)
+        .then((numPages) => {
+          setPdfTotalPaginas(numPages);
+          return viewer.renderPage(pdfPagina, CANONICAL_VIRTUAL_WIDTH);
+        })
+        .then((rendered) => {
+          return engine.setBackgroundImage(rendered.canvas);
+        })
+        .catch((err) => {
+          console.warn('[GuestRoom] Erro ao renderizar página de PDF:', err);
+        });
+
+      return () => {
+        viewer.destroy();
+      };
+    }
+  }, [activeAbaTipo, activeAssetId, pdfPagina, mediaToken]);
 
   // Aplica configurações de ferramenta na engine
   const mudarFerramenta = (t: WhiteboardTool) => {
@@ -519,7 +640,27 @@ export const GuestRoom: React.FC<GuestRoomProps> = ({
         </div>
       </header>
 
-      {/* 2. Área Central: Quadro Branco Fabric.js */}
+      {/* Indicador de Página do PDF sincronizada pelo Host (M5) */}
+      {activeAbaTipo === 'pdf' && (
+        <div
+          id="guest-pdf-page-indicator"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '0.375rem',
+            backgroundColor: '#0f172a',
+            borderBottom: '1px solid #1e293b',
+            fontSize: '0.8125rem',
+            fontWeight: 600,
+            color: '#38bdf8',
+          }}
+        >
+          📄 Página {pdfPagina} de {pdfTotalPaginas} (Sincronizada pelo {rotuloHost})
+        </div>
+      )}
+
+      {/* 2. Área Central: Quadro Branco Fabric.js ou Mídia Sincronizada */}
       <main
         ref={containerRef}
         id="guest-whiteboard-area"
@@ -530,13 +671,114 @@ export const GuestRoom: React.FC<GuestRoomProps> = ({
           width: '100%',
           backgroundColor: '#ffffff',
           overflow: 'hidden',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
         }}
       >
-        <canvas
-          ref={canvasRef}
-          id="guest-canvas"
-          className="whiteboard-canvas-mobile"
-        />
+        {/* Banner de Fallback de Autoplay Bloqueado no Mobile (M7) */}
+        {autoplayBloqueado && (
+          <div
+            id="banner-autoplay-bloqueado"
+            style={{
+              position: 'absolute',
+              top: 12,
+              zIndex: 35,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <button
+              id="btn-desbloquear-autoplay"
+              type="button"
+              onClick={() => {
+                if (mediaRef.current) {
+                  mediaRef.current
+                    .play()
+                    .then(() => setAutoplayBloqueado(false))
+                    .catch(() => {});
+                }
+              }}
+              style={{
+                minHeight: '48px',
+                minWidth: '48px',
+                padding: '0.6rem 1.25rem',
+                backgroundColor: '#0284c7',
+                border: '1px solid #38bdf8',
+                borderRadius: '9999px',
+                color: '#ffffff',
+                fontWeight: 600,
+                fontSize: '0.875rem',
+                boxShadow: '0 10px 15px -3px rgba(0,0,0,0.5)',
+                cursor: 'pointer',
+              }}
+            >
+              ▶ Toque para iniciar reprodução
+            </button>
+          </div>
+        )}
+
+        {activeAbaTipo === 'video' && activeAssetId ? (
+          <div
+            style={{
+              width: '100%',
+              height: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: '#000000',
+            }}
+          >
+            <video
+              ref={mediaRef as React.RefObject<HTMLVideoElement>}
+              id="guest-video-player"
+              playsInline
+              controls={mediaUnlocked && !screenLocked}
+              src={`/midia/${activeAssetId}${mediaToken ? `?token=${mediaToken}` : ''}`}
+              onPlay={() => {
+                if (mediaUnlocked && !screenLocked) handleMediaAction('PLAY');
+              }}
+              onPause={() => {
+                if (mediaUnlocked && !screenLocked) handleMediaAction('PAUSE');
+              }}
+              style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+            />
+          </div>
+        ) : (
+          <>
+            {activeAbaTipo === 'audio' && activeAssetId && (
+              <div
+                style={{
+                  width: '100%',
+                  padding: '0.5rem',
+                  backgroundColor: '#0f172a',
+                  zIndex: 10,
+                }}
+              >
+                <audio
+                  ref={mediaRef as React.RefObject<HTMLAudioElement>}
+                  id="guest-audio-player"
+                  controls={mediaUnlocked && !screenLocked}
+                  src={`/midia/${activeAssetId}${mediaToken ? `?token=${mediaToken}` : ''}`}
+                  onPlay={() => {
+                    if (mediaUnlocked && !screenLocked) handleMediaAction('PLAY');
+                  }}
+                  onPause={() => {
+                    if (mediaUnlocked && !screenLocked) handleMediaAction('PAUSE');
+                  }}
+                  style={{ width: '100%' }}
+                />
+              </div>
+            )}
+            <canvas
+              ref={canvasRef}
+              id="guest-canvas"
+              className="whiteboard-canvas-mobile"
+            />
+          </>
+        )}
 
         {/* 3. Overlay Claro de Bloqueio de Tela (LOCK_SCREEN) */}
         {screenLocked && (

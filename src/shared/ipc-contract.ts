@@ -47,11 +47,25 @@ export const IPC_CHANNELS = {
   SERVER_LOCK_SCREEN: 'server:lock-screen',
   SERVER_UNLOCK_MEDIA: 'server:unlock-media',
   SERVER_SWITCH_TAB: 'server:switch-tab',
+  SERVER_BROADCAST: 'server:broadcast',
   SERVER_GUEST_EVENT_RECEIVED: 'server:guest-event-received',
 
   // Eventos de Quadro Branco e Event Sourcing (Fases 05 e 06)
   EVENTO_GRAVAR: 'evento:gravar',
   EVENTO_OBTER_ESTADO: 'evento:obter-estado',
+
+  // Abas (Fase 08 - M1)
+  ABA_CREATE: 'aba:create',
+  ABA_GET: 'aba:get',
+  ABA_LIST: 'aba:list',
+  ABA_RENAME: 'aba:rename',
+  ABA_REORDER: 'aba:reorder',
+  ABA_DELETE: 'aba:delete',
+
+  // Assets (Fase 08 - M2)
+  ASSET_IMPORT: 'asset:import',
+  ASSET_GET: 'asset:get',
+  ASSET_LIST_BY_SESSAO: 'asset:list-by-sessao',
 
   // Diagnóstico Forward (D1)
   DIAG_FORWARD: 'diag:forward',
@@ -155,6 +169,7 @@ export interface ServerSessionInfoDTO {
   guestConnected: boolean;
   screenLocked: boolean;
   mediaUnlocked: boolean;
+  mediaToken?: string;
 }
 
 export interface StartServerSessionPayload {
@@ -192,6 +207,64 @@ export interface VersionInfoDTO {
   guestOutdated: boolean;
 }
 
+export type AbaTipo = 'blank' | 'image' | 'pdf' | 'video' | 'audio';
+
+export interface AbaDTO {
+  id: string;
+  sessao_id: string;
+  tipo: AbaTipo;
+  ordem: number;
+  asset_id: string | null;
+  titulo: string | null;
+  criado_em: number;
+}
+
+export interface AssetDTO {
+  id: string;
+  sessao_id: string | null;
+  tipo: string;
+  mime: string;
+  tamanho: number;
+  hash_sha256: string;
+  path: string;
+  criado_em: number;
+}
+
+export interface CreateAbaPayload {
+  sessao_id: string;
+  tipo: AbaTipo;
+  ordem?: number;
+  asset_id?: string | null;
+  titulo?: string | null;
+}
+
+export interface RenameAbaPayload {
+  id: string;
+  novoTitulo: string | null;
+}
+
+export interface ReorderAbasPayload {
+  sessaoId: string;
+  abaIdsEmOrdem: string[];
+}
+
+export interface ImportAssetPayload {
+  sessaoId: string;
+  sourcePath?: string;
+  sourceBase64?: string;
+  originalName?: string;
+}
+
+export interface GuestEventDTO {
+  type: string;
+  payload?: any;
+  sessaoId?: string;
+  abaId?: string;
+  autor?: string;
+  ts?: number;
+  [key: string]: unknown;
+}
+
 export interface DesktopAPI {
   getScaleFactor: () => Promise<number>;
   getDisplayMetrics: () => Promise<DisplayMetrics>;
@@ -215,6 +288,21 @@ export interface DesktopAPI {
     listByAtendido: (atendido_id: string) => Promise<IPCResult<SessaoDTO[]>>;
   };
 
+  abas: {
+    create: (data: CreateAbaPayload) => Promise<IPCResult<AbaDTO>>;
+    get: (id: string) => Promise<IPCResult<AbaDTO>>;
+    listBySessao: (sessaoId: string) => Promise<IPCResult<AbaDTO[]>>;
+    rename: (payload: RenameAbaPayload) => Promise<IPCResult<AbaDTO>>;
+    reorder: (payload: ReorderAbasPayload) => Promise<IPCResult<AbaDTO[]>>;
+    delete: (id: string) => Promise<IPCResult<{ id: string }>>;
+  };
+
+  assets: {
+    import: (payload: ImportAssetPayload) => Promise<IPCResult<AssetDTO>>;
+    get: (id: string) => Promise<IPCResult<AssetDTO>>;
+    listBySessao: (sessaoId: string) => Promise<IPCResult<AssetDTO[]>>;
+  };
+
   config: {
     getDictionary: () => Promise<IPCResult<Record<string, string>>>;
     setLabel: (chave: string, valor: string) => Promise<IPCResult<{ chave: string; valor: string }>>;
@@ -231,8 +319,9 @@ export interface DesktopAPI {
     lockScreen: (locked: boolean) => Promise<IPCResult<ServerSessionInfoDTO>>;
     unlockMedia: (unlocked: boolean) => Promise<IPCResult<ServerSessionInfoDTO>>;
     switchTab: (abaId: string) => Promise<IPCResult<{ switched: boolean }>>;
+    broadcastToGuest: (event: Record<string, unknown>) => Promise<IPCResult<{ sent: boolean }>>;
     onStatusChange: (callback: (status: ServerSessionInfoDTO | null) => void) => () => void;
-    onGuestEvent: (callback: (event: any) => void) => () => void;
+    onGuestEvent: (callback: (event: GuestEventDTO) => void) => () => void;
   };
 
   eventos: {
