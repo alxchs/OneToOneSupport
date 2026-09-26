@@ -47,6 +47,17 @@ export function createExpressApp(sessionManager: SessionManager): express.Expres
 
   // 3b. Rota de serviço de mídia com Range Requests (M3)
   const handleMidia = (req: Request, res: Response) => {
+    // Permite CORS para requisições de mídia locais do Host e do Guest
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Range, Authorization, X-Media-Token');
+    res.setHeader('Access-Control-Expose-Headers', 'Accept-Ranges, Content-Range, Content-Length, Content-Type');
+
+    if (req.method === 'OPTIONS') {
+      res.status(204).end();
+      return;
+    }
+
     if (req.method !== 'GET' && req.method !== 'HEAD') {
       res.status(405).send('Method Not Allowed');
       return;

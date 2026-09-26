@@ -1385,7 +1385,7 @@ async function main() {
 
       // --- V6 (Fase 08): Abas multimodais, assets, anotação sobre imagem/PDF e mídia sincronizada ---
       console.log('\n[Probe V6] Iniciando testes de Abas Multimodais, Assets e Mídia Sincronizada (M1..M7, M10)...');
-      const v6Results = {
+      v6Results = {
         pass: false,
         pixelProofOk: false,
         shaPreserved: false,

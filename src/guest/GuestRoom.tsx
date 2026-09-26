@@ -389,7 +389,7 @@ export const GuestRoom: React.FC<GuestRoomProps> = ({
           return engine.setBackgroundImage(rendered.canvas);
         })
         .catch((err) => {
-          console.warn('[GuestRoom] Erro ao renderizar página de PDF:', err);
+          console.warn('[GuestRoom] Erro ao renderizar página de PDF:', err?.message || String(err));
         });
 
       return () => {

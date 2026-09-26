@@ -256,7 +256,7 @@ export const QuadroBrancoPage: React.FC = () => {
           return engine.setBackgroundImage(rendered.canvas);
         })
         .catch((err) => {
-          console.warn('[QuadroBranco] Erro ao carregar página de PDF:', err);
+          console.warn('[QuadroBranco] Erro ao carregar página de PDF:', err?.message || String(err));
         });
 
       return () => {

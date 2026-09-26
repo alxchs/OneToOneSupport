@@ -1,8 +1,10 @@
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
+// @ts-ignore
+import * as pdfWorker from 'pdfjs-dist/legacy/build/pdf.worker.mjs';
 
-// Configura o worker se fornecido ou opera com fake worker seguro (ADR-013, ADR-014)
-if (typeof window !== 'undefined' && !pdfjsLib.GlobalWorkerOptions.workerSrc) {
-  // Deixa o legacy build usar o fake worker in-thread como fallback padrão se worker não estiver configurado
+// Configura o worker fallback em globalThis (ADR-013, ADR-014)
+if (typeof globalThis !== 'undefined') {
+  (globalThis as any).pdfjsWorker = pdfWorker;
 }
 
 export interface RenderedPdfPage {
