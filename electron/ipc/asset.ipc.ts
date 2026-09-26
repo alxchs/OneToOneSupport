@@ -5,6 +5,7 @@ import {
   AssetDTO,
 } from '../../src/shared/ipc-contract';
 import { assetService } from '../services/asset.service';
+import { isValidId } from '../services/evento.service';
 
 export async function handleAssetImport(payload: unknown): Promise<IPCResult<AssetDTO>> {
   if (!payload || typeof payload !== 'object') {
@@ -14,6 +15,11 @@ export async function handleAssetImport(payload: unknown): Promise<IPCResult<Ass
 
   if (typeof p.sessaoId !== 'string' || !p.sessaoId.trim()) {
     return { success: false, error: 'VALIDATION', message: 'sessaoId é obrigatório.' };
+  }
+  // sessaoId vira componente de caminho no disco (<sessaoId>/<sha256>.<ext>): barra aqui também,
+  // antes de chamar o serviço, para não depender só da defesa interna do AssetService.
+  if (!isValidId(p.sessaoId.trim())) {
+    return { success: false, error: 'VALIDATION', message: 'sessaoId inválido.' };
   }
 
   const originalName = typeof p.originalName === 'string' ? p.originalName.trim() : undefined;

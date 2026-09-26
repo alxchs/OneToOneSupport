@@ -55,6 +55,25 @@ Toda a suíte de testes está 100% verde com 31 arquivos e 391 testes automatiza
 
 ---
 
+## Auditoria do chefe e correção pós-entrega (2026-09-26)
+
+**Veredito: APROVADA** — ver `docs/reviews/fase-08-abas-midia.md`. `node tools/auditar.cjs` limpo em clone, leitura
+de trechos de risco (token de mídia, rota `/midia`, funil tipado, sanitização/MIME de assets, persistência do
+evento de aba divergente) confirma o que a autoauditoria descreve.
+
+Achado real durante a leitura: `handleAssetImport` e `AssetService.importAsset` usavam `sessaoId` direto como
+componente de caminho em disco (`<sessaoId>/<sha256>.<ext>`) sem validar o formato — um `sessaoId` do tipo
+`../../../../pasta` escapava da raiz de assets, quebrando o mesmo padrão de defesa (`isValidId`/`ID_REGEX`) que
+o projeto já aplica ao `abaId` do Guest em `server/index.ts`. Corrigido por mim (< 15 linhas, autorizado pelo
+`docs/CHEFE.md`): validação de `isValidId(sessaoId)` em `electron/ipc/asset.ipc.ts` e
+`electron/services/asset.service.ts` (defesa em profundidade nos dois pontos), mais o teste de ataque
+`tests/assets.test.ts` (path traversal via `sessaoId`) que falha sem a correção. `npm run verify` continua
+verde: **392 testes**, sonda 41/41. Duas execuções da AGY nesta fase morreram sem commit (reinício da máquina,
+depois cota `RESOURCE_EXHAUSTED` do Antigravity) — preservadas como `wip` (`3c33b35`, `29fdb27`) antes do
+redespacho; nenhum trabalho foi perdido. Detalhe completo em `docs/reviews/autoauditoria-08-abas-midia.md` §4.
+
+---
+
 # HANDOFF DE ESTADO — FASE 08: Bloqueio de Evento do Guest no Quadro em Leitura (D17)
 
 ## Mensagem para o Alexandre (Resumo em Português Simples — D17)

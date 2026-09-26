@@ -10,6 +10,7 @@ import {
 } from '../db/repositories/asset.repo';
 import { getConfig } from '../db/repositories/configuracao.repo';
 import { IPCResult } from '../../src/shared/ipc-contract';
+import { isValidId } from './evento.service';
 
 export interface SupportedMimeInfo {
   mime: string;
@@ -308,6 +309,17 @@ export class AssetService {
     sourceBufferOrPath: Buffer | string,
     _originalName?: string
   ): IPCResult<AssetRecord> {
+    // sessaoId vira componente de caminho (<sessaoId>/<sha256>.<ext>): rejeita antes de tocar em disco
+    // qualquer valor que não seja um ID seguro (mesma allowlist usada para abaId em evento.service.ts),
+    // fechando o mesmo path traversal que já era barrado no caminho do Guest.
+    if (!isValidId(sessaoId)) {
+      return {
+        success: false,
+        error: 'VALIDATION',
+        message: 'sessaoId inválido: deve conter apenas letras, números, "_" ou "-".',
+      };
+    }
+
     const baseDir = this.getAssetsDir();
     const tempDir = path.join(baseDir, '.tmp');
 

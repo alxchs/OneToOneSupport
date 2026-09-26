@@ -375,3 +375,36 @@ TUDO VERDE — este relatorio NAO substitui a abertura da tela, a leitura de amo
 2. **Arquivos PDF com Proteção por Senha ou Formulários XFA Interativos:** O suporte implementado no M5 foca na renderização de páginas padrão de documentos estáticos para anotação em aula. Documentos protegidos com senha ou formulários avançados XFA não foram exercitados.
 3. **Múltiplos Monitores com DPIs Heterogêneos em Abas de Vídeo:** Testado no monitor primário do Host a 3840x2160 @150% (DPR 1.5). Transição dinâmica de janela de vídeo entre monitores de escalas diferentes (ex.: arrastar de 150% para 100%) durante reprodução de mídia sincronizada não foi testada fisicamente.
 4. **Resolução de Conflitos Concorrentes com Múltiplos Convidados Simultâneos:** Por especificação de arquitetura da Fase 07 e 08, a sala comporta 1 Guest autenticado por vez (segundo convidado é rejeitado com `SESSION_OCCUPIED`).
+
+---
+
+## 4. Nota do chefe (auditoria pós-entrega, 2026-09-26)
+
+Reexecutei em clone o `node tools/auditar.cjs` (tudo verde) e li os trechos de risco (token de mídia em
+`session-manager.ts`, rota `/midia` em `http.ts`, funil tipado em `useHostStore.ts`, sanitização e detecção de
+MIME em `asset.service.ts`, persistência de evento por `abaId` do Guest em `server/index.ts`). Confirmei por
+leitura, não só por teste, que: o token de mídia sai da sessão só dentro do envelope cifrado `SESSION_READY`
+(nunca no convite/QR); a comparação é em tempo constante; a rota `/midia` devolve 404 (não 403) para asset de
+outra sessão; e a persistência do evento de aba divergente (M9.2) usa o `abaId` que o Guest mandou, então não
+há perda de dado, só descarte do viewport — bate com o que a autoauditoria descreve.
+
+**Achado real, corrigido por mim (< 15 linhas, autorizado pelo `docs/CHEFE.md`):** `handleAssetImport`
+(`electron/ipc/asset.ipc.ts`) e `AssetService.importAsset` (`electron/services/asset.service.ts`) só
+verificavam que `sessaoId` era uma string não vazia antes de usá-lo como componente de caminho
+(`path.join(baseDir, sessaoId)` e `Assets.path = "<sessaoId>/<sha256>.<ext>"`). Um `sessaoId` como
+`../../../../qualquer/pasta` escapava da raiz de assets na escrita (e a leitura seguinte por
+`resolveAbsolutePath` seguiria o mesmo caminho). O próprio projeto já tinha o padrão certo para isso
+(`isValidId`/`ID_REGEX` de `evento.service.ts`, usado para o `abaId` que chega do Guest pela rede em
+`server/index.ts`) — só não foi aplicado aqui, na borda do IPC. Apliquei o mesmo `isValidId` nos dois pontos
+(IPC e serviço, defesa em profundidade) e acrescentei o teste de ataque
+`tests/assets.test.ts > rejeita sessaoId com path traversal em vez de escrever fora da raiz de assets (ataque)`,
+que falha sem a correção. `npm run verify` continua verde (392 testes, sonda 41/41).
+
+Severidade: baixa na prática (o `sessaoId` só chega assim hoje via IPC do próprio Host, não da rede/Guest — não
+é um vazamento remoto explorável nesta versão), mas é uma quebra do padrão de defesa em profundidade que o
+projeto já usa para o mesmo tipo de dado em outro ponto de entrada, e o caminho de código (Main process,
+grava e depois serve por HTTP) é exatamente o tipo de coisa que esta disciplina de verificação pede para
+travar antes que uma reestruturação futura exponha esse `sessaoId` a uma fonte menos confiável.
+
+Não fiz nova rodada completa do probe V6 real com celular físico nem testei múltiplos monitores/PDF protegido
+por senha — mesmas lacunas já listadas na seção 3.

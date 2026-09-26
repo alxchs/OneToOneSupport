@@ -210,4 +210,37 @@ describe('M2 — Importação de Assets, Magic Bytes, Sanitização e Isolamento
     const diskContent = fs.readFileSync(absoluteDiskPath);
     expect(diskContent).toEqual(pngContent);
   });
+
+  it('rejeita sessaoId com path traversal em vez de escrever fora da raiz de assets (ataque)', () => {
+    const pngContent = Buffer.from([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+      0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+      0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+      0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4, 0x89
+    ]);
+
+    // Diretório "vítima" fora da raiz de assets, onde a travessia tentaria escrever
+    const victimDir = fs.mkdtempSync(path.join(os.tmpdir(), 'onetoone-assets-victim-'));
+    try {
+      const sessaoIdsMaliciosos = [
+        `../../../../${path.basename(victimDir)}`,
+        '..\\..\\windows\\system32',
+        '../outra-sessao',
+        '',
+        '   ',
+      ];
+
+      for (const sessaoIdMalicioso of sessaoIdsMaliciosos) {
+        const res = assetService.importAsset(sessaoIdMalicioso, pngContent, 'pixel.png');
+        expect(res.success).toBe(false);
+        if (res.success) continue;
+        expect(res.error).toBe('VALIDATION');
+      }
+
+      // Nada foi escrito fora da raiz de assets nem dentro do diretório vítima
+      expect(fs.readdirSync(victimDir)).toHaveLength(0);
+    } finally {
+      fs.rmSync(victimDir, { recursive: true, force: true });
+    }
+  });
 });
