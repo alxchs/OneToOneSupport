@@ -40,3 +40,11 @@ if (fs.existsSync(guestDistDir)) {
   fs.writeFileSync(path.join(guestDistDir, 'version.json'), JSON.stringify(info, null, 2), 'utf8');
   console.log(`[BuildInfo] Carimbo gerado em ${path.join(guestDistDir, 'version.json')}: ${info.stamp}`);
 }
+
+try {
+  const { buildReportBundle } = await import('./build-report.mjs');
+  await buildReportBundle();
+} catch (err) {
+  console.warn('[BuildInfo] Aviso ao compilar bundle de relatório:', err?.message || err);
+}
+
