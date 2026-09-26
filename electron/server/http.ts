@@ -4,6 +4,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { SessionManager } from './session-manager';
 import { GUEST_CSP } from '../../src/shared/csp';
+import { assetService } from '../services/asset.service';
 
 export interface HttpServerHandle {
   app: express.Express;
@@ -43,6 +44,145 @@ export function createExpressApp(sessionManager: SessionManager): express.Expres
       uptime: process.uptime(),
     });
   });
+
+  // 3b. Rota de serviço de mídia com Range Requests (M3)
+  const handleMidia = (req: Request, res: Response) => {
+    // Permite CORS para requisições de mídia locais do Host e do Guest
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Range, Authorization, X-Media-Token');
+    res.setHeader('Access-Control-Expose-Headers', 'Accept-Ranges, Content-Range, Content-Length, Content-Type');
+
+    if (req.method === 'OPTIONS') {
+      res.status(204).end();
+      return;
+    }
+
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      res.status(405).send('Method Not Allowed');
+      return;
+    }
+
+    // 1. Autorização: token de mídia da sessão comparado em tempo constante
+    let providedToken: string | undefined;
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      providedToken = authHeader.slice(7).trim();
+    } else if (typeof req.query.token === 'string') { // risco-aceito: SEGREDO_COMPARADO
+      providedToken = req.query.token;
+    } else if (typeof req.headers['x-media-token'] === 'string') {
+      providedToken = req.headers['x-media-token'];
+    }
+
+    if (!providedToken || !sessionManager.validateMediaToken(providedToken)) {
+      res.status(401).send('Unauthorized');
+      return;
+    }
+
+    // 2. Consulta de asset (deve pertencer à sessão ativa)
+    const assetId = req.params.assetId;
+    const assetRes = assetService.getById(assetId);
+    if (!assetRes.success || !assetRes.data || assetRes.data.sessao_id !== sessionManager.sessaoId) {
+      // 404 para asset de outra sessão ou inexistente (não vaza existência)
+      res.status(404).send('Not Found');
+      return;
+    }
+
+    const asset = assetRes.data;
+    const filePath = assetService.resolveAbsolutePath(asset);
+    if (!fs.existsSync(filePath)) {
+      res.status(404).send('Not Found');
+      return;
+    }
+
+    const stat = fs.statSync(filePath);
+    const total = stat.size;
+
+    res.setHeader('Accept-Ranges', 'bytes');
+    res.setHeader('Content-Type', asset.mime);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+
+    const range = req.headers.range;
+    if (!range) {
+      res.status(200);
+      res.setHeader('Content-Length', total);
+      if (req.method === 'HEAD') {
+        res.end();
+        return;
+      }
+      fs.createReadStream(filePath).pipe(res);
+      return;
+    }
+
+    // Processamento do cabeçalho Range
+    if (!range.startsWith('bytes=')) {
+      res.setHeader('Content-Range', `bytes */${total}`);
+      res.status(416).end();
+      return;
+    }
+
+    const rangeSpec = range.slice(6).trim();
+    // Multi-range (vírgula): 416 em V1
+    if (rangeSpec.includes(',')) {
+      res.setHeader('Content-Range', `bytes */${total}`);
+      res.status(416).end();
+      return;
+    }
+
+    let start: number;
+    let end: number;
+
+    if (rangeSpec.startsWith('-')) {
+      const suffix = parseInt(rangeSpec.slice(1), 10);
+      if (isNaN(suffix) || suffix <= 0) {
+        res.setHeader('Content-Range', `bytes */${total}`);
+        res.status(416).end();
+        return;
+      }
+      start = suffix >= total ? 0 : total - suffix;
+      end = total - 1;
+    } else if (rangeSpec.endsWith('-')) {
+      start = parseInt(rangeSpec.slice(0, -1), 10);
+      if (isNaN(start) || start < 0 || start >= total) {
+        res.setHeader('Content-Range', `bytes */${total}`);
+        res.status(416).end();
+        return;
+      }
+      end = total - 1;
+    } else {
+      const parts = rangeSpec.split('-');
+      if (parts.length !== 2) {
+        res.setHeader('Content-Range', `bytes */${total}`);
+        res.status(416).end();
+        return;
+      }
+      start = parseInt(parts[0], 10);
+      end = parseInt(parts[1], 10);
+      if (isNaN(start) || isNaN(end) || start < 0 || start > end || start >= total) {
+        res.setHeader('Content-Range', `bytes */${total}`);
+        res.status(416).end();
+        return;
+      }
+      if (end >= total) {
+        end = total - 1;
+      }
+    }
+
+    const chunkSize = end - start + 1;
+    res.status(206);
+    res.setHeader('Content-Range', `bytes ${start}-${end}/${total}`);
+    res.setHeader('Content-Length', chunkSize);
+
+    if (req.method === 'HEAD') {
+      res.end();
+      return;
+    }
+
+    fs.createReadStream(filePath, { start, end }).pipe(res);
+  };
+
+  app.get('/midia/:assetId', handleMidia);
+  app.head('/midia/:assetId', handleMidia);
 
   // 4. Arquivos estáticos do Guest (compilados pelo Vite para dist/guest)
   const candidateGuestDistPaths = [

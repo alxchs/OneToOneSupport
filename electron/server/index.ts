@@ -5,7 +5,9 @@ import { createWebSocketServer, WsServerHandle } from './ws';
 import { getLanInterfaces, getDefaultLanIp, LanInterface } from './network';
 import { buildInviteUrl } from '../../src/shared/crypto/invite';
 import { EventoService, isValidId } from '../services/evento.service';
+import { getAbaById } from '../db/repositories/aba.repo';
 import { diagServerLog } from '../../src/shared/diag';
+import { GuestEventDTO } from '../../src/shared/ipc-contract';
 
 export interface ServerSessionInfo {
   sessaoId: string;
@@ -19,6 +21,7 @@ export interface ServerSessionInfo {
   guestConnected: boolean;
   screenLocked: boolean;
   mediaUnlocked: boolean;
+  mediaToken?: string;
 }
 
 /**
@@ -35,9 +38,9 @@ export class ServerSessionController {
   private qrDataUrl: string = '';
 
   private statusListeners: Array<(info: ServerSessionInfo | null) => void> = [];
-  private guestEventListeners: Array<(event: any) => void> = [];
+  private guestEventListeners: Array<(event: GuestEventDTO) => void> = [];
 
-  constructor() {
+  constructor(_options?: any) {
     this.selectedIp = getDefaultLanIp();
   }
 
@@ -60,14 +63,14 @@ export class ServerSessionController {
     };
   }
 
-  public onGuestEvent(listener: (event: any) => void): () => void {
+  public onGuestEvent(listener: (event: GuestEventDTO) => void): () => void {
     this.guestEventListeners.push(listener);
     return () => {
       this.guestEventListeners = this.guestEventListeners.filter((l) => l !== listener);
     };
   }
 
-  private notifyGuestEvent(event: any): void {
+  private notifyGuestEvent(event: GuestEventDTO): void {
     for (const listener of this.guestEventListeners) {
       try {
         listener(event);
@@ -187,26 +190,39 @@ export class ServerSessionController {
    * Inicia o servidor HTTP + WS dinâmico para uma sessão de atendimento
    */
   public async startSession(
-    sessaoId: string,
-    atendidoId: string,
+    sessaoIdOrPayload: string | { sessaoId: string; atendidoId: string; preferredIp?: string },
+    atendidoId?: string,
     preferredIp?: string
   ): Promise<ServerSessionInfo> {
+    let targetSessaoId = '';
+    let targetAtendidoId = '';
+    let targetPreferredIp = preferredIp;
+
+    if (typeof sessaoIdOrPayload === 'object' && sessaoIdOrPayload !== null) {
+      targetSessaoId = sessaoIdOrPayload.sessaoId;
+      targetAtendidoId = sessaoIdOrPayload.atendidoId;
+      targetPreferredIp = sessaoIdOrPayload.preferredIp || preferredIp;
+    } else {
+      targetSessaoId = sessaoIdOrPayload;
+      targetAtendidoId = atendidoId || '';
+    }
+
     // Encerra sessão anterior se existente
     if (this.sessionManager || this.httpHandle) {
       await this.stopSession();
     }
 
     const availableIps = this.listIps();
-    if (preferredIp && (preferredIp === '127.0.0.1' || availableIps.some((i) => i.ip === preferredIp))) {
-      this.selectedIp = preferredIp;
+    if (targetPreferredIp && (targetPreferredIp === '127.0.0.1' || availableIps.some((i) => i.ip === targetPreferredIp))) {
+      this.selectedIp = targetPreferredIp;
     } else {
       this.selectedIp = getDefaultLanIp();
     }
 
     // 1. Cria o SessionManager
     this.sessionManager = new SessionManager({
-      sessaoId,
-      atendidoId,
+      sessaoId: targetSessaoId,
+      atendidoId: targetAtendidoId,
     });
 
     // 2. Inicia o servidor HTTP em porta dinâmica (0) ouvindo em 0.0.0.0 (LAN)
@@ -323,6 +339,7 @@ export class ServerSessionController {
       guestConnected: this.sessionManager.isGuestConnected(),
       screenLocked: this.sessionManager.isScreenLocked(),
       mediaUnlocked: this.sessionManager.isMediaUnlocked(),
+      mediaToken: this.sessionManager.getMediaToken(),
     };
   }
 
@@ -386,11 +403,17 @@ export class ServerSessionController {
    * Notifica troca sincronizada de aba ativa para o Guest
    */
   public switchTab(abaId: string): boolean {
-    const res = this.broadcastToGuest({
+    const aba = getAbaById(abaId);
+    const switchPayload: Record<string, unknown> = {
       type: 'TAB_SWITCH',
       abaId,
       ts: Date.now(),
-    });
+    };
+    if (aba) {
+      switchPayload.abaTipo = aba.tipo;
+      switchPayload.assetId = aba.asset_id;
+    }
+    const res = this.broadcastToGuest(switchPayload);
     try {
       if (this.sessionManager) {
         const eventoService = new EventoService();

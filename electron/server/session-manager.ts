@@ -64,6 +64,9 @@ export class SessionManager {
   private guestTokenUsed: boolean = false;
   private guestTokenExpiresAt: number = 0;
 
+  // Token de mídia (32 bytes CSPRNG base64url, entregue ao Guest somente dentro do canal cifrado E2EE)
+  private mediaToken: string = '';
+
   // Token de reconexão (TTL 5 min, rotacionado a cada uso)
   private reconnectToken: string | null = null;
   private reconnectExpiresAt: number = 0;
@@ -104,6 +107,9 @@ export class SessionManager {
     this.guestToken = crypto.randomBytes(32).toString('hex');
     this.guestTokenUsed = false;
     this.guestTokenExpiresAt = this.clock() + this.guestTokenTtlMs;
+
+    // Token de mídia seguro de 32 bytes CSPRNG em base64url (M3)
+    this.mediaToken = crypto.randomBytes(32).toString('base64url');
   }
 
   public getState(): ServerSessionState {
@@ -116,6 +122,15 @@ export class SessionManager {
 
   public getGuestToken(): string {
     return this.guestToken;
+  }
+
+  public getMediaToken(): string {
+    return this.mediaToken;
+  }
+
+  public validateMediaToken(token: string): boolean {
+    if (this.state === 'encerrada' || !this.mediaToken) return false;
+    return safeTokenEqual(token, this.mediaToken);
   }
 
   public getReconnectToken(): string | null {
@@ -335,12 +350,25 @@ export class SessionManager {
 
   /**
    * Relógio Mestre do Servidor para Mídia (Mestre §11):
-   * O servidor carimba o timestamp oficial em eventos de mídia sincronizada.
+   * O servidor carimba o timestamp oficial e flag playing em eventos de mídia sincronizada.
    */
-  public stampMediaEvent<T extends Record<string, unknown>>(payload: T): T & { serverTs: number } {
+  public stampMediaEvent<T extends Record<string, unknown>>(payload: T): T & { serverTs: number; playing: boolean } {
+    const ts = this.clock();
+    const action = ((payload.payload as any)?.action || payload.action || payload.type) as string;
+    const isPlaying = action === 'PLAY' || (payload as any).playing === true || (payload.payload as any)?.playing === true;
+
+    if (payload.payload && typeof payload.payload === 'object') {
+      const inner = payload.payload as Record<string, unknown>;
+      inner.serverTs = ts;
+      if (inner.playing === undefined) {
+        inner.playing = isPlaying;
+      }
+    }
+
     return {
       ...payload,
-      serverTs: this.clock(),
+      serverTs: ts,
+      playing: (payload as any).playing !== undefined ? (payload as any).playing : isPlaying,
     };
   }
 
@@ -351,6 +379,7 @@ export class SessionManager {
   public encerrar(): void {
     this.guestConnected = false;
     this.activeGuestConnectionId = null;
+    this.mediaToken = '';
 
     if (this.sessionCipher) {
       this.sessionCipher.destroy();

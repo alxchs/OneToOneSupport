@@ -21,6 +21,7 @@ export const ACOES_EXCLUSIVAS_HOST = [
   'UNLOCK_MEDIA',
   'TAB_SWITCH',
   'SCREEN_LOCKED',
+  'PDF_PAGE',
 ] as const;
 
 // Ações interativas no quadro branco que o Guest pode emitir (bloqueadas quando screenLocked === true)
@@ -56,6 +57,7 @@ export const ACOES_TRANSPORTE = [
   'AUTH',
   'HANDSHAKE_INIT',
   'ENCRYPTED',
+  'CLOCK_SYNC',
   'RECONNECT',
   'ERROR',
 ] as const;
@@ -76,6 +78,10 @@ const ACOES_MIDIA_GUEST_SET = new Set<string>(ACOES_MIDIA_GUEST);
 const ACOES_LOCAIS_GUEST_SET = new Set<string>(ACOES_LOCAIS_GUEST);
 const ACOES_PERMITIDAS_GUEST_SET = new Set<string>(ACOES_PERMITIDAS_GUEST);
 const TODOS_TIPOS_CONHECIDOS_SET = new Set<string>(TODOS_TIPOS_CONHECIDOS);
+
+export function isAcaoPermitidaGuest(actionType: string): boolean {
+  return ACOES_PERMITIDAS_GUEST_SET.has(actionType);
+}
 
 export interface GuestActionResult {
   allowed: boolean;

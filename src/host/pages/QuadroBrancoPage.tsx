@@ -7,6 +7,7 @@ import {
   CANONICAL_VIRTUAL_HEIGHT,
 } from '../../shared/canvas/engine';
 import { getVisibleElements } from '../../shared/events/reducer';
+import { PdfDocumentViewer } from '../../shared/pdf/pdf-loader';
 
 const PALETA_CORES = [
   { id: 'color-slate', valor: '#0f172a', nome: 'Preto / Grafite' },
@@ -28,6 +29,8 @@ export const QuadroBrancoPage: React.FC = () => {
   const {
     activeSessaoId,
     activeAbaId,
+    abas,
+    pdfPagina,
     tabState,
     quadroSomenteLeitura,
     selectedAtendido,
@@ -41,6 +44,11 @@ export const QuadroBrancoPage: React.FC = () => {
     limparQuadro,
     bloquearTelaGuest,
     liberarMidiaGuest,
+    carregarAbas,
+    criarAba,
+    removerAba,
+    mudarPaginaPdf,
+    trocarAba,
   } = useHostStore();
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -52,6 +60,95 @@ export const QuadroBrancoPage: React.FC = () => {
   const [espessuraAtual, setEspessuraAtual] = useState<number>(3);
   const [dprReal, setDprReal] = useState<number>(1.5);
   const [exportando, setExportando] = useState<boolean>(false);
+  const [menuNovaAbaAberto, setMenuNovaAbaAberto] = useState<boolean>(false);
+  const [totalPaginasPdf, setTotalPaginasPdf] = useState<number>(1);
+  const pdfViewerRef = useRef<PdfDocumentViewer | null>(null);
+
+  const currentAba = abas.find((a) => a.id === activeAbaId);
+
+  useEffect(() => {
+    if (activeSessaoId) {
+      carregarAbas(activeSessaoId);
+    }
+  }, [activeSessaoId]);
+
+  const handleCriarAbaEmBranco = async () => {
+    setMenuNovaAbaAberto(false);
+    await criarAba({
+      titulo: `Quadro ${abas.length + 1}`,
+      tipo: 'blank',
+    });
+  };
+
+  const handleImportarAssetParaAba = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+    tipo: 'image' | 'pdf' | 'video' | 'audio'
+  ) => {
+    setMenuNovaAbaAberto(false);
+    const file = e.target.files?.[0];
+    if (!file || !activeSessaoId || !window.desktopAPI?.assets) return;
+
+    try {
+      const filePath = (file as any).path || file.name;
+      const res = await window.desktopAPI.assets.import({
+        sessaoId: activeSessaoId,
+        sourcePath: filePath,
+        originalName: file.name,
+      });
+
+      if (res.success && res.data) {
+        await criarAba({
+          titulo: file.name,
+          tipo,
+          asset_id: res.data.id,
+        });
+      } else {
+        alert((!res.success && res.error) ? res.error : 'Falha ao importar arquivo.');
+      }
+    } catch (err: unknown) {
+      console.error('[QuadroBranco] Erro ao importar asset:', err);
+    }
+    e.target.value = '';
+  };
+
+  const handleHostMediaPlay = (e: React.SyntheticEvent<HTMLMediaElement>) => {
+    if (activeServerSession && window.desktopAPI?.serverSession) {
+      window.desktopAPI.serverSession.broadcastToGuest({
+        type: 'PLAY',
+        payload: { mediaTime: e.currentTarget.currentTime, serverTs: Date.now(), playing: true },
+        mediaTime: e.currentTarget.currentTime,
+        serverTs: Date.now(),
+        playing: true,
+        ts: Date.now(),
+      });
+    }
+  };
+
+  const handleHostMediaPause = (e: React.SyntheticEvent<HTMLMediaElement>) => {
+    if (activeServerSession && window.desktopAPI?.serverSession) {
+      window.desktopAPI.serverSession.broadcastToGuest({
+        type: 'PAUSE',
+        payload: { mediaTime: e.currentTarget.currentTime, serverTs: Date.now(), playing: false },
+        mediaTime: e.currentTarget.currentTime,
+        serverTs: Date.now(),
+        playing: false,
+        ts: Date.now(),
+      });
+    }
+  };
+
+  const handleHostMediaSeeked = (e: React.SyntheticEvent<HTMLMediaElement>) => {
+    if (activeServerSession && window.desktopAPI?.serverSession) {
+      window.desktopAPI.serverSession.broadcastToGuest({
+        type: 'SEEK',
+        payload: { mediaTime: e.currentTarget.currentTime, serverTs: Date.now(), playing: !e.currentTarget.paused },
+        mediaTime: e.currentTarget.currentTime,
+        serverTs: Date.now(),
+        playing: !e.currentTarget.paused,
+        ts: Date.now(),
+      });
+    }
+  };
 
   // Inicializa o WhiteboardEngine
   useEffect(() => {
@@ -126,6 +223,47 @@ export const QuadroBrancoPage: React.FC = () => {
       engineRef.current.renderState(tabState);
     }
   }, [tabState]);
+
+  // Carrega fundo da aba ativa (imagem ou PDF)
+  useEffect(() => {
+    const engine = engineRef.current;
+    if (!engine) return;
+
+    if (!currentAba || currentAba.tipo === 'blank') {
+      engine.clearBackgroundImage();
+      return;
+    }
+
+    if (currentAba.tipo === 'image' && currentAba.asset_id && activeServerSession) {
+      const mediaUrl = `http://127.0.0.1:${activeServerSession.port}/midia/${currentAba.asset_id}?token=${activeServerSession.mediaToken || ''}`;
+      engine.setBackgroundImage(mediaUrl).catch((err) => {
+        console.warn('[QuadroBranco] Erro ao aplicar imagem de fundo:', err);
+      });
+      return;
+    }
+
+    if (currentAba.tipo === 'pdf' && currentAba.asset_id && activeServerSession) {
+      const mediaUrl = `http://127.0.0.1:${activeServerSession.port}/midia/${currentAba.asset_id}?token=${activeServerSession.mediaToken || ''}`;
+      const viewer = new PdfDocumentViewer();
+      pdfViewerRef.current = viewer;
+      viewer
+        .load(mediaUrl)
+        .then((numPages) => {
+          setTotalPaginasPdf(numPages);
+          return viewer.renderPage(pdfPagina, CANONICAL_VIRTUAL_WIDTH);
+        })
+        .then((rendered) => {
+          return engine.setBackgroundImage(rendered.canvas);
+        })
+        .catch((err) => {
+          console.warn('[QuadroBranco] Erro ao carregar página de PDF:', err?.message || String(err));
+        });
+
+      return () => {
+        viewer.destroy();
+      };
+    }
+  }, [currentAba?.id, currentAba?.tipo, currentAba?.asset_id, pdfPagina, activeServerSession?.port, activeServerSession?.mediaToken]);
 
   // Manipuladores de ferramentas
   const selecionarFerramenta = useCallback((tool: WhiteboardTool) => {
@@ -368,6 +506,281 @@ export const QuadroBrancoPage: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* Barra de Abas Multimodais (M1) */}
+      <div
+        id="abas-bar"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.375rem',
+          padding: '0.375rem 1rem',
+          backgroundColor: '#0c1322',
+          borderBottom: '1px solid #1e293b',
+          overflowX: 'auto',
+          minHeight: '44px',
+        }}
+      >
+        {abas.length === 0 ? (
+          <div
+            id="tab-default"
+            style={{
+              padding: '0.375rem 0.75rem',
+              backgroundColor: '#0284c7',
+              color: '#ffffff',
+              borderRadius: '0.375rem',
+              fontSize: '0.8125rem',
+              fontWeight: 600,
+            }}
+          >
+            ✏️ Quadro Branco
+          </div>
+        ) : (
+          abas.map((aba) => {
+            const isAtiva = aba.id === activeAbaId;
+            const icone =
+              aba.tipo === 'image'
+                ? '🖼️'
+                : aba.tipo === 'pdf'
+                ? '📄'
+                : aba.tipo === 'video'
+                ? '🎬'
+                : aba.tipo === 'audio'
+                ? '🎵'
+                : '✏️';
+            return (
+              <div
+                key={aba.id}
+                id={`tab-${aba.id}`}
+                onClick={() => trocarAba(aba.id)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                  padding: '0.375rem 0.75rem',
+                  backgroundColor: isAtiva ? '#0284c7' : '#1e293b',
+                  color: isAtiva ? '#ffffff' : '#94a3b8',
+                  borderRadius: '0.375rem',
+                  fontSize: '0.8125rem',
+                  fontWeight: isAtiva ? 600 : 500,
+                  cursor: 'pointer',
+                  border: isAtiva ? '1px solid #38bdf8' : '1px solid #334155',
+                }}
+              >
+                <span>{icone}</span>
+                <span>{aba.titulo}</span>
+                {!quadroSomenteLeitura && (
+                  <button
+                    type="button"
+                    title="Remover aba"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      removerAba(aba.id);
+                    }}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: isAtiva ? '#f1f5f9' : '#64748b',
+                      cursor: 'pointer',
+                      fontSize: '0.875rem',
+                      padding: '0 0.125rem',
+                      lineHeight: 1,
+                    }}
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
+            );
+          })
+        )}
+
+        {!quadroSomenteLeitura && (
+          <div style={{ position: 'relative', display: 'inline-block' }}>
+            <button
+              id="btn-nova-aba"
+              type="button"
+              onClick={() => setMenuNovaAbaAberto(!menuNovaAbaAberto)}
+              style={{
+                padding: '0.375rem 0.625rem',
+                fontSize: '0.75rem',
+                fontWeight: 600,
+                backgroundColor: '#1e293b',
+                color: '#38bdf8',
+                border: '1px dashed #38bdf8',
+                borderRadius: '0.375rem',
+                cursor: 'pointer',
+              }}
+            >
+              + Nova Aba
+            </button>
+            {menuNovaAbaAberto && (
+              <div
+                id="menu-nova-aba"
+                style={{
+                  position: 'absolute',
+                  top: '100%',
+                  left: 0,
+                  marginTop: '0.25rem',
+                  backgroundColor: '#0f172a',
+                  border: '1px solid #334155',
+                  borderRadius: '0.375rem',
+                  boxShadow: '0 10px 15px -3px rgba(0,0,0,0.5)',
+                  zIndex: 50,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  minWidth: '150px',
+                }}
+              >
+                <button
+                  id="btn-aba-quadro"
+                  type="button"
+                  onClick={handleCriarAbaEmBranco}
+                  style={{
+                    padding: '0.5rem 0.75rem',
+                    textAlign: 'left',
+                    background: 'none',
+                    border: 'none',
+                    color: '#f8fafc',
+                    cursor: 'pointer',
+                    fontSize: '0.8125rem',
+                  }}
+                >
+                  ✏️ Quadro Branco
+                </button>
+                <label
+                  id="btn-aba-imagem"
+                  style={{
+                    padding: '0.5rem 0.75rem',
+                    color: '#f8fafc',
+                    cursor: 'pointer',
+                    fontSize: '0.8125rem',
+                    display: 'block',
+                  }}
+                >
+                  🖼️ Imagem
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp,image/gif"
+                    style={{ display: 'none' }}
+                    onChange={(e) => handleImportarAssetParaAba(e, 'image')}
+                  />
+                </label>
+                <label
+                  id="btn-aba-pdf"
+                  style={{
+                    padding: '0.5rem 0.75rem',
+                    color: '#f8fafc',
+                    cursor: 'pointer',
+                    fontSize: '0.8125rem',
+                    display: 'block',
+                  }}
+                >
+                  📄 Documento PDF
+                  <input
+                    type="file"
+                    accept="application/pdf"
+                    style={{ display: 'none' }}
+                    onChange={(e) => handleImportarAssetParaAba(e, 'pdf')}
+                  />
+                </label>
+                <label
+                  id="btn-aba-video"
+                  style={{
+                    padding: '0.5rem 0.75rem',
+                    color: '#f8fafc',
+                    cursor: 'pointer',
+                    fontSize: '0.8125rem',
+                    display: 'block',
+                  }}
+                >
+                  🎬 Vídeo
+                  <input
+                    type="file"
+                    accept="video/mp4,video/webm,video/ogg"
+                    style={{ display: 'none' }}
+                    onChange={(e) => handleImportarAssetParaAba(e, 'video')}
+                  />
+                </label>
+                <label
+                  id="btn-aba-audio"
+                  style={{
+                    padding: '0.5rem 0.75rem',
+                    color: '#f8fafc',
+                    cursor: 'pointer',
+                    fontSize: '0.8125rem',
+                    display: 'block',
+                  }}
+                >
+                  🎵 Áudio
+                  <input
+                    type="file"
+                    accept="audio/mpeg,audio/wav,audio/ogg"
+                    style={{ display: 'none' }}
+                    onChange={(e) => handleImportarAssetParaAba(e, 'audio')}
+                  />
+                </label>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Barra de Paginação do PDF (M5) */}
+      {currentAba?.tipo === 'pdf' && (
+        <div
+          id="pdf-page-controls"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '1rem',
+            padding: '0.375rem 1rem',
+            backgroundColor: '#0c1322',
+            borderBottom: '1px solid #1e293b',
+          }}
+        >
+          <button
+            id="btn-pdf-prev-page"
+            type="button"
+            disabled={pdfPagina <= 1}
+            onClick={() => mudarPaginaPdf(pdfPagina - 1)}
+            style={{
+              padding: '0.25rem 0.75rem',
+              fontSize: '0.8125rem',
+              fontWeight: 600,
+              backgroundColor: pdfPagina <= 1 ? '#1e293b' : '#0369a1',
+              color: pdfPagina <= 1 ? '#64748b' : '#ffffff',
+              border: '1px solid #334155',
+              borderRadius: '0.375rem',
+              cursor: pdfPagina <= 1 ? 'not-allowed' : 'pointer',
+            }}
+          >
+            ◀ Página Anterior
+          </button>
+          <span id="label-pdf-page" style={{ fontSize: '0.875rem', fontWeight: 600, color: '#38bdf8' }}>
+            Página {pdfPagina} de {totalPaginasPdf}
+          </span>
+          <button
+            id="btn-pdf-next-page"
+            type="button"
+            disabled={pdfPagina >= totalPaginasPdf}
+            onClick={() => mudarPaginaPdf(pdfPagina + 1)}
+            style={{
+              padding: '0.25rem 0.75rem',
+              fontSize: '0.8125rem',
+              fontWeight: 600,
+              backgroundColor: pdfPagina >= totalPaginasPdf ? '#1e293b' : '#0369a1',
+              color: pdfPagina >= totalPaginasPdf ? '#64748b' : '#ffffff',
+              border: '1px solid #334155',
+              borderRadius: '0.375rem',
+              cursor: pdfPagina >= totalPaginasPdf ? 'not-allowed' : 'pointer',
+            }}
+          >
+            Próxima Página ▶
+          </button>
+        </div>
+      )}
 
       {/* Barra de Ferramentas Vetoriais e Controles do Quadro */}
       {quadroSomenteLeitura ? (
@@ -742,7 +1155,7 @@ export const QuadroBrancoPage: React.FC = () => {
         </div>
       )}
 
-      {/* Área Central: Canvas HiDPI com fundo branco estático */}
+      {/* Área Central: Canvas HiDPI com fundo branco estático ou Mídia (Vídeo/Áudio) */}
       <div
         ref={containerRef}
         id="container-quadro-branco"
@@ -752,6 +1165,7 @@ export const QuadroBrancoPage: React.FC = () => {
           borderRadius: '0.5rem',
           border: '1px solid #1e293b',
           display: 'flex',
+          flexDirection: 'column',
           justifyContent: 'center',
           alignItems: 'center',
           overflow: 'hidden',
@@ -761,15 +1175,45 @@ export const QuadroBrancoPage: React.FC = () => {
           padding: '0.5rem',
         }}
       >
-        <div
-          style={{
-            boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5)',
-            borderRadius: '4px',
-            overflow: 'hidden',
-          }}
-        >
-          <canvas id="canvas-quadro-branco" ref={canvasRef} />
-        </div>
+        {currentAba?.tipo === 'video' && currentAba.asset_id && activeServerSession ? (
+          <div style={{ maxWidth: '90%', maxHeight: '90%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+            <video
+              id="host-video-player"
+              controls
+              playsInline
+              src={`http://127.0.0.1:${activeServerSession.port}/midia/${currentAba.asset_id}?token=${activeServerSession.mediaToken || ''}`}
+              onPlay={handleHostMediaPlay}
+              onPause={handleHostMediaPause}
+              onSeeked={handleHostMediaSeeked}
+              style={{ maxWidth: '100%', maxHeight: '75vh', borderRadius: '8px', boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.5)' }}
+            />
+          </div>
+        ) : (
+          <>
+            {currentAba?.tipo === 'audio' && currentAba.asset_id && activeServerSession && (
+              <div style={{ marginBottom: '0.5rem', width: '100%', maxWidth: '600px', display: 'flex', justifyContent: 'center' }}>
+                <audio
+                  id="host-audio-player"
+                  controls
+                  src={`http://127.0.0.1:${activeServerSession.port}/midia/${currentAba.asset_id}?token=${activeServerSession.mediaToken || ''}`}
+                  onPlay={handleHostMediaPlay}
+                  onPause={handleHostMediaPause}
+                  onSeeked={handleHostMediaSeeked}
+                  style={{ width: '100%' }}
+                />
+              </div>
+            )}
+            <div
+              style={{
+                boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5)',
+                borderRadius: '4px',
+                overflow: 'hidden',
+              }}
+            >
+              <canvas id="canvas-quadro-branco" ref={canvasRef} />
+            </div>
+          </>
+        )}
       </div>
 
       {/* Barra de Rodapé: Informações Técnicas e de Resolução */}

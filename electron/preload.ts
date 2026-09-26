@@ -9,6 +9,11 @@ import type {
   ServerSessionInfoDTO,
   DisplayMetrics,
   DesktopAPI,
+  CreateAbaPayload,
+  RenameAbaPayload,
+  ReorderAbasPayload,
+  ImportAssetPayload,
+  GuestEventDTO,
 } from '../src/shared/ipc-contract';
 
 // Canais constantes inlined para evitar require() relativo no sandbox estrito do Electron
@@ -45,10 +50,24 @@ const IPC_CHANNELS = {
   SERVER_LOCK_SCREEN: 'server:lock-screen',
   SERVER_UNLOCK_MEDIA: 'server:unlock-media',
   SERVER_SWITCH_TAB: 'server:switch-tab',
+  SERVER_BROADCAST: 'server:broadcast',
   SERVER_GUEST_EVENT_RECEIVED: 'server:guest-event-received',
 
   EVENTO_GRAVAR: 'evento:gravar',
   EVENTO_OBTER_ESTADO: 'evento:obter-estado',
+
+  // Abas (Fase 08)
+  ABA_CREATE: 'aba:create',
+  ABA_GET: 'aba:get',
+  ABA_LIST: 'aba:list',
+  ABA_RENAME: 'aba:rename',
+  ABA_REORDER: 'aba:reorder',
+  ABA_DELETE: 'aba:delete',
+
+  // Assets (Fase 08)
+  ASSET_IMPORT: 'asset:import',
+  ASSET_GET: 'asset:get',
+  ASSET_LIST_BY_SESSAO: 'asset:list-by-sessao',
 
   // Diagnóstico Forward (D1)
   DIAG_FORWARD: 'diag:forward',
@@ -90,6 +109,30 @@ const desktopAPI: DesktopAPI = {
       ipcRenderer.invoke(IPC_CHANNELS.SESSAO_LIST_BY_ATENDIDO, { atendido_id }),
   },
 
+  abas: {
+    create: (data: CreateAbaPayload) =>
+      ipcRenderer.invoke(IPC_CHANNELS.ABA_CREATE, data),
+    get: (id: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.ABA_GET, { id }),
+    listBySessao: (sessaoId: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.ABA_LIST, { sessaoId }),
+    rename: (payload: RenameAbaPayload) =>
+      ipcRenderer.invoke(IPC_CHANNELS.ABA_RENAME, payload),
+    reorder: (payload: ReorderAbasPayload) =>
+      ipcRenderer.invoke(IPC_CHANNELS.ABA_REORDER, payload),
+    delete: (id: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.ABA_DELETE, { id }),
+  },
+
+  assets: {
+    import: (payload: ImportAssetPayload) =>
+      ipcRenderer.invoke(IPC_CHANNELS.ASSET_IMPORT, payload),
+    get: (id: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.ASSET_GET, { id }),
+    listBySessao: (sessaoId: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.ASSET_LIST_BY_SESSAO, { sessaoId }),
+  },
+
   config: {
     getDictionary: () =>
       ipcRenderer.invoke(IPC_CHANNELS.CONFIG_GET_DICTIONARY),
@@ -115,6 +158,8 @@ const desktopAPI: DesktopAPI = {
       ipcRenderer.invoke(IPC_CHANNELS.SERVER_UNLOCK_MEDIA, { unlocked }),
     switchTab: (abaId: string) =>
       ipcRenderer.invoke(IPC_CHANNELS.SERVER_SWITCH_TAB, { abaId }),
+    broadcastToGuest: (event: Record<string, unknown>) =>
+      ipcRenderer.invoke(IPC_CHANNELS.SERVER_BROADCAST, event),
     onStatusChange: (callback: (status: ServerSessionInfoDTO | null) => void) => {
       const listener = (
         _event: Electron.IpcRendererEvent,
@@ -127,8 +172,8 @@ const desktopAPI: DesktopAPI = {
         ipcRenderer.removeListener(IPC_CHANNELS.SERVER_STATUS_CHANGED, listener);
       };
     },
-    onGuestEvent: (callback: (event: any) => void) => {
-      const listener = (_event: Electron.IpcRendererEvent, event: any) => {
+    onGuestEvent: (callback: (event: GuestEventDTO) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, event: GuestEventDTO) => {
         callback(event);
       };
       ipcRenderer.on(IPC_CHANNELS.SERVER_GUEST_EVENT_RECEIVED, listener);

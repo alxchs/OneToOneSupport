@@ -25,6 +25,8 @@ export const PROTOCOL_MESSAGE_TYPES = [
   'PAUSE',
   'SEEK',
   'MEDIA_CONTROL',
+  'PDF_PAGE',
+  'CLOCK_SYNC',
   'RECONNECT',
   'ERROR',
 ] as const;
@@ -95,18 +97,24 @@ export interface GuestMutedPayload {
 export interface PlayPayload {
   tabId: string;
   currentTime: number;
+  serverTs?: number;
+  playing?: boolean;
 }
 
 // PAUSE (Cifrado - Pausa sincronizada de mídia)
 export interface PausePayload {
   tabId: string;
   currentTime: number;
+  serverTs?: number;
+  playing?: boolean;
 }
 
 // SEEK (Cifrado - Deslocamento temporal sincronizado de mídia)
 export interface SeekPayload {
   tabId: string;
   currentTime: number;
+  serverTs?: number;
+  playing?: boolean;
 }
 
 // MEDIA_CONTROL (Cifrado - Controle agregado PLAY/PAUSE/SEEK)
@@ -114,6 +122,20 @@ export interface MediaControlPayload {
   action: 'PLAY' | 'PAUSE' | 'SEEK';
   tabId: string;
   currentTime: number;
+  serverTs?: number;
+  playing?: boolean;
+}
+
+// PDF_PAGE (Cifrado - Navegação de página em PDF pelo Host)
+export interface PdfPagePayload {
+  tabId: string;
+  pagina: number;
+}
+
+// CLOCK_SYNC (Transporte cifrado - Estimativa de deslocamento do relógio)
+export interface ClockSyncPayload {
+  t0: number;
+  t1?: number;
 }
 
 // RECONNECT (Guest solicita reconexão com sessão prévia)
@@ -147,6 +169,8 @@ export interface ProtocolPayloadMap {
   PAUSE: PausePayload;
   SEEK: SeekPayload;
   MEDIA_CONTROL: MediaControlPayload;
+  PDF_PAGE: PdfPagePayload;
+  CLOCK_SYNC: ClockSyncPayload;
   RECONNECT: ReconnectPayload;
   ERROR: ErrorPayload;
 }
@@ -180,6 +204,8 @@ export type ProtocolMessage =
   | ProtocolEnvelope<'PAUSE'>
   | ProtocolEnvelope<'SEEK'>
   | ProtocolEnvelope<'MEDIA_CONTROL'>
+  | ProtocolEnvelope<'PDF_PAGE'>
+  | ProtocolEnvelope<'CLOCK_SYNC'>
   | ProtocolEnvelope<'RECONNECT'>
   | ProtocolEnvelope<'ERROR'>;
 
@@ -459,6 +485,26 @@ function validatePayload(
       }
       if (payload.lastSeenSeq !== undefined && (typeof payload.lastSeenSeq !== 'number' || !Number.isInteger(payload.lastSeenSeq) || payload.lastSeenSeq < 0)) {
         return { ok: false, code: 'INVALID_PAYLOAD', error: 'RECONNECT lastSeenSeq deve ser inteiro >= 0' };
+      }
+      return { ok: true, value: true };
+    }
+
+    case 'PDF_PAGE': {
+      if (typeof payload.tabId !== 'string' || payload.tabId.trim().length === 0) {
+        return { ok: false, code: 'INVALID_PAYLOAD', error: 'PDF_PAGE requer tabId não vazio' };
+      }
+      if (typeof payload.pagina !== 'number' || !Number.isInteger(payload.pagina) || payload.pagina < 1) {
+        return { ok: false, code: 'INVALID_PAYLOAD', error: 'PDF_PAGE requer pagina como inteiro >= 1' };
+      }
+      return { ok: true, value: true };
+    }
+
+    case 'CLOCK_SYNC': {
+      if (typeof payload.t0 !== 'number' || !Number.isFinite(payload.t0) || payload.t0 <= 0) {
+        return { ok: false, code: 'INVALID_PAYLOAD', error: 'CLOCK_SYNC requer t0 como número positivo' };
+      }
+      if (payload.t1 !== undefined && (typeof payload.t1 !== 'number' || !Number.isFinite(payload.t1) || payload.t1 <= 0)) {
+        return { ok: false, code: 'INVALID_PAYLOAD', error: 'CLOCK_SYNC t1 deve ser número positivo se fornecido' };
       }
       return { ok: true, value: true };
     }

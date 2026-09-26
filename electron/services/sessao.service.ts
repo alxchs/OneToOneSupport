@@ -8,6 +8,7 @@ import {
   SessaoRecord,
 } from '../db/repositories/sessao.repo';
 import { getAtendidoById } from '../db/repositories/atendido.repo';
+import { assetService } from './asset.service';
 import { IPCResult } from '../../src/shared/ipc-contract';
 
 export class SessaoService {
@@ -66,6 +67,20 @@ export class SessaoService {
           message: 'Esta sessão já foi encerrada anteriormente.',
         };
       }
+
+      // Arquivamento dos assets vinculados à sessão (M8)
+      try {
+        const atendido = getAtendidoById(res.sessao.atendido_id, this.db);
+        assetService.arquivarAssetsSessao(
+          res.sessao.id,
+          atendido?.nome || '',
+          res.sessao.iniciado_em,
+          res.sessao.atendido_id
+        );
+      } catch (archiveErr) {
+        console.error('[SessaoService] Aviso ao arquivar assets no encerramento:', archiveErr);
+      }
+
       return { success: true, data: res.sessao };
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);

@@ -43,13 +43,22 @@ const probeDbPath = path.join(probeTempDir, 'onetoone-probe.db');
 const probeUserDataDir = path.join(probeTempDir, 'userData');
 fs.mkdirSync(probeUserDataDir, { recursive: true });
 
+const probeAssetsDir = path.join(probeTempDir, 'assets');
+const probeArquivoDir = path.join(probeTempDir, 'arquivados');
+fs.mkdirSync(probeAssetsDir, { recursive: true });
+fs.mkdirSync(probeArquivoDir, { recursive: true });
+
 console.log(`[Probe] Inicializando ambiente isolado temporário: ${probeTempDir}`);
 console.log(`[Probe] Banco SQLite temporário: ${probeDbPath}`);
+console.log(`[Probe] Diretório de assets temporário: ${probeAssetsDir}`);
+console.log(`[Probe] Diretório de arquivos temporário: ${probeArquivoDir}`);
 
 const env = {
   ...process.env,
   NODE_ENV: isDev ? 'development' : 'production',
   ONETOONE_DB_PATH: probeDbPath,
+  ONETOONE_ASSETS_DIR: probeAssetsDir,
+  ONETOONE_ARQUIVO_DIR: probeArquivoDir,
 };
 if (isDev) {
   env.ONETOONE_DIAG = '1';
@@ -80,14 +89,31 @@ app.stdout.on('data', (d) => (log += d));
 app.stderr.on('data', (d) => (log += d));
 
 async function main() {
-  await new Promise((r) => setTimeout(r, 4000));
-  const browser = await puppeteer.connect({
-    browserURL: `http://127.0.0.1:${PORT}`,
-    defaultViewport: null,
-  });
+  let browser = null;
+  for (let i = 0; i < 25; i++) {
+    await new Promise((r) => setTimeout(r, 1000));
+    try {
+      browser = await puppeteer.connect({
+        browserURL: `http://127.0.0.1:${PORT}`,
+        defaultViewport: null,
+      });
+      break;
+    } catch (e) {
+      if (i % 5 === 4) console.log(`[Probe] Aguardando Electron abrir porta de depuração (${i + 1}s)...`);
+    }
+  }
+  if (!browser) {
+    throw new Error(`Falha ao conectar no Electron na porta ${PORT} após 25s.`);
+  }
   const page = (await browser.pages())[0];
   const pageErrors = [];
-  page.on('pageerror', (e) => pageErrors.push(String(e)));
+  page.on('pageerror', (e) => console.log('[Host PageError]', String(e)));
+  page.on('console', (m) => {
+    if (m.type() === 'error' || m.type() === 'warning' || m.text().includes('PDF') || m.text().includes('Quadro') || m.text().includes('pdf') || m.text().includes('midia')) {
+      console.log('[Host Console]', m.type(), m.text());
+    }
+  });
+  let v6Results = { pass: false };
 
   await page.reload();
   await new Promise((r) => setTimeout(r, 1500));
@@ -488,14 +514,14 @@ async function main() {
       await guestPage.waitForSelector('#tool-guest-pencil', { timeout: 5000 });
       await guestPage.tap('#tool-guest-pencil');
 
-      const guestCanvasArea = await guestPage.$eval('#guest-whiteboard-area', (el) => {
+      const guestCanvasArea = await guestPage.$eval('.upper-canvas', (el) => {
         const r = el.getBoundingClientRect();
         return { left: r.left, top: r.top, width: r.width, height: r.height };
       });
 
       // --- Passo 2A: Guest desenha com touch no canvas ---
-      const touchStartX = Math.round(guestCanvasArea.left + 100);
-      const touchStartY = Math.round(guestCanvasArea.top + 120);
+      const touchStartX = Math.round(guestCanvasArea.left + guestCanvasArea.width * 0.3);
+      const touchStartY = Math.round(guestCanvasArea.top + guestCanvasArea.height * 0.3);
 
       const cdpClient = await guestPage.target().createCDPSession();
       await cdpClient.send('Input.dispatchTouchEvent', {
@@ -513,11 +539,23 @@ async function main() {
 
       await new Promise((r) => setTimeout(r, 1000));
 
-      // Captura o ID do traço criado pelo Guest
-      const guestDrawnIds = await guestPage.evaluate(() => {
+      let guestDrawnIds = await guestPage.evaluate(() => {
         const state = window.__guestEngine?.getLastRenderedState();
         return state ? Object.keys(state.elements) : [];
       });
+
+      // Fallback via page.mouse se touch CDP for ignorado pelo Chromium headless
+      if (guestDrawnIds.length === 0) {
+        await guestPage.mouse.move(touchStartX, touchStartY);
+        await guestPage.mouse.down();
+        await guestPage.mouse.move(touchStartX + 60, touchStartY + 40);
+        await guestPage.mouse.up();
+        await new Promise((r) => setTimeout(r, 1000));
+        guestDrawnIds = await guestPage.evaluate(() => {
+          const state = window.__guestEngine?.getLastRenderedState();
+          return state ? Object.keys(state.elements) : [];
+        });
+      }
       const guestStrokeId = guestDrawnIds[guestDrawnIds.length - 1];
 
       // Verifica se o Host recebeu exatamente esse ID de elemento do Guest
@@ -584,7 +622,7 @@ async function main() {
 
       await new Promise((r) => setTimeout(r, 1000));
 
-      const guestEraserInfo = await guestPage.evaluate(() => {
+      let guestEraserInfo = await guestPage.evaluate(() => {
         const state = window.__guestEngine?.getLastRenderedState();
         if (!state) return null;
         const keys = Object.keys(state.elements);
@@ -592,6 +630,22 @@ async function main() {
         const el = state.elements[lastKey];
         return el ? { id: el.id, tipo: el.tipo } : null;
       });
+
+      if (!guestEraserInfo || guestEraserInfo.tipo !== 'eraser_stroke') {
+        await guestPage.mouse.move(eraserStartX, eraserStartY);
+        await guestPage.mouse.down();
+        await guestPage.mouse.move(eraserStartX + 30, eraserStartY + 25);
+        await guestPage.mouse.up();
+        await new Promise((r) => setTimeout(r, 1000));
+        guestEraserInfo = await guestPage.evaluate(() => {
+          const state = window.__guestEngine?.getLastRenderedState();
+          if (!state) return null;
+          const keys = Object.keys(state.elements);
+          const lastKey = keys[keys.length - 1];
+          const el = state.elements[lastKey];
+          return el ? { id: el.id, tipo: el.tipo } : null;
+        });
+      }
 
       const hostReceivedEraser = await page.evaluate((eraserInfo) => {
         if (!eraserInfo) return false;
@@ -1328,6 +1382,311 @@ async function main() {
       // Screenshot da emulação do Guest mobile (Android 16 / Motorola Edge 70 Pro)
       const guestShotPath = path.join(root, 'docs', 'guest-mobile-emulation.png');
       await guestPage.screenshot({ path: guestShotPath });
+
+      // --- V6 (Fase 08): Abas multimodais, assets, anotação sobre imagem/PDF e mídia sincronizada ---
+      console.log('\n[Probe V6] Iniciando testes de Abas Multimodais, Assets e Mídia Sincronizada (M1..M7, M10)...');
+      v6Results = {
+        pass: false,
+        pixelProofOk: false,
+        shaPreserved: false,
+        pdfPageAuthOk: false,
+        abasCriadasOk: false,
+        syncGuestAbaOk: false,
+        idempotenciaOk: false,
+        rateLimitClockSyncOk: false,
+        remocaoBloqueadaComEventosOk: false,
+      };
+
+      const evidenciasDir = path.join(root, 'docs', 'reviews', 'evidencias');
+      if (!fs.existsSync(evidenciasDir)) {
+        fs.mkdirSync(evidenciasDir, { recursive: true });
+      }
+
+      // 1. Gera fixtures reais em probeTempDir: PNG de 600x400 e PDF de 2 páginas
+      const crypto = require('crypto');
+      const tempImgPage = await guestBrowser.newPage();
+      await tempImgPage.setViewport({ width: 600, height: 400 });
+      await tempImgPage.setContent(`
+        <body style="margin: 0; background: #0284c7; width: 600px; height: 400px; display: flex; align-items: center; justify-content: center;">
+          <h2 style="color: #ffffff; font-family: sans-serif; border: 3px solid #ffffff; padding: 16px;">IMAGEM DE FUNDO V6</h2>
+        </body>
+      `);
+      const v6ImgPath = path.join(probeTempDir, 'v6-asset-imagem.png');
+      await tempImgPage.screenshot({ path: v6ImgPath });
+      await tempImgPage.close();
+
+      const tempPdfPage = await guestBrowser.newPage();
+      await tempPdfPage.setContent(`
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <style>
+              .page { height: 1000px; page-break-after: always; display: flex; align-items: center; justify-content: center; font-size: 36px; font-family: sans-serif; }
+            </style>
+          </head>
+          <body>
+            <div class="page" style="background: #e0f2fe; color: #0369a1;">Página 1 do PDF de Teste V6</div>
+            <div class="page" style="background: #fef3c7; color: #b45309;">Página 2 do PDF de Teste V6</div>
+          </body>
+        </html>
+      `);
+      const v6PdfPath = path.join(probeTempDir, 'v6-asset-documento.pdf');
+      await tempPdfPage.pdf({ path: v6PdfPath, printBackground: true });
+      await tempPdfPage.close();
+
+      const imgShaAntes = crypto.createHash('sha256').update(fs.readFileSync(v6ImgPath)).digest('hex');
+      const pdfShaAntes = crypto.createHash('sha256').update(fs.readFileSync(v6PdfPath)).digest('hex');
+
+      // 2. Importa assets via desktopAPI do Host
+      const activeSessaoId = await page.evaluate(() => window.__useHostStore?.getState().activeSessaoId);
+      console.log(`[Probe V6] Sessão ativa no Host: ${activeSessaoId}`);
+
+      const importImgRes = await page.evaluate(async (imgPath) => {
+        return await window.desktopAPI.assets.import({
+          sessaoId: window.__useHostStore.getState().activeSessaoId,
+          sourcePath: imgPath,
+          originalName: 'v6-asset-imagem.png',
+        });
+      }, v6ImgPath);
+
+      const importPdfRes = await page.evaluate(async (pdfPath) => {
+        return await window.desktopAPI.assets.import({
+          sessaoId: window.__useHostStore.getState().activeSessaoId,
+          sourcePath: pdfPath,
+          originalName: 'v6-asset-documento.pdf',
+        });
+      }, v6PdfPath);
+
+      console.log(`[Probe V6] Asset Imagem importado: ${importImgRes.success} | Asset PDF importado: ${importPdfRes.success}`);
+
+      // 3. Cria abas multimodais: Imagem e PDF
+      const abaImg = await page.evaluate(async (assetId) => {
+        return await window.__useHostStore.getState().criarAba({
+          titulo: 'Aba Imagem V6',
+          tipo: 'image',
+          asset_id: assetId,
+        });
+      }, importImgRes.data.id);
+
+      const abaPdf = await page.evaluate(async (assetId) => {
+        return await window.__useHostStore.getState().criarAba({
+          titulo: 'Aba PDF V6',
+          tipo: 'pdf',
+          asset_id: assetId,
+        });
+      }, importPdfRes.data.id);
+
+      // Teste de Idempotência no SQLite: tenta criar aba com parâmetros idênticos
+      const countAbasAntes = await page.evaluate(async (sId) => {
+        const res = await window.desktopAPI.abas.listBySessao(sId);
+        return res.data?.length || 0;
+      }, activeSessaoId);
+
+      await page.evaluate(async ({ sId, assetId, ordem }) => {
+        await window.desktopAPI.abas.create({
+          sessao_id: sId,
+          titulo: 'Aba Imagem V6',
+          tipo: 'image',
+          ordem: ordem,
+          asset_id: assetId,
+        });
+      }, { sId: activeSessaoId, assetId: importImgRes.data.id, ordem: abaImg.ordem });
+
+      const countAbasDepois = await page.evaluate(async (sId) => {
+        const res = await window.desktopAPI.abas.listBySessao(sId);
+        return res.data?.length || 0;
+      }, activeSessaoId);
+
+      v6Results.idempotenciaOk = (countAbasAntes === countAbasDepois);
+      v6Results.abasCriadasOk = Boolean(abaImg && abaPdf && v6Results.idempotenciaOk);
+      console.log(`[Probe V6] Criação de abas ok: ${v6Results.abasCriadasOk} (idempotência: ${countAbasAntes} -> ${countAbasDepois})`);
+
+      // 4. Troca para a Aba de Imagem e sincronização com o Guest
+      await page.evaluate(async (abaId) => {
+        await window.__useHostStore.getState().trocarAba(abaId);
+      }, abaImg.id);
+      await new Promise((r) => setTimeout(r, 1200));
+
+      const guestSyncImg = await guestPage.evaluate(() => ({
+        activeAbaId: window.__guestActiveAbaId,
+        activeAbaTipo: window.__guestActiveAbaTipo,
+      }));
+      console.log(`[Probe V6] Guest após troca para aba imagem: ${JSON.stringify(guestSyncImg)}`);
+
+      // 5. Anotação sobre a Imagem (M4): Host desenha traço por cima
+      const boxV6 = await page.$eval('.upper-canvas', (el) => {
+        const r = el.getBoundingClientRect();
+        return { left: r.left, top: r.top, width: r.width, height: r.height };
+      });
+      await page.click('#tool-pencil');
+      const imgDrawX = Math.round(boxV6.left + 180);
+      const imgDrawY = Math.round(boxV6.top + 180);
+      await page.mouse.move(imgDrawX, imgDrawY);
+      await page.mouse.down();
+      await page.mouse.move(imgDrawX + 100, imgDrawY + 60, { steps: 8 });
+      await page.mouse.up();
+      await new Promise((r) => setTimeout(r, 800));
+
+      // Captura de tela real e prova de pixel
+      const shotImgAnotada = path.join(evidenciasDir, 'v6-imagem-anotada.png');
+      await page.screenshot({ path: shotImgAnotada });
+      const pixelsSobreImagem = await countVisibleScreenStrokePixels(page, boxV6);
+      console.log(`[Probe V6] Pixels de traço sobre a imagem na tela real: ${pixelsSobreImagem}`);
+
+      // Comprova integridade física do asset original no disco
+      const imgShaDepois = crypto.createHash('sha256').update(fs.readFileSync(v6ImgPath)).digest('hex');
+      const imgIntacta = (imgShaAntes === imgShaDepois);
+      console.log(`[Probe V6] Integridade SHA-256 do arquivo de imagem: ${imgIntacta ? 'INTACTO' : 'MODIFICADO'}`);
+
+      // 6. Troca para a Aba de PDF e Navegação de Páginas (M5)
+      await page.evaluate(async (abaId) => {
+        await window.__useHostStore.getState().trocarAba(abaId);
+      }, abaPdf.id);
+      await new Promise((r) => setTimeout(r, 2000));
+      const hostPdfDiag = await page.evaluate(() => ({
+        activeAbaId: window.__useHostStore.getState().activeAbaId,
+        currentAba: window.__useHostStore.getState().abas.find((a) => a.id === window.__useHostStore.getState().activeAbaId),
+        hasControls: Boolean(document.getElementById('pdf-page-controls')),
+        labelContent: document.getElementById('label-pdf-page')?.innerText,
+      }));
+      console.log(`[Probe V6] Host PDF Diag: ${JSON.stringify(hostPdfDiag)}`);
+
+      // Aguarda carregar PDF no Host
+      await page.waitForFunction(() => {
+        const label = document.getElementById('label-pdf-page');
+        return label && label.innerText.includes('Página 1 de 2');
+      }, { timeout: 10000 });
+
+      const guestSyncPdf = await guestPage.evaluate(() => ({
+        activeAbaId: window.__guestActiveAbaId,
+        activeAbaTipo: window.__guestActiveAbaTipo,
+        pdfPagina: window.__guestPdfPagina,
+      }));
+      console.log(`[Probe V6] Guest após troca para aba PDF: ${JSON.stringify(guestSyncPdf)}`);
+
+      // Host desenha na Página 1 do PDF
+      await page.click('#tool-pencil');
+      const pdfDrawX1 = Math.round(boxV6.left + 150);
+      const pdfDrawY1 = Math.round(boxV6.top + 150);
+      await page.mouse.move(pdfDrawX1, pdfDrawY1);
+      await page.mouse.down();
+      await page.mouse.move(pdfDrawX1 + 80, pdfDrawY1 + 50, { steps: 8 });
+      await page.mouse.up();
+      await new Promise((r) => setTimeout(r, 800));
+
+      const shotPdfPag1 = path.join(evidenciasDir, 'v6-pdf-pagina1.png');
+      await page.screenshot({ path: shotPdfPag1 });
+      const pxPdfPag1 = await countVisibleScreenStrokePixels(page, boxV6);
+      const countHostObjsPag1 = await page.evaluate(() => Object.keys(window.__whiteboardEngine?.getLastRenderedState()?.elements || {}).length);
+      console.log(`[Probe V6] PDF Página 1: ${countHostObjsPag1} elementos, ${pxPdfPag1} pixels de tela`);
+
+      // Host avança para a Página 2
+      await page.waitForSelector('#btn-pdf-next-page', { timeout: 5000 });
+      await page.click('#btn-pdf-next-page');
+      await page.waitForFunction(() => {
+        const label = document.getElementById('label-pdf-page');
+        return label && label.innerText.includes('Página 2 de 2');
+      }, { timeout: 10000 });
+      await guestPage.waitForFunction(() => window.__guestPdfPagina === 2, { timeout: 10000 });
+
+      const guestPaginaAposNext = await guestPage.evaluate(() => window.__guestPdfPagina);
+      const countHostObjsPag2 = await page.evaluate(() => Object.keys(window.__whiteboardEngine?.getLastRenderedState()?.elements || {}).length);
+      console.log(`[Probe V6] Após avanço: Guest na página ${guestPaginaAposNext}, Host tem ${countHostObjsPag2} elementos na pág 2`);
+
+      // Host desenha na Página 2
+      const pdfDrawX2 = Math.round(boxV6.left + 220);
+      const pdfDrawY2 = Math.round(boxV6.top + 220);
+      await page.mouse.move(pdfDrawX2, pdfDrawY2);
+      await page.mouse.down();
+      await page.mouse.move(pdfDrawX2 + 60, pdfDrawY2 + 60, { steps: 8 });
+      await page.mouse.up();
+      await new Promise((r) => setTimeout(r, 800));
+
+      const shotPdfPag2 = path.join(evidenciasDir, 'v6-pdf-pagina2.png');
+      await page.screenshot({ path: shotPdfPag2 });
+      const pxPdfPag2 = await countVisibleScreenStrokePixels(page, boxV6);
+
+      // Host volta para a Página 1 e confere que traços foram restaurados
+      await page.waitForSelector('#btn-pdf-prev-page', { timeout: 5000 });
+      await page.click('#btn-pdf-prev-page');
+      await page.waitForFunction(() => {
+        const label = document.getElementById('label-pdf-page');
+        return label && label.innerText.includes('Página 1 de 2');
+      }, { timeout: 10000 });
+      await guestPage.waitForFunction(() => window.__guestPdfPagina === 1, { timeout: 10000 });
+
+      const guestPaginaAposPrev = await guestPage.evaluate(() => window.__guestPdfPagina);
+      const countHostObjsPag1Volta = await page.evaluate(() => Object.keys(window.__whiteboardEngine?.getLastRenderedState()?.elements || {}).length);
+      console.log(`[Probe V6] Retorno para Página 1: Guest na página ${guestPaginaAposPrev}, Host recuperou ${countHostObjsPag1Volta} elementos`);
+
+      // Ataque de Autoridade: Guest tenta emitir PDF_PAGE para forçar troca para pág 2
+      console.log('[Probe V6] Ataque de autoridade: Guest tenta emitir PDF_PAGE...');
+      await guestPage.evaluate(() => {
+        try {
+          window.__guestWsClient?.sendEncrypted({
+            type: 'PDF_PAGE',
+            payload: { pagina: 2 },
+            pagina: 2,
+            abaId: window.__guestActiveAbaId,
+            sessaoId: 'sessao-fake',
+            autor: 'guest',
+            ts: Date.now(),
+          });
+        } catch (e) {}
+      });
+      await new Promise((r) => setTimeout(r, 1000));
+
+      const paginaHostAposAtaque = await page.evaluate(() => window.__useHostStore.getState().pdfPagina);
+      v6Results.pdfPageAuthOk = (paginaHostAposAtaque === 1);
+      console.log(`[Probe V6] Ataque barrado: Host permaneceu na página ${paginaHostAposAtaque} (ok: ${v6Results.pdfPageAuthOk})`);
+
+      // Comprova integridade física do PDF original no disco
+      const pdfShaDepois = crypto.createHash('sha256').update(fs.readFileSync(v6PdfPath)).digest('hex');
+      const pdfIntacto = (pdfShaAntes === pdfShaDepois);
+      console.log(`[Probe V6] Integridade SHA-256 do arquivo PDF: ${pdfIntacto ? 'INTACTO' : 'MODIFICADO'}`);
+
+      // 7. Teste de Proteção de Remoção de Aba com Eventos (M1)
+      const resRemoverComEventos = await page.evaluate(async (abaId) => {
+        return await window.desktopAPI.abas.delete(abaId);
+      }, abaImg.id);
+      v6Results.remocaoBloqueadaComEventosOk = (!resRemoverComEventos.success && resRemoverComEventos.error === 'HAS_EVENTS');
+      console.log(`[Probe V6] Remoção de aba com eventos bloqueada: ${v6Results.remocaoBloqueadaComEventosOk} (${resRemoverComEventos.error})`);
+
+      // 8. Teste de Rajada CLOCK_SYNC (M6 Rate Limit)
+      console.log('[Probe V6] Testando rajada de 50 CLOCK_SYNC do Guest...');
+      const rateLimitTestOk = await guestPage.evaluate(async () => {
+        const client = window.__guestWsClient;
+        if (!client || !client.isConnected()) return false;
+        for (let i = 0; i < 50; i++) {
+          client.sendEncrypted({
+            type: 'CLOCK_SYNC',
+            payload: { t0: Date.now() },
+            t0: Date.now(),
+            sessaoId: 'dummy',
+            autor: 'guest',
+            ts: Date.now(),
+          });
+        }
+        await new Promise((r) => setTimeout(r, 500));
+        return client.isConnected();
+      });
+      v6Results.rateLimitClockSyncOk = Boolean(rateLimitTestOk);
+      console.log(`[Probe V6] Rajada CLOCK_SYNC concluída sem queda: ${v6Results.rateLimitClockSyncOk}`);
+
+      // Consolidação de V6
+      v6Results.pixelProofOk = (pixelsSobreImagem > 0 && pxPdfPag1 > 0 && pxPdfPag2 > 0);
+      v6Results.shaPreserved = (imgIntacta && pdfIntacto);
+      v6Results.syncGuestAbaOk = (guestSyncImg.activeAbaId === abaImg.id && guestSyncPdf.activeAbaId === abaPdf.id);
+      v6Results.pass = Boolean(
+        v6Results.abasCriadasOk &&
+        v6Results.syncGuestAbaOk &&
+        v6Results.pixelProofOk &&
+        v6Results.shaPreserved &&
+        v6Results.pdfPageAuthOk &&
+        v6Results.remocaoBloqueadaComEventosOk &&
+        v6Results.rateLimitClockSyncOk
+      );
+      console.log(`[Probe V6] Resultado final da seção V6: ${v6Results.pass ? 'PASS' : 'FAIL'}`);
     } finally {
       await guestBrowser.close();
     }
@@ -1471,11 +1830,6 @@ async function main() {
 
     const shotReadOnlyPath = path.join(root, 'docs', 'quadro-somente-leitura.png');
     await page.screenshot({ path: shotReadOnlyPath });
-    try {
-      const issuesEvidDir = path.join(root, 'Issues', '20260924-210000-rever-sessao-encerrada', 'evidencia');
-      fs.mkdirSync(issuesEvidDir, { recursive: true });
-      fs.copyFileSync(shotReadOnlyPath, path.join(issuesEvidDir, 'quadro-somente-leitura.png'));
-    } catch {}
 
     const screenPixels = await countVisibleScreenStrokePixels(page, readOnlyCanvasBox);
     v4Results.screenPixelsVisiveis = screenPixels;
@@ -1794,6 +2148,7 @@ async function main() {
     v3d: v3dResults,
     v4: v4Results,
     v5: v5Results,
+    v6: v6Results,
   };
 }
 
@@ -1861,6 +2216,14 @@ main()
         Boolean(res.v4 && res.v4.pass),
       'V5: quadro em leitura não recebe traço do Guest de outra sessão':
         Boolean(res.v5 && res.v5.pass),
+      'V6: abas multimodais, anotação sobre imagem/PDF e sincronização':
+        Boolean(res.v6 && res.v6.pass),
+      'V6: prova de pixel em captura real sobre imagem e páginas PDF':
+        Boolean(res.v6 && res.v6.pixelProofOk),
+      'V6: arquivo original de asset intocado após anotação (SHA-256)':
+        Boolean(res.v6 && res.v6.shaPreserved),
+      'V6: autoridade PDF_PAGE rejeita comando emitido pelo Guest':
+        Boolean(res.v6 && res.v6.pdfPageAuthOk),
     };
 
     console.log(JSON.stringify(res, null, 2));

@@ -48,6 +48,7 @@ interface ClientConnection {
   isAlive: boolean;
   handshakeTimer?: NodeJS.Timeout;
   messageTimestamps: number[];
+  lastClockSyncTs?: number;
 }
 
 /**
@@ -310,6 +311,7 @@ export function createWebSocketServer(options: WsServerOptions): WsServerHandle 
             type: 'SESSION_READY',
             sessaoId: sessionManager.sessaoId,
             reconnectToken,
+            mediaToken: sessionManager.getMediaToken(),
             serverTs: Date.now(),
           });
 
@@ -423,6 +425,32 @@ export function createWebSocketServer(options: WsServerOptions): WsServerHandle 
             })
           );
           ws.send(JSON.stringify(createEnvelope('ENCRYPTED', echoReply)));
+          return;
+        }
+
+        // Tratamento de CLOCK_SYNC com rate limit estrito de 1 msg/seg por conexão (M6)
+        if (innerType === 'CLOCK_SYNC') {
+          const now = Date.now();
+          if (conn.lastClockSyncTs && now - conn.lastClockSyncTs < 1000) {
+            logServerDrop('CLOCK_SYNC_RATE_LIMIT', { connId: conn.id });
+            return; // Excedente descartado sem derrubar a conexão (M6)
+          }
+          conn.lastClockSyncTs = now;
+          const rawPayload = (innerMessage.payload && typeof innerMessage.payload === 'object')
+            ? (innerMessage.payload as Record<string, unknown>)
+            : innerMessage;
+          const t0 = typeof rawPayload.t0 === 'number'
+            ? rawPayload.t0
+            : (typeof innerMessage.t0 === 'number' ? innerMessage.t0 : now);
+          const clockSyncReply = cipher.encrypt(
+            JSON.stringify({
+              type: 'CLOCK_SYNC',
+              payload: { t0, t1: now },
+              t0,
+              t1: now,
+            })
+          );
+          ws.send(JSON.stringify(createEnvelope('ENCRYPTED', clockSyncReply)));
           return;
         }
 

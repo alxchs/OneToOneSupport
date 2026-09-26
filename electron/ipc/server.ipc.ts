@@ -143,6 +143,19 @@ export async function handleServerSwitchTab(payload: unknown): Promise<IPCResult
   }
 }
 
+export async function handleServerBroadcast(payload: unknown): Promise<IPCResult<{ sent: boolean }>> {
+  if (!payload || typeof payload !== 'object') {
+    return { success: false, error: 'VALIDATION', message: 'Payload inválido.' };
+  }
+  try {
+    const sent = serverSessionController.broadcastToGuest(payload as Record<string, unknown>);
+    return { success: true, data: { sent } };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { success: false, error: 'INTERNAL_ERROR', message };
+  }
+}
+
 export function registerServerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.SERVER_START_SESSION, (_event, payload) =>
     handleServerStartSession(payload)
@@ -154,6 +167,7 @@ export function registerServerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.SERVER_LOCK_SCREEN, (_event, payload) => handleServerLockScreen(payload));
   ipcMain.handle(IPC_CHANNELS.SERVER_UNLOCK_MEDIA, (_event, payload) => handleServerUnlockMedia(payload));
   ipcMain.handle(IPC_CHANNELS.SERVER_SWITCH_TAB, (_event, payload) => handleServerSwitchTab(payload));
+  ipcMain.handle(IPC_CHANNELS.SERVER_BROADCAST, (_event, payload) => handleServerBroadcast(payload));
 
   // Notifica o Renderer quando o status da conexão da sessão mudar
   serverSessionController.onStatusChange((info) => {
