@@ -1,16 +1,8 @@
-import * as pdfjsLib from 'pdfjs-dist';
+import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
 
-// Configura o worker de forma compatível com Vite e Electron (ADR-013, ADR-014)
+// Configura o worker se fornecido ou opera com fake worker seguro (ADR-013, ADR-014)
 if (typeof window !== 'undefined' && !pdfjsLib.GlobalWorkerOptions.workerSrc) {
-  try {
-    const base = typeof document !== 'undefined' && document.baseURI ? document.baseURI : 'http://localhost/';
-    pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-      'pdfjs-dist/build/pdf.worker.min.mjs',
-      base
-    ).toString();
-  } catch {
-    // Modo fallback sem worker se a URL falhar
-  }
+  // Deixa o legacy build usar o fake worker in-thread como fallback padrão se worker não estiver configurado
 }
 
 export interface RenderedPdfPage {

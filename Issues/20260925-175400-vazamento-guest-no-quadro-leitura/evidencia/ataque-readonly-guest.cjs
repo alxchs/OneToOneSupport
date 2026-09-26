@@ -233,10 +233,12 @@ async function main() {
     return { left: r.left, top: r.top, width: r.width, height: r.height };
   });
 
-  const imgPrefix = process.env.ATAQUE_IMG_PREFIX || '';
+  const imgPrefix = process.env.ATAQUE_IMG_PREFIX || 'novo-20260926-';
   const idsAntes = await page.evaluate(() => Object.keys(window.__whiteboardEngine?.getLastRenderedState()?.elements || {}));
   const pxAntes = await countScreenStrokePixels(page, box);
-  await page.screenshot({ path: path.join(OUT, `${imgPrefix}leitura-antes.png`) });
+  const outEvidencias = path.join(PROJ, 'docs', 'reviews', 'evidencias');
+  fs.mkdirSync(outEvidencias, { recursive: true });
+  await page.screenshot({ path: path.join(outEvidencias, `${imgPrefix}leitura-antes.png`) });
   console.log(`[Ataque] Modo leitura: ${JSON.stringify(leituraOk)} | elementos=${idsAntes.length} | pixels de tela=${pxAntes}`);
 
   // 6. O Guest (sessão VIVA) desenha enquanto o Host está no quadro histórico em leitura
@@ -255,7 +257,7 @@ async function main() {
 
   const idsDepois = await page.evaluate(() => Object.keys(window.__whiteboardEngine?.getLastRenderedState()?.elements || {}));
   const pxDepois = await countScreenStrokePixels(page, box);
-  await page.screenshot({ path: path.join(OUT, `${imgPrefix}leitura-depois.png`) });
+  await page.screenshot({ path: path.join(outEvidencias, `${imgPrefix}leitura-depois.png`) });
 
   const novos = idsDepois.filter((id) => !idsAntes.includes(id));
   console.log(`[Ataque] Depois do desenho do Guest: elementos=${idsDepois.length} (novos: ${novos.length}) | pixels de tela=${pxDepois} (delta ${pxDepois - pxAntes})`);

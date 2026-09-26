@@ -107,7 +107,12 @@ async function main() {
   }
   const page = (await browser.pages())[0];
   const pageErrors = [];
-  page.on('pageerror', (e) => pageErrors.push(String(e)));
+  page.on('pageerror', (e) => console.log('[Host PageError]', String(e)));
+  page.on('console', (m) => {
+    if (m.type() === 'error' || m.type() === 'warning' || m.text().includes('PDF') || m.text().includes('Quadro') || m.text().includes('pdf') || m.text().includes('midia')) {
+      console.log('[Host Console]', m.type(), m.text());
+    }
+  });
   let v6Results = { pass: false };
 
   await page.reload();
@@ -1538,6 +1543,13 @@ async function main() {
         await window.__useHostStore.getState().trocarAba(abaId);
       }, abaPdf.id);
       await new Promise((r) => setTimeout(r, 2000));
+      const hostPdfDiag = await page.evaluate(() => ({
+        activeAbaId: window.__useHostStore.getState().activeAbaId,
+        currentAba: window.__useHostStore.getState().abas.find((a) => a.id === window.__useHostStore.getState().activeAbaId),
+        hasControls: Boolean(document.getElementById('pdf-page-controls')),
+        labelContent: document.getElementById('label-pdf-page')?.innerText,
+      }));
+      console.log(`[Probe V6] Host PDF Diag: ${JSON.stringify(hostPdfDiag)}`);
 
       // Aguarda carregar PDF no Host
       await page.waitForFunction(() => {
@@ -1818,11 +1830,6 @@ async function main() {
 
     const shotReadOnlyPath = path.join(root, 'docs', 'quadro-somente-leitura.png');
     await page.screenshot({ path: shotReadOnlyPath });
-    try {
-      const issuesEvidDir = path.join(root, 'Issues', '20260924-210000-rever-sessao-encerrada', 'evidencia');
-      fs.mkdirSync(issuesEvidDir, { recursive: true });
-      fs.copyFileSync(shotReadOnlyPath, path.join(issuesEvidDir, 'quadro-somente-leitura.png'));
-    } catch {}
 
     const screenPixels = await countVisibleScreenStrokePixels(page, readOnlyCanvasBox);
     v4Results.screenPixelsVisiveis = screenPixels;

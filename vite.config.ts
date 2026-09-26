@@ -6,7 +6,7 @@ import buildInfo from './src/shared/build-info.json';
 
 // O header CSP do main.ts não é aplicado a páginas file:// (build empacotado); no build a política vai no próprio HTML.
 const CSP =
-  "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws: wss:;";
+  "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: http://127.0.0.1:* http://localhost:*; connect-src 'self' ws: wss: http://127.0.0.1:* http://localhost:*; worker-src 'self' blob:; media-src 'self' blob: http://127.0.0.1:* http://localhost:*;";
 
 export default defineConfig({
   define: {
