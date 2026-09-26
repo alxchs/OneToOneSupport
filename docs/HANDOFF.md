@@ -1073,3 +1073,9 @@ Mecanismos experimentais da caçada (D7, D9, D10) foram integralmente limpos em 
 **Pendência aberta (próxima fase, Host apenas):** linhas, setas, retângulos, elipses e texto são objetos
 selecionáveis; ao desenhar algo novo por cima, o Fabric arrasta o objeto anterior em vez de só desenhar.
 Ordem em `Issues/20260924-150000-ferramentas-nao-movem-objetos`.
+
+---
+
+## Fechamento oficial (2026-09-26)
+Merge `--no-ff` em `main` (`7370789`) e `git push origin main` + `git push origin fase/08-abas-midia-assets`
+feitos por ordem explícita do Alexandre, dada nesta sessão.
