@@ -94,7 +94,7 @@ async function run() {
   sm.setMediaUnlocked(true);
 
   // 2. Inicia servidor HTTP em porta dinâmica ligada a 0.0.0.0
-  const httpServerHandle = await startHttpServer(sm, 0, '0.0.0.0');
+  const httpServerHandle = await startHttpServer(sm, 0, '0.0.0.0'); // risco-aceito: BIND_TODAS_INTERFACES
   const port = httpServerHandle.port;
   console.log(`[Servidor] HTTP Server escutando na porta dinâmica: ${port}`);
 
@@ -226,7 +226,7 @@ async function run() {
   let guestTabState = createInitialTabState('default');
 
   for (let i = 0; i < NUM_AMOSTRAS; i++) {
-    const elemId = `stroke-${i}-${Math.random().toString(36).slice(2, 7)}`;
+    const elemId = `stroke-${i}-${Math.random().toString(36).slice(2, 7)}`; // risco-aceito: ALEATORIO_FRACO
     const drawPayload = {
       type: 'DRAW_ADD',
       id: elemId,

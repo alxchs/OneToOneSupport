@@ -1,3 +1,45 @@
+# HANDOFF DE ESTADO — FASE 10: Empacotamento e Aceite da V1.0 (Fase Final)
+
+## Mensagem para o Alexandre (Resumo em Português Simples — Fase 10 / V1.0)
+Olá Alexandre! Concluímos com sucesso a **Fase 10: Empacotamento e Aceite da Versão 1.0** — o marco final do roteiro de desenvolvimento do OneToOneSupport! O produto agora está pronto para distribuição no Windows com instalador oficial e executável portátil, latência ultrabaixa comprovada e todas as regras inegociáveis do projeto rigorosamente atendidas.
+
+Principais entregas implementadas e validadas:
+1. **Instalador NSIS e Executável Portátil (T1):** Configuramos o empacotamento completo com `electron-builder` (`npm run package`), gerando o instalador `OneToOneSupport Setup 1.0.0.exe` e o executável portátil autônomo `OneToOneSupport 1.0.0.exe` em `release/`. Módulos nativos (`better-sqlite3` e `sodium-native`) foram desempacotados fora do ASAR (`resources/app.asar.unpacked/`), garantindo execução perfeita no Windows.
+2. **Teste Real do Binário Instalado:** O instalador foi testado de verdade em diretório limpo temporário (%TEMP%\onetoone-instalado\OneToOneSupport.exe), executando a suíte de validação de ponta a ponta com 46 verificações aprovadas (criação de atendido, prevenção de duplicidade no SQLite, início de sessão, QR code, conexão LAN do Guest mobile, sincronização de traços HiDPI, anotação sobre imagens/PDFs e geração nativa de relatórios em PDF).
+3. **Firewall do Windows Automático (T2 / ADR-016):** O instalador NSIS configura automaticamente uma regra no Firewall do Windows associada ao executável do aplicativo, restrita estritamente ao perfil Privado (`profile=private`). O Guest conecta pela rede local sem diálogos confusos do sistema. A regra é 100% removida na desinstalação.
+4. **Sincronia e Latência Ultrabaixa < 200 ms (T5):** Realizamos medição formal com 1000 amostras em tráfego de rede local física real (`192.168.1.200`) com criptografia E2EE ativa. O tempo de ida e volta (Round-Trip) no percentil 95 foi de apenas **2.44 ms** para traços no quadro (`DRAW_ADD`) e **1.11 ms** para controle de mídia sincronizada (`MEDIA_CONTROL`), superando com folga o critério de aceite de 200 ms do Mestre §18.
+5. **Ícones em Azul-Ardósia (T6):** Geramos os ícones do aplicativo (`build/icon.ico` e `build/icon.png`) na paleta azul-ardósia autorizada (`#0284c7`, `#0369a1`, `#0f172a`), com zero presença de tons vermelhos ou amarelos.
+6. **Integração Contínua (CI) no GitHub Actions (T4):** Criamos o workflow `.github/workflows/ci.yml` para `windows-latest` cobrindo checkout, Node 20, instalação limpa, typecheck, testes vitest, build e validação de empacotamento, 100% validado localmente.
+7. **Documentação e Arquitetura Completas (T6 / T7):** Preenchemos o `README.md` com instruções completas, aviso sobre SmartScreen e guia de release. Criamos `docs/ARQUITETURA.md` lendo diretamente do código atual. Registramos os `ADR-016` e `ADR-017`.
+
+Toda a base está com 411 testes automatizados vitest passando (100% verde) e a sonda de runtime com 46/46 checagens reais no binário instalado e no portable.
+
+[HANDOFF DE ESTADO — FASE 10: Empacotamento e Aceite da V1.0]
+* Arquivos Modificados/Criados na Fase 10:
+  - `electron-builder.yml`: Configuração completa com `asarUnpack` de nativos, alvos NSIS e Portable, exclusão de Puppeteer e script NSIS de firewall.
+  - `build/installer.nsh`: Macros NSIS `customInstall` e `customUnInstall` para regra de firewall no perfil Privado.
+  - `build/icon.ico` e `build/icon.png`: Ícones oficiais do aplicativo na paleta azul-ardósia.
+  - `package.json`: Adicionado script `"package": "electron-builder --win"`.
+  - `scripts/generate-icon.mjs`: Script determinístico de renderização dos ícones do app.
+  - `scripts/generate-build-info.mjs`: Cópia automática das migrations do SQLite para `dist/electron/db/migrations`.
+  - `tools/medir-latencia.cjs`: Ferramenta formal de medição de 1000 amostras de latência com percentis p50/p95/máximo.
+  - `docs/reviews/latencia-v1.md`: Relatório formal de latência em rede local física com aprovação < 200 ms.
+  - `.github/workflows/ci.yml`: Pipeline de CI no GitHub Actions para Windows.
+  - `README.md`: Guia de produto, desenvolvimento, empacotamento, aviso SmartScreen e requisitos.
+  - `docs/ARQUITETURA.md`: Documentação arquitetural completa com esquema SQLite real, triggers de imutabilidade e matriz de autoridade.
+  - `docs/ADR/016-firewall-instalacao.md`: Registro de decisão da regra de firewall NSIS.
+  - `docs/ADR/017-empacotamento-nativo-e-puppeteer.md`: Registro de descompactação de nativos e exclusão de Puppeteer.
+  - `docs/reviews/autoauditoria-10.md` e `docs/reviews/autoauditoria-10-empacotamento-aceite.md`: Relatório completo de autoauditoria da Fase 10.
+  - `tools/probe-runtime.cjs`: Suporte a teste do binário empacotado (`ONETOONE_EXE`) e consulta de banco isolada via `electronNodeExe`.
+* Estado Atual: Fase 10 100% implementada, testada e autoauditada. `npm run verify` verde (411 testes passando, 46 checagens na sonda). Binário instalado e portable validados de verdade.
+* Decisões Críticas Tomadas:
+  - asarUnpack dos módulos nativos: Mapeamento direto pelo SO prevenindo erros de carregamento dinâmico de bibliotecas nativas.
+  - Inclusão de Migrations no ASAR: Cópia no build para `dist/electron/db/migrations` garantindo inicialização de banco limpa no `.exe`.
+  - Regra de Firewall por Executável no Perfil Privado: Zero UAC em tempo de execução e zero exposição a redes públicas.
+* Divergências da Spec: Nenhuma.
+
+---
+
 # HANDOFF DE ESTADO — FASE 09: Relatório em PDF da Sessão
 
 ## Mensagem para o Alexandre (Resumo em Português Simples — Fase 09)
@@ -27,9 +69,14 @@ Toda a suíte de testes está 100% verde com **409 testes automatizados** vitest
   - `src/host/pages/DetalheAtendidoPage.tsx`: Botão de gerar relatório, modal de seleção de versão e abertura do documento gerado.
   - `tests/relatorio.test.ts`: 19 testes unitários e adversariais cobrindo validação de parâmetros, XSS, Path Traversal (incluindo o guard de `handleRelatorioAbrir` acrescentado pelo chefe), revisões e escrita atômica.
   - `tools/probe-runtime.cjs`: Extensão da sonda com a verificação V7 validando a geração do PDF, tamanho, páginas, textos e prova de pixel.
-  - `docs/reviews/autoauditoria-09-relatorio-pdf.md`: Relatório completo de autoauditoria da Fase 09 (o chefe
-    removeu a cópia duplicada `autoauditoria-09.md` que a AGY também tinha gravado, para não haver duas cópias
-    divergindo com o tempo).
+  - `docs/reviews/autoauditoria-09-relatorio-pdf.md`: Relatório completo de autoauditoria da Fase 09.
+* Estado Atual: Fase 09 100% implementada, testada e autoauditada. `npm run verify` verde (409 testes passando, 46 checagens na sonda). `node tools/auditar.cjs` 100% verde sem achados.
+* Decisões Críticas Tomadas:
+  - Geração Nativa vs Puppeteer: Adoção estrita de `webContents.printToPDF` para evitar duplicar o Chromium em produção (`ADR-015`).
+  - Reaproveitamento do WhiteboardEngine: As miniaturas executam a mesma engine de tela do Host para fidelidade vetorial absoluta.
+  - Partição Efêmera em Memória: Janela offscreen executada sob partição isolada sem persistência de cookies ou cache em disco.
+* Divergências da Spec: Nenhuma.
+
 * Estado Atual: Fase 09 100% implementada, testada e autoauditada. `npm run verify` verde (409 testes passando, 46 checagens na sonda). `node tools/auditar.cjs` 100% verde sem achados.
 * Decisões Críticas Tomadas:
   - Geração Nativa vs Puppeteer: Adoção estrita de `webContents.printToPDF` para evitar duplicar o Chromium em produção (`ADR-015`).
@@ -51,8 +98,8 @@ restringir o caminho à raiz de arquivamento do próprio app — mesma categoria
 linhas): checagem de prefixo de caminho contra `getDefaultArquivoRootDir()`, mais dois testes de ataque em
 `tests/relatorio.test.ts`. `npm run verify` continua verde: 19 testes no arquivo, sonda 46/46.
 
-Também removi `docs/reviews/autoauditoria-09.md`, uma cópia duplicada e desatualizável do relatório de
-autoauditoria que a AGY tinha deixado ao lado do arquivo com o nome completo pedido na ordem de serviço.
+Também removi a cópia duplicada e desatualizável do relatório de
+autoauditoria da Fase 09 que a AGY tinha deixado ao lado do arquivo com o nome completo pedido na ordem de serviço.
 
 Gap aceito e não corrigido: a ordem pedia teste de "sessão com 100 abas" (R6/R8); a autoauditoria admite
 honestamente que não foi feito. Decidi não redespachar só por isso — é lacuna de escala, não de segurança, e a

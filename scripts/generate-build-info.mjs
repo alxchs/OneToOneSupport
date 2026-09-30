@@ -55,4 +55,14 @@ try {
   console.warn('[BuildInfo] Aviso ao gerar ícones:', err?.message || err);
 }
 
+// Copiar migrations do SQLite para dist para estarem disponíveis no app empacotado (ASAR)
+const migrationsSrc = path.join(root, 'electron', 'db', 'migrations');
+const migrationsDist = path.join(root, 'dist', 'electron', 'db', 'migrations');
+if (fs.existsSync(migrationsSrc)) {
+  fs.mkdirSync(migrationsDist, { recursive: true });
+  fs.cpSync(migrationsSrc, migrationsDist, { recursive: true });
+  console.log(`[BuildInfo] Migrations copiadas para ${migrationsDist}`);
+}
+
+
 
