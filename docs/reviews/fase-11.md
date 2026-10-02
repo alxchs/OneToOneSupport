@@ -32,3 +32,23 @@ sem alças (P3); rótulos e cursor de borracha (P4); D15 preservado (`setTool` �
   nas borrachas, ou equivalente do Fabric). Tocar no interior vazio de um círculo, ou na área vazia da caixa de
   uma linha diagonal, não apaga.
 - Testes em escala diferente de 1 (Host 1,5 e celular ~0,34), e prova na sonda V8 com captura de tela real.
+
+## Rodada 2 (2026-10-02): APROVADA
+
+`04775f3`. A busca de alvo com heurísticas foi removida e a borracha usa só a do Fabric, com
+`perPixelTargetFind` e `targetFindTolerance` (4 px × escala) ligados apenas em `eraser`/`object_eraser`.
+`tests/adversarial/borracha-escala.test.ts` (do chefe) passou sem ser alterado.
+
+- `node tools/auditar.cjs`: TUDO VERDE, com 459 testes, sonda 49/49 e autoauditoria 73 PASS / 0 FAIL.
+- Sonda reexecutada pelo chefe (app real, `page.screenshot`, `SendInput` no Host):
+  - **Moldura:** 0 px em todas as ferramentas, no Host e no Guest.
+  - **Borracha no Host:** a linha diagonal foi apagada ao tocar o traço (850 → 0 px). O toque nas áreas vazias não apagou nada (linha 850 → 850 px; elipse 1674 → 1674 px).
+  - **Borracha no Guest:** mesmo resultado (167 → 0 px; áreas vazias 167 → 167 e 372 → 372 px).
+  - **Exceções no renderer:** 0.
+- Captura da tela real conferida pelo chefe: a barra não tem Seleção, a ferramenta Texto continua ativa
+  depois de confirmar, e formas sobrepostas aparecem sem moldura nem alça.
+
+Ressalvas, sem bloquear a aprovação:
+- Os botões "Texto" e "Borracha (Traço inteiro)" ficaram sem ícone, enquanto os outros têm.
+- Os 3 avisos `TIPO_SUPRIMIDO` são de código de evento do Fabric.
+- Não verificado: celular físico; GIF de comprovação (ainda depende da resposta do dono).
