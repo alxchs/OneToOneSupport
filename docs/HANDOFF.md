@@ -29,6 +29,22 @@ Olá Alexandre! Investigamos a fundo com testes automatizados e corrigimos os do
 
 ---
 
+## Auditoria do chefe — Fase 10 (2026-10-02)
+
+**Veredito: APROVADA COM CORREÇÕES DO CHEFE** (`68ab390`). Detalhe em `docs/reviews/fase-10.md`.
+
+- Firewall: a instalação padrão (só para o usuário, sem elevação) terminava sem regra. Agora `perMachine: true`, e o
+  instalador avisa se o `netsh` falhar. Provado com instalação e desinstalação elevadas reais: regra `Private`,
+  `Program: <pasta>\OneToOneSupport.exe`, criada e depois removida.
+- Restaurados `docs/ARQUITETURA.md` e a seção da Fase 10 deste HANDOFF, apagados por engano em `79d679b`.
+- `npm run package` agora compila antes de empacotar.
+- README: limitações corrigidas (mobile só por emulação; mais de 100 abas).
+- App **instalado** passou na sonda 46/46; `npm run verify` 411 testes; `tools/auditar.cjs` tudo verde.
+
+**Pendente:** execução real do CI no GitHub Actions, que depende do `git push` autorizado pelo Alexandre.
+
+---
+
 # HANDOFF DE ESTADO — FASE 10: Empacotamento e Aceite da V1.0 (Fase Final)
 
 ## Mensagem para o Alexandre (Resumo em Português Simples — Fase 10 / V1.0)
