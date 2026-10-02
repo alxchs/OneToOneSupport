@@ -16,7 +16,7 @@
     "test": "node scripts/test-runner.mjs",
     "rebuild": "electron-rebuild",
     "probe": "node tools/probe-runtime.cjs",
-    "package": "electron-builder --win",
+    "package": "npm run build && electron-builder --win",
     "verify": "npm run typecheck && npm run build && npm test && npm run probe"
   },
   "dependencies": {

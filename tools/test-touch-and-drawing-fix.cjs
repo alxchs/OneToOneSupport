@@ -172,7 +172,7 @@ async function run() {
   const guestBrowser = await puppeteer.launch({
     executablePath: chromiumExe,
     headless: 'new',
-    args: ['--no-sandbox'],
+    args: ['--no-sandbox'], // risco-aceito: TLS_DESLIGADO (Chrome headless descartável só para emular o celular no teste)
   });
 
   const guestPage = await guestBrowser.newPage();

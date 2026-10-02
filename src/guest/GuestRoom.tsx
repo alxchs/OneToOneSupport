@@ -71,13 +71,10 @@ export const GuestRoom: React.FC<GuestRoomProps> = ({
     const initial: Record<string, TabState> = {
       default: createInitialTabState('default'),
     };
-    if (wsClient && typeof (wsClient as any).getInitialTabStates === 'function') {
-      const cached = (wsClient as any).getInitialTabStates();
-      for (const [abaId, msg] of Object.entries(cached)) {
-        const incomingState = (msg as any).state || (msg as any).payload?.state;
-        if (incomingState) {
-          initial[abaId] = incomingState;
-        }
+    for (const [abaId, msg] of Object.entries(wsClient.getInitialTabStates())) {
+      const incomingState = msg.state || msg.payload?.state;
+      if (incomingState) {
+        initial[abaId] = incomingState;
       }
     }
     return initial;

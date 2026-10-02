@@ -27,6 +27,8 @@ win:
         - x64
 nsis:
   oneClick: false
+  # Regra de firewall (build/installer.nsh) exige admin; instalação só-para-mim falhava em silêncio (ADR-016).
+  perMachine: true
   allowToChangeInstallationDirectory: true
   include: "build/installer.nsh"
   installerIcon: "build/icon.ico"

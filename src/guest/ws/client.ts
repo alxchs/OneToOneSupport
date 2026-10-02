@@ -12,6 +12,15 @@ import {
   EncryptedPayload,
 } from '../../shared/events/protocol';
 import { KeyPair, SessionCipher } from '../../shared/crypto/types';
+import type { TabState } from '../../shared/events/reducer';
+
+/** TAB_STATE recebido no handshake, guardado para o GuestRoom montar já com os traços do Host. */
+export interface CachedTabStateMsg {
+  type: 'TAB_STATE';
+  abaId?: string;
+  state?: TabState;
+  payload?: { state?: TabState };
+}
 
 export type GuestConnectionState =
   | 'idle'
@@ -54,7 +63,7 @@ export class GuestWsClient {
   private readonly maxReconnectAttempts: number = 30; // ~1-2 min com backoff
 
   private _onMessage?: (message: any) => void;
-  private initialTabStates: Record<string, any> = {};
+  private initialTabStates: Record<string, CachedTabStateMsg> = {};
 
   public onStateChange?: (state: GuestConnectionState) => void;
   public onError?: (err: Error) => void;
@@ -100,7 +109,7 @@ export class GuestWsClient {
     return this.mediaToken;
   }
 
-  public getInitialTabStates(): Record<string, any> {
+  public getInitialTabStates(): Record<string, CachedTabStateMsg> {
     return { ...this.initialTabStates };
   }
 

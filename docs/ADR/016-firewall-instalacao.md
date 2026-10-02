@@ -23,3 +23,17 @@ Por operar em porta efêmera dinâmica:
 - Conexão do Guest mobile via Wi-Fi/LAN local permitida sem atrito.
 - Zero exposição em redes públicas (perfil `public` permanece bloqueado por padrão).
 - Remoção completa da regra quando o usuário desinstala o produto.
+
+## Correção na auditoria do chefe (2026-10-02)
+O item 1 acima ("já são executados com privilégios administrativos") era falso na configuração entregue:
+`electron-builder.yml` não definia `perMachine`, e o padrão do electron-builder (`perMachine=false`) instala só
+para o usuário atual, **sem elevação**. Medido: instalação silenciosa `/S /currentuser` terminou com código 0 e
+`netsh advfirewall firewall show rule name="OneToOneSupport"` respondeu `No rules match` — o `netsh` falhava sem
+admin e o `nsExec::Exec` descartava o erro. A evidência de T2 na autoauditoria vinha de uma regra criada à mão,
+elevada, fora do instalador.
+
+Correção: `nsis.perMachine: true` (o instalador pede UAC uma vez e instala em Program Files; os dados continuam em
+`%APPDATA%\OneToOneSupport`, então nada é gravado na pasta de instalação) e `build/installer.nsh` passou a usar
+`nsExec::ExecToLog` + `Pop $0`, avisando o usuário se a regra não puder ser criada. Prova após a correção:
+instalação elevada criou a regra (`Profiles: Private`, `Program: <pasta>\OneToOneSupport.exe`,
+`Direction: In`, `Action: Allow`) e a desinstalação a removeu (`No rules match the specified criteria.`).

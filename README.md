@@ -61,10 +61,10 @@ npm run probe
 
 Para gerar os binários de produção para Windows:
 ```bash
-npm run package
+npm run package   # roda o build e depois o electron-builder
 ```
 Os artefatos finais são gerados no diretório `release/`:
-1. **Instalador NSIS:** `release/OneToOneSupport Setup 1.0.0.exe` (com escolha de pasta e regra automática no Firewall).
+1. **Instalador NSIS:** `release/OneToOneSupport Setup 1.0.0.exe` (com escolha de pasta e regra automática no Firewall; pede permissão de administrador (UAC) uma vez, porque a regra de firewall exige isso).
 2. **Executável Portátil:** `release/OneToOneSupport 1.0.0.exe` (execução direta sem instalação).
 
 ### 4.1. Aviso do Windows SmartScreen
@@ -80,4 +80,5 @@ Por se tratar de um binário em versão 1.0 sem certificado Authenticode comerci
 - **Assinatura de Código:** Binários não assinados digitalmente por autoridade comercial (Authenticode).
 - **Formatos de PDF:** Suporte a PDFs padrão; não há suporte a documentos protegidos por senha ou formulários XFA.
 - **Impressão Direta:** O sistema gera o relatório consolidado em PDF; o envio físico para impressoras depende do leitor padrão do usuário.
-- **Dispositivos Móveis:** Testado e homologado para navegadores móveis modernos (Chrome/Brave/Edge/Safari mobile).
+- **Dispositivos Móveis:** A verificação automatizada usa só emulação do Chrome (perfil do Motorola Edge 70 Pro: 412x915, DPR 2.625, toque) via DevTools. O dono usou um celular real nas homologações, mas a correção do desenho por toque de 01/10/2026 ainda não foi confirmada em aparelho físico. Safari/iOS, Edge e Brave mobile não foram testados.
+- **Volume de Abas:** Sessões com volumes extremos de abas (mais de 100) não foram exercitadas.
