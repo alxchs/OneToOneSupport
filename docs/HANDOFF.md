@@ -1,3 +1,34 @@
+# HANDOFF — CORREÇÃO CRÍTICA: Quadro Branco no Host e Toque no Guest Mobile
+
+## Mensagem para o Alexandre (Resumo em Português Simples)
+Olá Alexandre! Investigamos a fundo com testes automatizados e corrigimos os dois problemas relatados no uso do quadro branco:
+
+1. **"No celular nem desenha mais" (Guest Mobile):**
+   - **Causa Raiz 1 (Área Morta Visual):** Na interface do celular, o container central tinha fundo branco idêntico ao do canvas e mais de 700 pixels de altura, mas a folha de desenho real (na proporção 1200x800) ocupava apenas a faixa central de 275 pixels. Como não havia moldura, sombra ou contraste, toques dados acima ou abaixo da faixa central caíam no container vazio (fora do canvas), fazendo parecer que o toque havia parado de funcionar.
+   - **Causa Raiz 2 (Build Desatualizado no Servidor de Dev):** O comando `npm run dev` compilava o processo principal e o Host, mas não rodava o build do Guest. Ao testar no celular, o servidor Express servia o pacote antigo em disco.
+   - **Causa Raiz 3 (Perda de Estado Inicial no Handshake):** Quando o celular conectava, o servidor enviava o estado do quadro durante o handshake enquanto o navegador ainda estava na tela de transição, fazendo o celular iniciar sem os traços pré-existentes.
+   - **Solução Implementada:**
+     - O fundo da área do celular agora utiliza a cor escura neutra da aplicação (`#0b1120`), e o quadro branco é apresentado como uma **folha de papel nítida (`#ffffff`) com borda e sombra evidente**. Agora você enxerga com clareza exata onde está a folha de desenho.
+     - Aplicamos regras rígidas de `touch-action: none` e prevenção de rolagem em todas as camadas e containers do canvas.
+     - O cliente WebSocket do celular agora retém em cache o estado inicial das abas recebidas no handshake e inicializa o quadro com todos os traços do Host imediatamente.
+     - O script `scripts/dev.mjs` agora executa automaticamente `npm run build:guest` em toda inicialização, garantindo que o celular sempre rode o código mais recente.
+     - Adicionamos reencaminhamento de diagnósticos e erros do celular diretamente para o terminal do computador com o prefixo `[DIAG-GUEST]`.
+
+2. **"No computador continua sumindo" (Host):**
+   - **Causa Raiz:** Ao soltar o mouse após desenhar um traço (`path:created`), o código executava `this.canvas.remove(pathObj)` imediatamente, apagando o traço da tela antes que o reducer do React confirmasse o evento. Havia uma janela em que o traço desaparecia visualmente.
+   - **Solução Implementada (D3.1):** Traços de lápis e pincel não são mais removidos do canvas. O objeto desenhado pelo Fabric é imediatamente registrado no mapa de objetos e mantido na tela. Quando a confirmação do Reducer chega, o traço já está lá. O sumiço ao soltar o mouse foi 100% eliminado.
+
+**Comprovação Real:**
+- Teste de ponta a ponta (`tools/test-touch-and-drawing-fix.cjs`) com Electron e emulação de celular Motorola Edge 70 Pro (412x915, DPR 2.625):
+  - Traço do Host permaneceu visível em 100% dos frames após `mouseup` (0 quedas na contagem).
+  - Folha do quadro delimitada e com contraste no celular.
+  - Toque no celular desenha e gera elemento vetorial no Fabric.
+  - Sincronização bidirecional em tempo real Host <-> Guest confirmada.
+  - Diagnósticos do celular fluindo para o terminal do Host.
+- `npm run verify` 100% verde (46/46 verificações da sonda e suíte vitest aprovada).
+
+---
+
 # HANDOFF DE ESTADO — FASE 09: Relatório em PDF da Sessão
 
 ## Mensagem para o Alexandre (Resumo em Português Simples — Fase 09)
