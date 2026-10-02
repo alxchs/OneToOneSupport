@@ -41,7 +41,7 @@ Olá Alexandre! Investigamos a fundo com testes automatizados e corrigimos os do
 - README: limitações corrigidas (mobile só por emulação; mais de 100 abas).
 - App **instalado** passou na sonda 46/46; `npm run verify` 411 testes; `tools/auditar.cjs` tudo verde.
 
-**Pendente:** execução real do CI no GitHub Actions, que depende do `git push` autorizado pelo Alexandre.
+**CI:** primeira execução real no GitHub Actions (`37000469925`, 2026-10-02) verde: 32 arquivos de teste, NSIS e portable gerados.
 
 ---
 

@@ -1,7 +1,7 @@
 # Auditoria do chefe — Fase 10: Empacotamento e Aceite da V1.0
 
-**Veredito: APROVADA COM CORREÇÕES DO CHEFE**: correções aplicadas em `68ab390`. Pendente para fechar o critério
-"CI executado de verdade": push autorizado pelo Alexandre e execução real no GitHub Actions (ver §4).
+**Veredito: APROVADA COM CORREÇÕES DO CHEFE**: correções aplicadas em `68ab390`. O critério "CI executado de verdade"
+foi fechado em 2026-10-02 com a execução real `37000469925` (ver §4).
 
 Data: 2026-10-02. Branch `fase/10-empacotamento-aceite`. Commits auditados: `a13e598`..`59470ae` (fase + correção do
 quadro de 01/10) e as correções do chefe em `68ab390`.
@@ -58,9 +58,10 @@ já existente, sem borda nova.
 - Ícone: paleta azul-ardósia aprovada pelo Alexandre em 2026-09-26 (registrado na ordem), sem vermelho.
 
 ## 4. Não verificado / pendente
-- **CI no GitHub Actions:** `.github/workflows/ci.yml` existe (Node 20, `windows-latest`, gatilho em `main` e
-  `fase/**`), mas **nunca rodou**. Depende do `git push` autorizado. Depois do push, o chefe acompanha com
-  `gh run list` e só então fecha o critério.
+- ~~CI no GitHub Actions~~ **Fechado em 2026-10-02:** depois do push autorizado, a execução
+  [37000469925](https://github.com/alxchs/OneToOneSupport/actions/runs/37000469925) (`windows-latest`) terminou
+  `completed success` em 3m14s. O log mostra `Test Files 32 passed (32)` e os alvos `nsis` e `portable` gerados.
+  Aviso do runner: as actions `checkout@v4`/`setup-node@v4` usam Node 20, já obsoleto, e o GitHub as força para Node 24.
 - Desenho por toque em celular físico depois da correção de 01/10: só emulação CDP, com eventos sintéticos e sem
   `SendInput`/aparelho real.
 - Fluxo interativo do instalador (tela "para todos / só para mim") não foi clicado. Com `perMachine: true`, a tela
