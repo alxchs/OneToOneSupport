@@ -313,6 +313,7 @@ export function createWebSocketServer(options: WsServerOptions): WsServerHandle 
             reconnectToken,
             mediaToken: sessionManager.getMediaToken(),
             serverTs: Date.now(),
+            diagEnabled: process.env.ONETOONE_DIAG === '1',
           });
 
           const encrypted = cipher.encrypt(sessionReadyPayload);
@@ -451,6 +452,13 @@ export function createWebSocketServer(options: WsServerOptions): WsServerHandle 
             })
           );
           ws.send(JSON.stringify(createEnvelope('ENCRYPTED', clockSyncReply)));
+          return;
+        }
+
+        // Suporte a diagnóstico e logs de erro do Guest reencaminhados ao terminal do Host
+        if (innerType === ('GUEST_DIAG' as unknown as ProtocolMessageType)) {
+          const diagData = innerMessage.payload || innerMessage.data;
+          console.log('[DIAG-GUEST]', JSON.stringify(diagData));
           return;
         }
 

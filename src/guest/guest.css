@@ -131,8 +131,16 @@ html, body {
 }
 
 /* Canvas com touch-action: none obrigatório */
+.whiteboard-canvas-mobile,
+.canvas-container,
+.upper-canvas,
+.lower-canvas {
+  touch-action: none !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}
+
 .whiteboard-canvas-mobile {
-  touch-action: none;
   cursor: crosshair;
   background-color: #ffffff;
 }

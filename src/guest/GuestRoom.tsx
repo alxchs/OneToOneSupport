@@ -67,8 +67,20 @@ export const GuestRoom: React.FC<GuestRoomProps> = ({
   const [pdfTotalPaginas, setPdfTotalPaginas] = useState<number>(1);
   const [autoplayBloqueado, setAutoplayBloqueado] = useState<boolean>(false);
 
-  const [tabStates, setTabStates] = useState<Record<string, TabState>>({
-    default: createInitialTabState('default'),
+  const [tabStates, setTabStates] = useState<Record<string, TabState>>(() => {
+    const initial: Record<string, TabState> = {
+      default: createInitialTabState('default'),
+    };
+    if (wsClient && typeof (wsClient as any).getInitialTabStates === 'function') {
+      const cached = (wsClient as any).getInitialTabStates();
+      for (const [abaId, msg] of Object.entries(cached)) {
+        const incomingState = (msg as any).state || (msg as any).payload?.state;
+        if (incomingState) {
+          initial[abaId] = incomingState;
+        }
+      }
+    }
+    return initial;
   });
 
   const [ferramenta, setFerramenta] = useState<WhiteboardTool>('pencil');
@@ -90,6 +102,9 @@ export const GuestRoom: React.FC<GuestRoomProps> = ({
 
       switch (msg.type) {
         case 'SESSION_READY': {
+          if (msg.diagEnabled && typeof window !== 'undefined') {
+            (window as any).__ONETOONE_DIAG__ = true;
+          }
           if (msg.mediaToken && typeof msg.mediaToken === 'string') {
             setMediaToken(msg.mediaToken);
           }
@@ -669,12 +684,13 @@ export const GuestRoom: React.FC<GuestRoomProps> = ({
           minHeight: 0,
           position: 'relative',
           width: '100%',
-          backgroundColor: '#ffffff',
+          backgroundColor: '#0b1120',
           overflow: 'hidden',
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
+          touchAction: 'none',
         }}
       >
         {/* Banner de Fallback de Autoplay Bloqueado no Mobile (M7) */}
@@ -772,11 +788,24 @@ export const GuestRoom: React.FC<GuestRoomProps> = ({
                 />
               </div>
             )}
-            <canvas
-              ref={canvasRef}
-              id="guest-canvas"
-              className="whiteboard-canvas-mobile"
-            />
+            <div
+              id="guest-whiteboard-paper"
+              style={{
+                boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5)',
+                borderRadius: '6px',
+                border: '1px solid #334155',
+                overflow: 'hidden',
+                backgroundColor: '#ffffff',
+                touchAction: 'none',
+                display: 'inline-flex',
+              }}
+            >
+              <canvas
+                ref={canvasRef}
+                id="guest-canvas"
+                className="whiteboard-canvas-mobile"
+              />
+            </div>
           </>
         )}
 

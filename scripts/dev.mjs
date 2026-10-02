@@ -14,6 +14,9 @@ async function startDev() {
   console.log('[Dev] Compilando processo principal do Electron...');
   execSync('npx tsc -p tsconfig.electron.json', { cwd: projectRoot, stdio: 'inherit' });
 
+  console.log('[Dev] Compilando cliente Web do Guest (dist/guest)...');
+  execSync('npm run build:guest', { cwd: projectRoot, stdio: 'inherit' });
+
   console.log('[Dev] Iniciando Vite dev server...');
   const server = await createServer({
     configFile: path.join(projectRoot, 'vite.config.ts'),

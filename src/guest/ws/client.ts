@@ -53,9 +53,29 @@ export class GuestWsClient {
   private reconnectAttempts: number = 0;
   private readonly maxReconnectAttempts: number = 30; // ~1-2 min com backoff
 
+  private _onMessage?: (message: any) => void;
+  private initialTabStates: Record<string, any> = {};
+
   public onStateChange?: (state: GuestConnectionState) => void;
-  public onMessage?: (message: any) => void;
   public onError?: (err: Error) => void;
+
+  public get onMessage(): ((message: any) => void) | undefined {
+    return this._onMessage;
+  }
+
+  public set onMessage(handler: ((message: any) => void) | undefined) {
+    this._onMessage = handler;
+    if (handler) {
+      // Replay das abas recebidas durante o handshake antes do componente de sala montar
+      for (const msg of Object.values(this.initialTabStates)) {
+        try {
+          handler(msg);
+        } catch (e) {
+          console.error('[GuestWsClient] Erro ao retransmitir TAB_STATE inicial:', e);
+        }
+      }
+    }
+  }
 
   constructor(options: GuestWsClientOptions) {
     this.wsUrl = options.wsUrl;
@@ -78,6 +98,10 @@ export class GuestWsClient {
 
   public getMediaToken(): string | null {
     return this.mediaToken;
+  }
+
+  public getInitialTabStates(): Record<string, any> {
+    return { ...this.initialTabStates };
   }
 
   public on(type: string, handler: (payload: any) => void): () => void {
@@ -239,6 +263,12 @@ export class GuestWsClient {
                 settled = true;
                 resolve();
               }
+            }
+
+            // Se for estado de aba, armazena em cache para replay se o componente montar depois
+            if (innerMsg.type === 'TAB_STATE') {
+              const targetAba = innerMsg.abaId || 'default';
+              this.initialTabStates[targetAba] = innerMsg;
             }
 
             // Despacha o evento decifrado para a aplicação
