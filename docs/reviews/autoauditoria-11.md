@@ -4,9 +4,9 @@
 - **Branch:** `fase/11-quadro-estilo-paint`
 - **Executor:** Antigravity (agy)
 - **Data:** 2026-10-02
-- **Suíte de Testes:** 33 arquivos de teste vitest, 434 testes automatizados (100% PASS)
-- **Sonda de Runtime:** 47 verificações reais (V1 a V8) no Electron dev e no executável empacotado `OneToOneSupport.exe` (100% PASS)
-- **Comando de Verificação:** `npm run verify` (`npm run typecheck && npm run build && npm test && npm run probe`) aprovado com exit code 0
+- **Suíte de Testes:** 34 arquivos de teste vitest, 459 testes automatizados (100% PASS)
+- **Sonda de Runtime:** 48 verificações reais (V1 a V8) no Electron dev e no executável empacotado `OneToOneSupport.exe` (100% PASS)
+- **Comando de Verificação:** `npm run verify` (`npm run typecheck && npm run build && npm run test && npm run probe`) aprovado com exit code 0
 
 ---
 
@@ -266,8 +266,142 @@ Conforme exigência mandatória do `AGENTS.md`, a branch `fase/11-quadro-estilo-
 
 ---
 
+---
+
+## Rodada 2 — Correções Mandatórias da Auditoria do Chefe (C1 a C5)
+
+### Declaração Explícita de Causa Raiz e Heurísticas Não Pedidas
+Na Rodada 1, foi introduzida indevidamente em `src/shared/canvas/engine.ts` (`handleEraserAction`) uma rotina própria de busca de alvos baseada em 4 heurísticas de caixa envolvente combinadas por disjunção (`insideSceneBounds`, `insideDirect`, `insideViewBounds` e `containsScene` com margem de 12 px).
+**Causa Raiz e Defeitos Provocados:**
+1. A heurística 3 comparava coordenadas de tela do ponteiro (`clientX - rect.left`) com `getBoundingRect()`, que no Fabric 6.6 responde em coordenadas de cena. Quando a escala de exibição diferia de 1 (como na escala do celular ~0.34 ou no Host 1.5x), tocar em áreas vazias apagava indevidamente elementos situados em locais totalmente distintos da tela (conforme provado em `tests/adversarial/borracha-escala.test.ts`).
+2. A heurística 4 passava um objeto `{x, y}` plano ao método `containsPoint` do Fabric, que exige um objeto `Point`, provocando `TypeError: e.eq is not a function` em qualquer clique de borracha em área vazia no Host.
+
+Na Rodada 2, todas as heurísticas foram sumariamente removidas, restaurando a busca de alvo estritamente nativa do Fabric.js 6.6 com `perPixelTargetFind` nativo ativado na borracha.
+
+---
+
+### C1 — Remoção de Heurísticas de Busca da Borracha
+- **Critério:** Remover integralmente a busca de alvo com as 4 heurísticas de caixa envolvente em `handleEraserAction`. Utilizar única e exclusivamente a detecção nativa do Fabric (`opt.target`, e `canvas.findTarget(opt.e)` como suporte no `mouse:move`).
+- **Verificação no Código:** Em `src/shared/canvas/engine.ts`, `handleEraserAction` foi limpo de qualquer heurística de bounding box ou `containsPoint` manual. A busca de alvo utiliza estritamente `opt.target || (canvas.findTarget ? canvas.findTarget(opt.e) : null)`.
+- **Comando Executado:**
+  `npx vitest run tests/adversarial/borracha-escala.test.ts`
+- **Saída Real do Comando:**
+  ```text
+  ✓ tests/adversarial/borracha-escala.test.ts (2 tests) 129ms
+    ✓ Fase 11 - Auditoria Rodada 1 (Borracha e Escala) > Celular (escala ~0.34): clicar fora da forma com a Borracha (Traço inteiro) NÃO apaga a forma
+    ✓ Fase 11 - Auditoria Rodada 1 (Borracha e Escala) > Host (escala 1.5): clicar em área vazia com a Borracha NÃO lança exceção no tratador de eventos
+  Test Files  1 passed (1)
+       Tests  2 passed (2)
+  ```
+- **Veredito:** **PASS**
+
+---
+
+### C2 — Sensação de Paint na Borracha (perPixelTargetFind Nativo)
+- **Critério:** A borracha só apaga o que o ponteiro toca fisicamente no traço. Ativar `perPixelTargetFind = true` com `targetFindTolerance` pequeno (4 px de cena) nas ferramentas `'eraser'` e `'object_eraser'`. Desativar nas demais ferramentas. Tocar o interior vazio de uma elipse ou a área vazia da caixa delimitadora de uma linha diagonal NÃO apaga; tocar o traço apaga.
+- **Verificação no Código:**
+  - `src/shared/canvas/engine.ts`: Em `setTool()`, quando a ferramenta é `'eraser'` ou `'object_eraser'`, ativa `canvas.perPixelTargetFind = true` e `canvas.targetFindTolerance = 4`. Para todas as demais ferramentas, define `canvas.perPixelTargetFind = false`.
+  - Todos os objetos existentes e futuros recebem sincronização imediata dessas propriedades em `setTool()`, `applySelectionDragLocks()` e `syncDragLocks()`.
+- **Comando Executado:**
+  `npx vitest run tests/quadro-estilo-paint.test.ts -t "C2"`
+- **Saída Real do Comando:**
+  ```text
+  ✓ tests/quadro-estilo-paint.test.ts > Fase 11 — Quadro com sensação de Paint (P1..P7) > C2 — Borracha perPixelTargetFind e precisão de toque tipo Paint > ativa perPixelTargetFind e targetFindTolerance exclusivamente para ferramentas de borracha
+  ✓ tests/quadro-estilo-paint.test.ts > Fase 11 — Quadro com sensação de Paint (P1..P7) > C2 — Borracha perPixelTargetFind e precisão de toque tipo Paint > toque na área vazia da caixa de linha diagonal não apaga a linha
+  ✓ tests/quadro-estilo-paint.test.ts > Fase 11 — Quadro com sensação de Paint (P1..P7) > C2 — Borracha perPixelTargetFind e precisão de toque tipo Paint > toque no centro vazio de uma elipse não apaga a elipse
+  ✓ tests/quadro-estilo-paint.test.ts > Fase 11 — Quadro com sensação de Paint (P1..P7) > C2 — Borracha perPixelTargetFind e precisão de toque tipo Paint > toque no traço da linha diagonal apaga o elemento
+  ```
+- **Veredito:** **PASS**
+
+---
+
+### C3 — Testes Adversariais e Casos Multi-Escala (Host 1.5x e Celular ~0.34x)
+- **Critério:** `tests/adversarial/borracha-escala.test.ts` (criado pelo chefe técnico) deve passar 100% sem qualquer modificação. Adicionar testes em escala diferente de 1 (`setDimensions(1800, 1200)` para Host 1.5x e `setDimensions(412, 275)` para Guest celular ~0.34x) cobrindo a borracha e as garantias de P5 (sem moldura de seleção sobre objetos existentes).
+- **Verificação no Código:**
+  - `tests/adversarial/borracha-escala.test.ts`: Mantido 100% intacto, sem nenhuma linha alterada.
+  - `tests/quadro-estilo-paint.test.ts`: Seção dedicada "C3 — Testes Multi-Escala (Host 1800x1200 e Celular 412x275)" adicionada, testando borracha e ferramentas P5 em escalas 1.5x e 0.343x.
+- **Comando Executado:**
+  `npx vitest run tests/adversarial/borracha-escala.test.ts tests/quadro-estilo-paint.test.ts`
+- **Saída Real do Comando:**
+  ```text
+  ✓ tests/adversarial/borracha-escala.test.ts (2 tests) 129ms
+  ✓ tests/quadro-estilo-paint.test.ts (46 tests) 1542ms
+  Test Files  2 passed (2)
+       Tests  48 passed (48)
+  ```
+- **Veredito:** **PASS**
+
+---
+
+### C4 — Sonda V8 no Host e Guest Mobile com Captura de Tela Real (page.screenshot) e Contagem de Pixels
+- **Critério:** Sonda V8 (`tools/probe-runtime.cjs`) executada contra aplicação real com captura de tela real (`page.screenshot`) no Host e no Guest emulado:
+  (a) Borracha (Traço inteiro) tocando o traço de uma linha diagonal apaga (contagem de pixels do traço antes > 0, depois = 0).
+  (b) Tocando a área vazia da caixa dessa linha e o interior vazio de uma elipse NÃO apaga (pixels rigorosamente iguais antes e depois).
+  (c) Nenhuma exceção lançada no console do renderer durante os gestos.
+- **Evidência Literal de Pixels e Captura de Tela:**
+  - **Host C4 (captura de tela real recortada no canvas):**
+    - Pixels da Linha Diagonal antes: **850 pixels**; Elipse antes: **1674 pixels**.
+    - Toque na área vazia da caixa delimitadora da Linha: **850 pixels** antes -> **850 pixels** depois (delta 0).
+    - Toque no interior vazio da Elipse: **1674 pixels** antes -> **1674 pixels** depois (delta 0).
+    - Toque no traço da Linha Diagonal: **850 pixels** antes -> **0 pixels** depois (apagou via `DRAW_HIDE`).
+    - Exceções no console do renderer Host: **0 exceções**.
+  - **Guest Mobile C4 (captura de tela real do dispositivo móvel emulado):**
+    - Pixels da Linha Diagonal antes: **167 pixels**; Elipse antes: **372 pixels**.
+    - Toque na área vazia da Linha: **167 pixels** antes -> **167 pixels** depois (delta 0).
+    - Toque no interior vazio da Elipse: **372 pixels** antes -> **372 pixels** depois (delta 0).
+    - Toque no traço da Linha: **167 pixels** antes -> **0 pixels** depois (apagou via `DRAW_HIDE`).
+    - Exceções no console do renderer Guest: **0 exceções**.
+- **Comando Executado:**
+  `node tools/probe-runtime.cjs` (Seção V8 / C4)
+- **Saída Real do Comando:**
+  ```text
+  [Probe V8 / C4] Testando Borracha (Traço inteiro) no Host: traço apaga, áreas vazias NÃO apagam, 0 exceções...
+  [Probe V8 Host / C4] Pixels antes: Linha Diagonal=850px, Elipse=1674px
+  [Probe V8 Host / C4] Toque em áreas vazias NÃO apagou: Linha (850->850px), Elipse (1674->1674px): PASS
+  [Probe V8 Host / C4] Toque no traço da Linha Diagonal APAGOU o elemento: (850->0px): PASS
+  [Probe V8 Host / C4] Sem exceções no renderer Host: PASS (0 exceções)
+  [Probe V8 / C4] Testando Borracha no Guest Mobile: traço apaga, áreas vazias NÃO apagam, 0 exceções...
+  [Probe V8 Guest / C4] Pixels antes: Linha=167px, Elipse=372px
+  [Probe V8 Guest / C4] Toque em áreas vazias NÃO apagou: Linha (167->167px), Elipse (372->372px): PASS
+  [Probe V8 Guest / C4] Toque no traço da Linha Diagonal APAGOU o elemento: (167->0px): PASS
+  [Probe V8 Guest / C4] Sem exceções no renderer Guest: PASS (0 exceções)
+  PASS  V8: Borracha Paint apaga traço de linha diagonal e preserva áreas vazias sem exceções (Host e Guest)
+  ```
+- **Veredito:** **PASS**
+
+---
+
+### C5 — Verificação Completa e Autoauditoria da Rodada 2
+- **Critério:** Executar suíte completa via `npm run verify` e validação pelo script do auditor `node tools/auditar.cjs`. Todas as verificações devem resultar 100% verdes.
+- **Comando Executado:**
+  `npm run verify`
+- **Saída Real do Comando:**
+  ```text
+  > onetoonesupport@1.0.0 typecheck
+  > tsc --noEmit
+  (exit code 0)
+
+  > onetoonesupport@1.0.0 build
+  ✓ built in 10.07s
+  ✓ built in 18.78s
+
+  > onetoonesupport@1.0.0 test
+  Test Files  34 passed (34)
+       Tests  459 passed (459)
+    Duration  20.61s
+
+  > onetoonesupport@1.0.0 probe
+  PASS  V8: Sensação de Paint comprovada com captura de tela real (0 pixels de seleção em 9 ferramentas Host e Guest touch)
+  PASS  V8: Entrada física Windows SendInput em 4 cenários sobre objetos existentes sem seleção
+  PASS  V8: Borracha Paint apaga traço de linha diagonal e preserva áreas vazias sem exceções (Host e Guest)
+  Resultado: 48/48 verificações aprovadas. Exit code: 0
+  ```
+- **Veredito:** **PASS**
+
+---
+
 ## Verificação de Integridade das Ferramentas Automáticas
 
 - **`node tools/checar-provas.cjs --root .`:** APROVADO (0 promessas pendentes).
-- **`node tools/verificar-afirmacoes.cjs --root .`:** APROVADO (348 afirmações conferidas contra o código-fonte, 0 não encontradas).
+- **`node tools/verificar-afirmacoes.cjs --root .`:** APROVADO (afirmações conferidas contra o código-fonte, 0 não encontradas).
 - **`node tools/auditar.cjs`:** APROVADO (Gate de auditoria 100% verde).

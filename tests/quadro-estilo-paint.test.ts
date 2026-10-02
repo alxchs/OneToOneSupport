@@ -240,41 +240,82 @@ describe('Fase 11 — Quadro com sensação de Paint (P1..P7)', () => {
       }
     });
 
-    it('clicar com Borracha (Traço inteiro) apaga o elemento mantendo getActiveObject() estritamente null', () => {
-      let state = createInitialTabState('aba-paint');
-      state = reduceEvent(state, {
-        id: 'ev-rect-1',
-        tipo: 'DRAW_ADD',
-        autor: 'host',
-        criado_em: 1000,
-        payload: {
-          id: 'rect-target-1',
-          tipo: 'rect',
-          data: { left: 100, top: 100, width: 80, height: 60, stroke: '#0284c7' },
-        },
+    for (const [nomeEscala, largura, altura] of [
+      ['escala 1,0 (padrão)', 1200, 800],
+      ['Host escala 1,5 (4K @150%)', 1800, 1200],
+      ['celular escala ~0,34 (Mobile)', 412, 275],
+    ] as const) {
+      it(`clicar com Borracha (Traço inteiro) apaga o elemento em ${nomeEscala} mantendo getActiveObject() estritamente null`, () => {
+        engine.setDimensions(largura, altura);
+        const escala = largura / 1200;
+
+        let state = createInitialTabState('aba-paint');
+        state = reduceEvent(state, {
+          id: `ev-rect-${largura}`,
+          tipo: 'DRAW_ADD',
+          autor: 'host',
+          criado_em: 1000,
+          payload: {
+            id: `rect-target-${largura}`,
+            tipo: 'rect',
+            data: { left: 100, top: 100, width: 80, height: 60, stroke: '#0284c7' },
+          },
+        });
+        engine.renderState(state);
+
+        const rectObj = engine.canvas.getObjects().find((o) => (o as any).elementId === `rect-target-${largura}`)!;
+        expect(rectObj).toBeTruthy();
+
+        engine.setTool('object_eraser');
+        expect(engine.canvas.getActiveObject()).toBeFalsy();
+
+        // Clica sobre o objeto com object_eraser
+        (engine.canvas as any).fire('mouse:down', {
+          e: { clientX: 120 * escala, clientY: 120 * escala, buttons: 1 },
+          target: rectObj,
+        });
+
+        expect(engine.canvas.getActiveObject()).toBeFalsy();
+        const hideEvents = emittedEvents.filter((ev) => ev.tipo === 'DRAW_HIDE');
+        expect(hideEvents.length).toBe(1);
+        expect((hideEvents[0].payload as any).elementId).toBe(`rect-target-${largura}`);
       });
-      engine.renderState(state);
 
-      const rectObj = engine.canvas.getObjects().find((o) => (o as any).elementId === 'rect-target-1')!;
-      expect(rectObj).toBeTruthy();
+      it(`clicar em área vazia com Borracha (Traço inteiro) em ${nomeEscala} NÃO apaga nada e não lança exceção`, () => {
+        engine.setDimensions(largura, altura);
+        const escala = largura / 1200;
 
-      engine.setTool('object_eraser');
-      expect(engine.canvas.getActiveObject()).toBeFalsy();
+        let state = createInitialTabState('aba-paint');
+        state = reduceEvent(state, {
+          id: `ev-rect-vazio-${largura}`,
+          tipo: 'DRAW_ADD',
+          autor: 'host',
+          criado_em: 1000,
+          payload: {
+            id: `rect-vazio-${largura}`,
+            tipo: 'rect',
+            data: { left: 600, top: 100, width: 100, height: 100, stroke: '#0284c7' },
+          },
+        });
+        engine.renderState(state);
 
-      // Clica sobre o objeto com object_eraser
-      (engine.canvas as any).fire('mouse:down', {
-        e: { clientX: 120, clientY: 120, buttons: 1 },
-        target: rectObj,
+        engine.setTool('object_eraser');
+
+        // Clica em ponto longe do retângulo (300, 500)
+        expect(() => {
+          (engine.canvas as any).fire('mouse:down', {
+            e: { clientX: 300 * escala, clientY: 500 * escala, buttons: 1 },
+          });
+        }).not.toThrow();
+
+        expect(engine.canvas.getActiveObject()).toBeFalsy();
+        const hideEvents = emittedEvents.filter((ev) => ev.tipo === 'DRAW_HIDE');
+        expect(hideEvents.length).toBe(0);
       });
-
-      expect(engine.canvas.getActiveObject()).toBeFalsy();
-      const hideEvents = emittedEvents.filter((ev) => ev.tipo === 'DRAW_HIDE');
-      expect(hideEvents.length).toBe(1);
-      expect((hideEvents[0].payload as any).elementId).toBe('rect-target-1');
-    });
+    }
   });
 
-  describe('P5 — Nenhuma moldura e nenhum movimento de elemento pré-existente (9 ferramentas)', () => {
+  describe('P5 — Nenhuma moldura e nenhum movimento de elemento pré-existente (9 ferramentas em 3 escalas)', () => {
     const ferramentas: WhiteboardTool[] = [
       'pencil',
       'brush',
@@ -287,50 +328,61 @@ describe('Fase 11 — Quadro com sensação de Paint (P1..P7)', () => {
       'object_eraser',
     ];
 
-    for (const tool of ferramentas) {
-      it(`ferramenta "${tool}" iniciando gesto sobre elemento existente não move o objeto e não exibe moldura`, () => {
-        let state = createInitialTabState('aba-paint');
-        state = reduceEvent(state, {
-          id: `ev-rect-${tool}`,
-          tipo: 'DRAW_ADD',
-          autor: 'host',
-          criado_em: 1000,
-          payload: {
-            id: `rect-base-${tool}`,
-            tipo: 'rect',
-            data: { left: 100, top: 100, width: 100, height: 80, stroke: '#0284c7' },
-          },
+    const resolucoes = [
+      { nome: 'escala 1,0 (padrão)', largura: 1200, altura: 800 },
+      { nome: 'Host escala 1,5 (4K @150%)', largura: 1800, altura: 1200 },
+      { nome: 'celular escala ~0,34 (Mobile)', largura: 412, altura: 275 },
+    ] as const;
+
+    for (const res of resolucoes) {
+      for (const tool of ferramentas) {
+        it(`ferramenta "${tool}" em ${res.nome} iniciando gesto sobre elemento existente não move o objeto e não exibe moldura`, () => {
+          engine.setDimensions(res.largura, res.altura);
+          const escala = res.largura / 1200;
+
+          let state = createInitialTabState('aba-paint');
+          state = reduceEvent(state, {
+            id: `ev-rect-${tool}-${res.largura}`,
+            tipo: 'DRAW_ADD',
+            autor: 'host',
+            criado_em: 1000,
+            payload: {
+              id: `rect-base-${tool}-${res.largura}`,
+              tipo: 'rect',
+              data: { left: 100, top: 100, width: 100, height: 80, stroke: '#0284c7' },
+            },
+          });
+          engine.renderState(state);
+
+          const baseRect = engine.canvas.getObjects().find((o) => (o as any).elementId === `rect-base-${tool}-${res.largura}`)!;
+          expect(baseRect.left).toBe(100);
+          expect(baseRect.top).toBe(100);
+          expect(baseRect.selectable).toBe(false);
+          expect(baseRect.hasControls).toBe(false);
+
+          engine.setTool(tool);
+
+          // Gesto sobre o elemento existente (120, 120 em cena)
+          (engine.canvas as any).fire('mouse:down', {
+            e: { clientX: 120 * escala, clientY: 120 * escala, buttons: 1 },
+            clientX: 120 * escala,
+            clientY: 120 * escala,
+            target: baseRect,
+          });
+
+          // O elemento base NÃO se tornou ativo (se for text, o ativo é o novo IText em edição, nunca baseRect)
+          if (tool === 'text') {
+            const active = engine.canvas.getActiveObject();
+            expect(active).not.toBe(baseRect);
+          } else {
+            expect(engine.canvas.getActiveObject()).toBeFalsy();
+          }
+
+          // Posição do elemento original intacta
+          expect(baseRect.left).toBe(100);
+          expect(baseRect.top).toBe(100);
         });
-        engine.renderState(state);
-
-        const baseRect = engine.canvas.getObjects().find((o) => (o as any).elementId === `rect-base-${tool}`)!;
-        expect(baseRect.left).toBe(100);
-        expect(baseRect.top).toBe(100);
-        expect(baseRect.selectable).toBe(false);
-        expect(baseRect.hasControls).toBe(false);
-
-        engine.setTool(tool);
-
-        // Gesto sobre o elemento existente (120, 120)
-        (engine.canvas as any).fire('mouse:down', {
-          e: { clientX: 120, clientY: 120, buttons: 1 },
-          clientX: 120,
-          clientY: 120,
-          target: baseRect,
-        });
-
-        // O elemento base NÃO se tornou ativo (se for text, o ativo é o novo IText em edição, nunca baseRect)
-        if (tool === 'text') {
-          const active = engine.canvas.getActiveObject();
-          expect(active).not.toBe(baseRect);
-        } else {
-          expect(engine.canvas.getActiveObject()).toBeFalsy();
-        }
-
-        // Posição do elemento original intacta
-        expect(baseRect.left).toBe(100);
-        expect(baseRect.top).toBe(100);
-      });
+      }
     }
   });
 

@@ -1346,13 +1346,18 @@ async function main() {
         console.log(`[Probe V3c Regressão] select selecionou e moveu objeto: ${moveuNoSelect ? 'PASS' : 'FAIL'} (de ${rectBeforeSelect.left},${rectBeforeSelect.top} para ${rectAfterSelect?.left},${rectAfterSelect?.top})`);
       }
 
-      // 2. Regressão object_eraser: clica sobre o traço da elipse do caso 2 (em 210, 390) e apaga
+      // 2. Regressão object_eraser: clica sobre o traço da elipse do caso 2 (borda esquerda em 170, 390) e apaga
       await page.click('#tool-object-eraser');
+      await new Promise((r) => setTimeout(r, 200));
+      const v3cBox = await page.$eval('.upper-canvas', (el) => {
+        const r = el.getBoundingClientRect();
+        return { left: r.left, top: r.top, width: r.width, height: r.height };
+      });
       const countBeforeErase = await page.evaluate(() => window.__whiteboardEngine?.canvas.getObjects().length || 0);
-      const eraseClickX = Math.round(matrixCanvasBox.left + 210);
-      const eraseClickY = Math.round(matrixCanvasBox.top + 390);
+      const eraseClickX = Math.round(v3cBox.left + 172);
+      const eraseClickY = Math.round(v3cBox.top + 390);
       await page.mouse.click(eraseClickX, eraseClickY);
-      await new Promise((r) => setTimeout(r, 400));
+      await new Promise((r) => setTimeout(r, 600));
       const countAfterErase = await page.evaluate(() => window.__whiteboardEngine?.canvas.getObjects().length || 0);
 
       const apagouObjeto = countAfterErase < countBeforeErase;
@@ -1453,6 +1458,12 @@ async function main() {
         guestSelectionPixels: {},
         guestNoActiveObjectOk: true,
         guestGeomPreservedOk: true,
+        eraserStrokeTouchErasesHost: false,
+        eraserEmptyTouchNoEraseHost: false,
+        noExceptionsDuringEraserHost: true,
+        eraserStrokeTouchErasesGuest: false,
+        eraserEmptyTouchNoEraseGuest: false,
+        noExceptionsDuringEraserGuest: true,
       };
 
       // 1. P1 / P7.4: Verificar ausência do botão #tool-select no DOM do Host
@@ -1462,55 +1473,59 @@ async function main() {
 
       // 2. Preparar alvos dedicados no Host para os testes das 9 ferramentas (y: 480..530)
       await page.bringToFront();
+      const v8CanvasBox = await page.$eval('.upper-canvas', (el) => {
+        const r = el.getBoundingClientRect();
+        return { left: r.left, top: r.top, width: r.width, height: r.height };
+      });
 
       // Alvo 1: Retângulo para caso 1 (retângulo-sobre-retângulo)
       await page.click('#tool-rectangle');
-      await page.mouse.move(matrixCanvasBox.left + 60, matrixCanvasBox.top + 480);
+      await page.mouse.move(v8CanvasBox.left + 60, v8CanvasBox.top + 480);
       await page.mouse.down();
-      await page.mouse.move(matrixCanvasBox.left + 120, matrixCanvasBox.top + 530);
+      await page.mouse.move(v8CanvasBox.left + 120, v8CanvasBox.top + 530);
       await page.mouse.up();
       await new Promise((r) => setTimeout(r, 200));
 
       // Alvo 2: Texto para caso 2 (seta-sobre-texto)
       await page.click('#tool-text');
-      await page.mouse.click(matrixCanvasBox.left + 160, matrixCanvasBox.top + 490);
+      await page.mouse.click(v8CanvasBox.left + 160, v8CanvasBox.top + 490);
       await new Promise((r) => setTimeout(r, 200));
       await page.keyboard.type('AlvoTxt');
       await new Promise((r) => setTimeout(r, 200));
-      await page.mouse.click(matrixCanvasBox.left + 50, matrixCanvasBox.top + 50);
+      await page.mouse.click(v8CanvasBox.left + 50, v8CanvasBox.top + 50);
       await new Promise((r) => setTimeout(r, 200));
 
       // Alvo 3: Elipse para caso 3 (lápis-sobre-forma)
       await page.click('#tool-ellipse');
-      await page.mouse.move(matrixCanvasBox.left + 260, matrixCanvasBox.top + 480);
+      await page.mouse.move(v8CanvasBox.left + 260, v8CanvasBox.top + 480);
       await page.mouse.down();
-      await page.mouse.move(matrixCanvasBox.left + 320, matrixCanvasBox.top + 530);
+      await page.mouse.move(v8CanvasBox.left + 320, v8CanvasBox.top + 530);
       await page.mouse.up();
       await new Promise((r) => setTimeout(r, 200));
 
       // Alvo 4: Retângulo para caso 4 (object_eraser sobre forma)
       await page.click('#tool-rectangle');
-      await page.mouse.move(matrixCanvasBox.left + 360, matrixCanvasBox.top + 480);
+      await page.mouse.move(v8CanvasBox.left + 360, v8CanvasBox.top + 480);
       await page.mouse.down();
-      await page.mouse.move(matrixCanvasBox.left + 420, matrixCanvasBox.top + 530);
+      await page.mouse.move(v8CanvasBox.left + 420, v8CanvasBox.top + 530);
       await page.mouse.up();
       await new Promise((r) => setTimeout(r, 200));
 
       // Alvos 5 a 8: Retângulos para pincel, elipse, linha e texto
       for (let i = 0; i < 4; i++) {
-        const startX = matrixCanvasBox.left + 460 + i * 100;
-        await page.mouse.move(startX, matrixCanvasBox.top + 480);
+        const startX = v8CanvasBox.left + 460 + i * 100;
+        await page.mouse.move(startX, v8CanvasBox.top + 480);
         await page.mouse.down();
-        await page.mouse.move(startX + 60, matrixCanvasBox.top + 530);
+        await page.mouse.move(startX + 60, v8CanvasBox.top + 530);
         await page.mouse.up();
         await new Promise((r) => setTimeout(r, 150));
       }
 
       // Alvo 9: Traço à mão livre para caso 9 (borracha de trecho)
       await page.click('#tool-pencil');
-      await page.mouse.move(matrixCanvasBox.left + 860, matrixCanvasBox.top + 480);
+      await page.mouse.move(v8CanvasBox.left + 860, v8CanvasBox.top + 480);
       await page.mouse.down();
-      await page.mouse.move(matrixCanvasBox.left + 920, matrixCanvasBox.top + 530);
+      await page.mouse.move(v8CanvasBox.left + 920, v8CanvasBox.top + 530);
       await page.mouse.up();
       await new Promise((r) => setTimeout(r, 300));
 
@@ -1547,9 +1562,9 @@ async function main() {
           name: 'Borracha (Traço inteiro) sobre forma (SendInput)',
           toolBtn: '#tool-object-eraser',
           toolName: 'object_eraser',
-          insidePoint: [390, 505],
-          endPoint: [410, 515],
-          targetPoint: [390, 505],
+          insidePoint: [390, 480],
+          endPoint: [410, 490],
+          targetPoint: [390, 480],
           isSendInput: true,
           isObjectEraser: true,
         },
@@ -1600,8 +1615,8 @@ async function main() {
         await page.click(tc.toolBtn);
         await new Promise((r) => setTimeout(r, 100));
 
-        const insideX = Math.round(matrixCanvasBox.left + tc.insidePoint[0]);
-        const insideY = Math.round(matrixCanvasBox.top + tc.insidePoint[1]);
+        const insideX = Math.round(v8CanvasBox.left + tc.insidePoint[0]);
+        const insideY = Math.round(v8CanvasBox.top + tc.insidePoint[1]);
 
         // (a) P7.3: Cursor sobre objeto nunca é 'move' nem 'not-allowed'
         await page.mouse.move(insideX, insideY);
@@ -1618,16 +1633,31 @@ async function main() {
 
         // Obtém o objeto sob o ponto antes do gesto
         const targetObjBefore = await page.evaluate(({ px, py }) => {
-          const objs = window.__whiteboardEngine?.canvas.getObjects() || [];
-          const hit = objs.find((o) => o.elementId && o.left <= px + 30 && o.left + (o.width || 60) >= px - 30 && o.top <= py + 30 && o.top + (o.height || 50) >= py - 30);
+          const engine = window.__whiteboardEngine;
+          if (!engine) return null;
+          const canvas = engine.canvas;
+          const upper = canvas.upperCanvasEl || canvas.getElement();
+          const rect = upper.getBoundingClientRect();
+          const target = canvas.findTarget({ clientX: rect.left + px, clientY: rect.top + py });
+          if (target && target.elementId) {
+            return { elementId: target.elementId, left: target.left, top: target.top };
+          }
+          const pt = engine.pointerToScene({ clientX: rect.left + px, clientY: rect.top + py });
+          const objs = canvas.getObjects() || [];
+          const hit = objs.slice().reverse().find((o) => o.elementId && (
+            (o.left <= pt.x + 30 && o.left + (o.width || 60) >= pt.x - 30 &&
+             o.top <= pt.y + 30 && o.top + (o.height || 50) >= pt.y - 30) ||
+            (o.left <= px + 30 && o.left + (o.width || 60) >= px - 30 &&
+             o.top <= py + 30 && o.top + (o.height || 50) >= py - 30)
+          ));
           return hit ? { elementId: hit.elementId, left: hit.left, top: hit.top } : null;
         }, { px: tc.targetPoint[0], py: tc.targetPoint[1] });
 
         // (b) P7.2: Entrada real do sistema operacional (SendInput) nos 4 cenários exigidos
         let sendInputExecuted = false;
         if (tc.isSendInput && process.platform === 'win32') {
-          const endX = Math.round(matrixCanvasBox.left + tc.endPoint[0]);
-          const endY = Math.round(matrixCanvasBox.top + tc.endPoint[1]);
+          const endX = Math.round(v8CanvasBox.left + tc.endPoint[0]);
+          const endY = Math.round(v8CanvasBox.top + tc.endPoint[1]);
           try {
             const psScript = path.join(root, 'tools', 'drag-sendinput.ps1');
             spawnSync('powershell', [
@@ -1655,11 +1685,11 @@ async function main() {
           await new Promise((r) => setTimeout(r, 200));
           await page.keyboard.type('V8Txt');
           await new Promise((r) => setTimeout(r, 200));
-          await page.mouse.click(Math.round(matrixCanvasBox.left + 50), Math.round(matrixCanvasBox.top + 50));
+          await page.mouse.click(Math.round(v8CanvasBox.left + 50), Math.round(v8CanvasBox.top + 50));
           await new Promise((r) => setTimeout(r, 300));
         } else {
-          const endX = Math.round(matrixCanvasBox.left + tc.endPoint[0]);
-          const endY = Math.round(matrixCanvasBox.top + tc.endPoint[1]);
+          const endX = Math.round(v8CanvasBox.left + tc.endPoint[0]);
+          const endY = Math.round(v8CanvasBox.top + tc.endPoint[1]);
           await page.mouse.move(insideX, insideY);
           await page.mouse.down();
           await page.mouse.move(endX, endY);
@@ -1668,7 +1698,7 @@ async function main() {
         }
 
         // (c) P7.1: Captura de tela real e contagem de pixels da moldura de seleção (rgb(178,204,255))
-        const framePixels = await countSelectionFramePixels(page, matrixCanvasBox);
+        const framePixels = await countSelectionFramePixels(page, v8CanvasBox);
         v8Results.hostSelectionPixels[tc.toolName] = framePixels;
         v8Results.hostToolsTested.push(tc.toolName);
 
@@ -1791,6 +1821,161 @@ async function main() {
         console.log(`[Probe V8 Guest] ${gt.name}: moldura=${guestFramePixels}px, activeObject=${guestActiveObj ? 'SIM' : 'null'}: ${guestPassed ? 'PASS' : 'FAIL'}`);
       }
 
+      // 5. C4: Sensação de Paint na Borracha no Host e Guest (Traço vs Área vazia com page.screenshot)
+      console.log('\n[Probe V8 / C4] Testando Borracha (Traço inteiro) no Host: traço apaga, áreas vazias NÃO apagam, 0 exceções...');
+      const hostEraserExceptions = [];
+      const onHostErr = (e) => hostEraserExceptions.push(String(e));
+      page.on('pageerror', onHostErr);
+
+      await page.bringToFront();
+
+      const hostC4Box = await page.$eval('.upper-canvas', (el) => {
+        const r = el.getBoundingClientRect();
+        return { left: r.left, top: r.top, width: r.width, height: r.height };
+      });
+
+      // (1) Host desenha Linha Diagonal (x: 100..170, y: 580..650)
+      await page.click('#tool-line');
+      await new Promise((r) => setTimeout(r, 100));
+      await page.mouse.move(hostC4Box.left + 100, hostC4Box.top + 580);
+      await page.mouse.down();
+      await page.mouse.move(hostC4Box.left + 170, hostC4Box.top + 650);
+      await page.mouse.up();
+      await new Promise((r) => setTimeout(r, 200));
+
+      // (2) Host desenha Elipse vazia (x: 250..320, y: 580..650)
+      await page.click('#tool-ellipse');
+      await new Promise((r) => setTimeout(r, 100));
+      await page.mouse.move(hostC4Box.left + 250, hostC4Box.top + 580);
+      await page.mouse.down();
+      await page.mouse.move(hostC4Box.left + 320, hostC4Box.top + 650);
+      await page.mouse.up();
+      await new Promise((r) => setTimeout(r, 200));
+
+      const hostLineClip = { left: hostC4Box.left + 90, top: hostC4Box.top + 570, width: 90, height: 90 };
+      const hostEllipseClip = { left: hostC4Box.left + 240, top: hostC4Box.top + 570, width: 90, height: 90 };
+
+      const hostLinePxBefore = await countVisibleScreenStrokePixels(page, hostLineClip);
+      const hostEllipsePxBefore = await countVisibleScreenStrokePixels(page, hostEllipseClip);
+      console.log(`[Probe V8 Host / C4] Pixels antes: Linha Diagonal=${hostLinePxBefore}px, Elipse=${hostEllipsePxBefore}px`);
+
+      // Ativa Borracha (Traço inteiro) no Host
+      await page.click('#tool-object-eraser');
+      await new Promise((r) => setTimeout(r, 100));
+
+      // (b) Clica na área vazia da caixa envolvente da linha diagonal (canto superior direito da caixa: x=160, y=590)
+      await page.mouse.click(hostC4Box.left + 160, hostC4Box.top + 590);
+      await new Promise((r) => setTimeout(r, 200));
+      const hostLinePxAfterEmptyBox = await countVisibleScreenStrokePixels(page, hostLineClip);
+
+      // (b) Clica no interior vazio da elipse (centro: x=285, y=615)
+      await page.mouse.click(hostC4Box.left + 285, hostC4Box.top + 615);
+      await new Promise((r) => setTimeout(r, 200));
+      const hostEllipsePxAfterEmptyInterior = await countVisibleScreenStrokePixels(page, hostEllipseClip);
+
+      const emptyNoEraseHostOk = (
+        hostLinePxBefore > 0 &&
+        hostEllipsePxBefore > 0 &&
+        hostLinePxAfterEmptyBox === hostLinePxBefore &&
+        hostEllipsePxAfterEmptyInterior === hostEllipsePxBefore
+      );
+      v8Results.eraserEmptyTouchNoEraseHost = emptyNoEraseHostOk;
+      console.log(`[Probe V8 Host / C4] Toque em áreas vazias NÃO apagou: Linha (${hostLinePxBefore}->${hostLinePxAfterEmptyBox}px), Elipse (${hostEllipsePxBefore}->${hostEllipsePxAfterEmptyInterior}px): ${emptyNoEraseHostOk ? 'PASS' : 'FAIL'}`);
+
+      // (a) Clica diretamente no traço da linha diagonal (ponto médio: x=135, y=615)
+      await page.mouse.click(hostC4Box.left + 135, hostC4Box.top + 615);
+      await new Promise((r) => setTimeout(r, 500));
+      const hostLinePxAfterStroke = await countVisibleScreenStrokePixels(page, hostLineClip);
+
+      const strokeErasedHostOk = hostLinePxBefore > 0 && hostLinePxAfterStroke === 0;
+      v8Results.eraserStrokeTouchErasesHost = strokeErasedHostOk;
+      console.log(`[Probe V8 Host / C4] Toque no traço da Linha Diagonal APAGOU o elemento: (${hostLinePxBefore}->${hostLinePxAfterStroke}px): ${strokeErasedHostOk ? 'PASS' : 'FAIL'}`);
+
+      // (c) Nenhuma exceção no console do renderer durante os gestos
+      page.off('pageerror', onHostErr);
+      v8Results.noExceptionsDuringEraserHost = hostEraserExceptions.length === 0;
+      console.log(`[Probe V8 Host / C4] Sem exceções no renderer Host: ${v8Results.noExceptionsDuringEraserHost ? 'PASS' : 'FAIL'} (${hostEraserExceptions.length} exceções)`);
+
+      // --- C4 no Guest Mobile emulado ---
+      console.log('\n[Probe V8 / C4] Testando Borracha no Guest Mobile: traço apaga, áreas vazias NÃO apagam, 0 exceções...');
+      const guestEraserExceptions = [];
+      const onGuestErr = (e) => guestEraserExceptions.push(String(e));
+      guestPage.on('pageerror', onGuestErr);
+
+      await guestPage.bringToFront();
+      const gBox = await guestPage.$eval('.upper-canvas', (el) => {
+        const r = el.getBoundingClientRect();
+        return { left: r.left, top: r.top, width: r.width, height: r.height };
+      });
+
+      // (1) Guest desenha Linha Diagonal em x: 340..385, y: 70..110 (coluna direita livre de toques e formas)
+      const guestLineClip = { left: gBox.left + 335, top: gBox.top + 65, width: 55, height: 50 };
+      const guestEllipseClip = { left: gBox.left + 335, top: gBox.top + 130, width: 55, height: 50 };
+
+      const cleanLinePx = await countVisibleScreenStrokePixels(guestPage, guestLineClip);
+      const cleanEllipsePx = await countVisibleScreenStrokePixels(guestPage, guestEllipseClip);
+      console.log(`[Probe V8 Guest / C4] Limpeza prévia: Linha=${cleanLinePx}px, Elipse=${cleanEllipsePx}px`);
+
+      await guestPage.evaluate(() => window.__guestEngine?.setTool('line'));
+      await new Promise((r) => setTimeout(r, 100));
+      await guestPage.mouse.move(gBox.left + 340, gBox.top + 70);
+      await guestPage.mouse.down();
+      await guestPage.mouse.move(gBox.left + 385, gBox.top + 110);
+      await guestPage.mouse.up();
+      await new Promise((r) => setTimeout(r, 200));
+
+      // (2) Guest desenha Elipse vazia em x: 340..385, y: 135..175
+      await guestPage.tap('#tool-guest-ellipse');
+      await new Promise((r) => setTimeout(r, 100));
+      await guestPage.mouse.move(gBox.left + 340, gBox.top + 135);
+      await guestPage.mouse.down();
+      await guestPage.mouse.move(gBox.left + 385, gBox.top + 175);
+      await guestPage.mouse.up();
+      await new Promise((r) => setTimeout(r, 200));
+
+      const guestLinePxBefore = await countVisibleScreenStrokePixels(guestPage, guestLineClip);
+      const guestEllipsePxBefore = await countVisibleScreenStrokePixels(guestPage, guestEllipseClip);
+      console.log(`[Probe V8 Guest / C4] Pixels antes: Linha=${guestLinePxBefore}px, Elipse=${guestEllipsePxBefore}px`);
+
+      // Ativa Borracha de Objeto no Guest via Engine
+      await guestPage.evaluate(() => {
+        window.__guestEngine?.setTool('object_eraser');
+      });
+      await new Promise((r) => setTimeout(r, 100));
+
+      // (b) Toque na área vazia da caixa da linha no Guest (canto superior direito da caixa: x=380, y=75)
+      await guestPage.mouse.click(gBox.left + 380, gBox.top + 75);
+      await new Promise((r) => setTimeout(r, 200));
+      const guestLinePxAfterEmptyBox = await countVisibleScreenStrokePixels(guestPage, guestLineClip);
+
+      // (b) Toque no interior vazio da elipse no Guest (centro: x=362, y=155)
+      await guestPage.mouse.click(gBox.left + 362, gBox.top + 155);
+      await new Promise((r) => setTimeout(r, 200));
+      const guestEllipsePxAfterEmptyInterior = await countVisibleScreenStrokePixels(guestPage, guestEllipseClip);
+
+      const emptyNoEraseGuestOk = (
+        guestLinePxBefore > 0 &&
+        guestEllipsePxBefore > 0 &&
+        guestLinePxAfterEmptyBox === guestLinePxBefore &&
+        guestEllipsePxAfterEmptyInterior === guestEllipsePxBefore
+      );
+      v8Results.eraserEmptyTouchNoEraseGuest = emptyNoEraseGuestOk;
+      console.log(`[Probe V8 Guest / C4] Toque em áreas vazias NÃO apagou: Linha (${guestLinePxBefore}->${guestLinePxAfterEmptyBox}px), Elipse (${guestEllipsePxBefore}->${guestEllipsePxAfterEmptyInterior}px): ${emptyNoEraseGuestOk ? 'PASS' : 'FAIL'}`);
+
+      // (a) Toque no traço da linha diagonal no Guest (ponto médio: x=362, y=90)
+      await guestPage.mouse.click(gBox.left + 362, gBox.top + 90);
+      await new Promise((r) => setTimeout(r, 500));
+      const guestLinePxAfterStroke = await countVisibleScreenStrokePixels(guestPage, guestLineClip);
+
+      const strokeErasedGuestOk = guestLinePxBefore > 0 && guestLinePxAfterStroke === 0;
+      v8Results.eraserStrokeTouchErasesGuest = strokeErasedGuestOk;
+      console.log(`[Probe V8 Guest / C4] Toque no traço APAGOU o elemento: (${guestLinePxBefore}->${guestLinePxAfterStroke}px): ${strokeErasedGuestOk ? 'PASS' : 'FAIL'}`);
+
+      // (c) Nenhuma exceção no console do renderer do Guest
+      guestPage.off('pageerror', onGuestErr);
+      v8Results.noExceptionsDuringEraserGuest = guestEraserExceptions.length === 0;
+      console.log(`[Probe V8 Guest / C4] Sem exceções no renderer Guest: ${v8Results.noExceptionsDuringEraserGuest ? 'PASS' : 'FAIL'} (${guestEraserExceptions.length} exceções)`);
+
       v8Results.pass = Boolean(
         v8Results.noSelectButtonInHost &&
         v8Results.hostCursorsOk &&
@@ -1801,7 +1986,13 @@ async function main() {
         Object.values(v8Results.hostSelectionPixels).every((cnt) => cnt === 0) &&
         v8Results.guestNoActiveObjectOk &&
         v8Results.guestTouchTested.length === 7 &&
-        Object.values(v8Results.guestSelectionPixels).every((cnt) => cnt === 0)
+        Object.values(v8Results.guestSelectionPixels).every((cnt) => cnt === 0) &&
+        v8Results.eraserStrokeTouchErasesHost &&
+        v8Results.eraserEmptyTouchNoEraseHost &&
+        v8Results.noExceptionsDuringEraserHost &&
+        v8Results.eraserStrokeTouchErasesGuest &&
+        v8Results.eraserEmptyTouchNoEraseGuest &&
+        v8Results.noExceptionsDuringEraserGuest
       );
 
       console.log(`[Probe V8] Resultado final da seção V8 (Sensação de Paint): ${v8Results.pass ? 'PASS' : 'FAIL'}`);
@@ -2767,6 +2958,16 @@ main()
         Boolean(res.v8 && res.v8.pass),
       'V8: Entrada física Windows SendInput em 4 cenários sobre objetos existentes sem seleção':
         Boolean(res.v8 && res.v8.sendInput4CasesOk),
+      'V8: Borracha Paint apaga traço de linha diagonal e preserva áreas vazias sem exceções (Host e Guest)':
+        Boolean(
+          res.v8 &&
+          res.v8.eraserStrokeTouchErasesHost &&
+          res.v8.eraserEmptyTouchNoEraseHost &&
+          res.v8.noExceptionsDuringEraserHost &&
+          res.v8.eraserStrokeTouchErasesGuest &&
+          res.v8.eraserEmptyTouchNoEraseGuest &&
+          res.v8.noExceptionsDuringEraserGuest
+        ),
     };
 
     console.log(JSON.stringify(res, null, 2));

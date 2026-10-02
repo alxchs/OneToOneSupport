@@ -530,6 +530,19 @@ export class WhiteboardEngine {
     // 2. Aplica escala uniforme na cena através da viewportTransform do Fabric
     this.canvas.setViewportTransform([scale, 0, 0, scale, 0, 0]);
 
+    const isEraserTool = this.activeTool === 'eraser' || this.activeTool === 'object_eraser';
+    const tol = Math.max(1, Math.round(4 * scale));
+    if (isEraserTool) {
+      if (typeof (this.canvas as any).setTargetFindTolerance === 'function') {
+        (this.canvas as any).setTargetFindTolerance(tol);
+      } else {
+        (this.canvas as any).targetFindTolerance = tol;
+      }
+      for (const [, obj] of this.objectsMap) {
+        (obj as any).targetFindTolerance = tol;
+      }
+    }
+
     this.canvas.calcOffset();
     this.canvas.requestRenderAll();
   }
@@ -780,58 +793,16 @@ export class WhiteboardEngine {
     if (!target && opt.e) {
       target = (this.canvas as any).findTarget?.(opt.e);
     }
-    if (!target && opt.e) {
-      const scenePoint = this.pointerToScene(opt.e);
-      const upperEl = this.canvas.upperCanvasEl;
-      const canvasBounds = upperEl ? upperEl.getBoundingClientRect() : null;
-      const rawX = canvasBounds && opt.e.clientX !== undefined ? opt.e.clientX - canvasBounds.left : null;
-      const rawY = canvasBounds && opt.e.clientY !== undefined ? opt.e.clientY - canvasBounds.top : null;
-
-      const objs = this.canvas.getObjects();
-      for (let i = objs.length - 1; i >= 0; i--) {
-        const obj = objs[i];
-        if (obj && (obj as any).elementId && (obj as any).tipo !== 'eraser_stroke') {
-          // 1. Checagem em coordenadas de cena com getBoundingRect(true)
-          const sceneBounds = typeof (obj as any).getBoundingRect === 'function'
-            ? (obj as any).getBoundingRect(true)
-            : null;
-          const insideSceneBounds = Boolean(
-            sceneBounds &&
-            scenePoint.x >= sceneBounds.left - 12 && scenePoint.x <= sceneBounds.left + sceneBounds.width + 12 &&
-            scenePoint.y >= sceneBounds.top - 12 && scenePoint.y <= sceneBounds.top + sceneBounds.height + 12
-          );
-
-          // 2. Checagem direta usando propriedades de cena do objeto (left, top, width, height)
-          const objLeft = (obj as any).left ?? 0;
-          const objTop = (obj as any).top ?? 0;
-          const objW = ((obj as any).width ?? 0) * Math.abs((obj as any).scaleX ?? 1);
-          const objH = ((obj as any).height ?? 0) * Math.abs((obj as any).scaleY ?? 1);
-          const minX = Math.min(objLeft, objLeft + objW) - 12;
-          const maxX = Math.max(objLeft, objLeft + objW) + 12;
-          const minY = Math.min(objTop, objTop + objH) - 12;
-          const maxY = Math.max(objTop, objTop + objH) + 12;
-          const insideDirect = scenePoint.x >= minX && scenePoint.x <= maxX && scenePoint.y >= minY && scenePoint.y <= maxY;
-
-          // 3. Checagem em coordenadas de viewport/CSS (getBoundingRect(false) comparado com rawX, rawY)
-          const viewBounds = typeof (obj as any).getBoundingRect === 'function'
-            ? (obj as any).getBoundingRect(false)
-            : null;
-          const insideViewBounds = Boolean(
-            viewBounds && rawX !== null && rawY !== null &&
-            rawX >= viewBounds.left - 12 && rawX <= viewBounds.left + viewBounds.width + 12 &&
-            rawY >= viewBounds.top - 12 && rawY <= viewBounds.top + viewBounds.height + 12
-          );
-
-          // 4. Fabric containsPoint
-          const containsScene = typeof (obj as any).containsPoint === 'function' && (obj as any).containsPoint(scenePoint);
-
-          if (insideSceneBounds || insideDirect || insideViewBounds || containsScene) {
-            target = obj;
-            break;
-          }
-        }
-      }
-    }
+    diagLog('handleEraserAction_entry', {
+      hasTarget: Boolean(target),
+      targetId: (target as any)?.elementId,
+      targetTipo: (target as any)?.tipo || (target as any)?.type,
+      optHasTarget: Boolean(opt.target),
+      tool: this.activeTool,
+      eType: opt.e?.type,
+      clientX: opt.e?.clientX,
+      clientY: opt.e?.clientY,
+    });
     if (target && (target as any).elementId) {
       const elementId = (target as any).elementId;
       diagLog('object_eraser', {
@@ -1183,6 +1154,17 @@ export class WhiteboardEngine {
     // procuram alvos sob o cursor (skipTargetFind = false).
     this.canvas.skipTargetFind = !(tool === 'select' || tool === 'object_eraser');
 
+    // C2: Sensação de Paint na borracha: ativa perPixelTargetFind com targetFindTolerance
+    // nos elementos enquanto a ferramenta for 'eraser' ou 'object_eraser', e desliga nas outras.
+    const isEraserTool = tool === 'eraser' || tool === 'object_eraser';
+    this.canvas.perPixelTargetFind = isEraserTool;
+    const tol = Math.max(1, Math.round(4 * (this.scale || 1)));
+    if (typeof (this.canvas as any).setTargetFindTolerance === 'function') {
+      (this.canvas as any).setTargetFindTolerance(tol);
+    } else {
+      (this.canvas as any).targetFindTolerance = tol;
+    }
+
     let activeCursor = 'crosshair';
 
     switch (tool) {
@@ -1434,6 +1416,11 @@ export class WhiteboardEngine {
       return;
     }
 
+    const isEraserTool = this.activeTool === 'eraser' || this.activeTool === 'object_eraser';
+    obj.perPixelTargetFind = isEraserTool;
+    const tol = Math.max(1, Math.round(4 * (this.scale || 1)));
+    (obj as any).targetFindTolerance = tol;
+
     if (this.activeTool !== 'select') {
       obj.selectable = false;
       obj.evented = true;
@@ -1464,6 +1451,10 @@ export class WhiteboardEngine {
    */
   public syncDragLocks(): void {
     if (this.readOnly) return;
+    const allObjs = this.canvas.getObjects() || [];
+    for (const obj of allObjs) {
+      this.applySelectionDragLocks(obj);
+    }
     for (const [, obj] of this.objectsMap) {
       this.applySelectionDragLocks(obj);
     }

@@ -49,7 +49,11 @@ if (typeof HTMLCanvasElement !== 'undefined') {
         lineWidth: 1,
         fillText: () => {},
         strokeText: () => {},
-        getImageData: () => ({ data: new Uint8ClampedArray(400) }),
+        getImageData: () => {
+          const data = new Uint8ClampedArray(400);
+          data.fill(255);
+          return { data };
+        },
         putImageData: () => {},
         drawImage: () => {},
         setLineDash: () => {},
