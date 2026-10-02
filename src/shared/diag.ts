@@ -15,6 +15,17 @@ export function isDiagEnabled(): boolean {
     const w = window as any;
     if (w.__NODE_ENV__ === 'production') return false;
     if (w.__ONETOONE_DIAG__) return true;
+    try {
+      if (window.location && window.location.search) {
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('diag') === '1') {
+          w.__ONETOONE_DIAG__ = true;
+          return true;
+        }
+      }
+    } catch {
+      // noop
+    }
   }
 
   return false;

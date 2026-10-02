@@ -70,20 +70,27 @@ if (!isDev) {
   delete env.VITE_DEV_SERVER_URL; // Garante teste de CSP estrita de produção
 }
 
-const exe = path.join(
-  root,
-  'node_modules',
-  'electron',
-  'dist',
-  process.platform === 'win32' ? 'electron.exe' : 'electron'
-);
+const customExe = process.env.ONETOONE_EXE;
+const isPackaged = Boolean(customExe && fs.existsSync(customExe));
+const exe = isPackaged
+  ? customExe
+  : path.join(
+      root,
+      'node_modules',
+      'electron',
+      'dist',
+      process.platform === 'win32' ? 'electron.exe' : 'electron'
+    );
 const electronArgs = [
-  '.',
+  ...(isPackaged ? [] : ['.']),
   `--remote-debugging-port=${PORT}`,
   `--user-data-dir=${probeUserDataDir}`,
   `--force-device-scale-factor=${probeDpr}`,
 ];
-const app = spawn(exe, electronArgs, { cwd: root, env, stdio: 'pipe' });
+const appCwd = isPackaged ? path.dirname(exe) : root;
+console.log(`[Probe] Lançando binário: ${exe} (empacotado: ${isPackaged}) em CWD: ${appCwd}`);
+const app = spawn(exe, electronArgs, { cwd: appCwd, env, stdio: 'pipe' });
+
 let log = '';
 app.stdout.on('data', (d) => (log += d));
 app.stderr.on('data', (d) => (log += d));
@@ -1737,7 +1744,14 @@ async function main() {
         process.stdout.write(JSON.stringify({ count: row ? row.qtd : 0 }));
         db.close();
       `;
-      const resSql = spawnSync(exe, ['-e', checkSql], {
+      const electronNodeExe = path.join(
+        root,
+        'node_modules',
+        'electron',
+        'dist',
+        process.platform === 'win32' ? 'electron.exe' : 'electron'
+      );
+      const resSql = spawnSync(electronNodeExe, ['-e', checkSql], {
         cwd: root,
         env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', ONETOONE_DB_PATH: probeDbPath },
         encoding: 'utf8',
@@ -1745,6 +1759,7 @@ async function main() {
       if (resSql.status === 0 && resSql.stdout) {
         return JSON.parse(resSql.stdout).count;
       }
+
     } catch (e) {
       console.error('[Probe V4] Erro ao consultar SQLite:', e);
     }

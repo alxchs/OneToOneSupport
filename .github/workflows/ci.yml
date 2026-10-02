@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - 'fase/**'
+  pull_request:
+    branches:
+      - main
+      - 'fase/**'
+
+jobs:
+  validate:
+    name: Build, Test and Validate (Windows)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies (clean)
+        run: npm ci
+
+      - name: TypeScript typecheck
+        run: npm run typecheck
+
+      - name: Run automated test suite
+        run: npm test
+
+      - name: Build frontend, electron and guest artifacts
+        run: npm run build
+
+      - name: Package installer and portable binary check
+        run: npm run package -- --publish never

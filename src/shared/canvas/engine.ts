@@ -129,11 +129,17 @@ export function createFabricObjectFromData(tipo: string, data: any): FabricObjec
         return new Path(data.path, {
           left: data.left,
           top: data.top,
+          width: data.width,
+          height: data.height,
+          scaleX: data.scaleX ?? 1,
+          scaleY: data.scaleY ?? 1,
+          pathOffset: data.pathOffset,
           fill: data.fill ?? null,
           stroke: data.stroke ?? '#0284c7',
           strokeWidth: data.strokeWidth ?? 2,
           strokeLineCap: data.strokeLineCap ?? 'round',
           strokeLineJoin: data.strokeLineJoin ?? 'round',
+          strokeDashArray: data.strokeDashArray,
           selectable: true,
         });
       }
@@ -567,9 +573,18 @@ export class WhiteboardEngine {
       const elementId = generateUUID();
       const pathData = pathObj.toObject();
 
-      // Remove imediatamente o elemento cru do canvas; ele será inserido
-      // determinísticamente através da projeção do Reducer (renderState)
-      this.canvas.remove(pathObj);
+      if (isEraser) {
+        // Borracha de trecho precisa ser removida para ser reconstruída
+        // com globalCompositeOperation: 'destination-out'
+        this.canvas.remove(pathObj);
+      } else {
+        // D3.1: Traço de lápis/brush permanece no canvas para eliminar a janela
+        // de sumiço/flicker entre path:created e a confirmação do Reducer (renderState).
+        (pathObj as any).elementId = elementId;
+        (pathObj as any).autor = this.author;
+        this.applySelectionDragLocks(pathObj);
+        this.objectsMap.set(elementId, pathObj);
+      }
 
       const event: WhiteboardEvent = {
         id: generateUUID(),
