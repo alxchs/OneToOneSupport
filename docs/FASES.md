@@ -15,6 +15,7 @@ Ordens de serviço em `docs/prompts/`. Veredito de cada fase em `docs/reviews/fa
 | 08 | `fase/08-abas-midia-assets` | Abas image/pdf/video/audio, Range requests, mídia sincronizada, arquivamento em %APPDATA% | 04, 05, 07 | Sim |
 | 09 | `fase/09-relatorio-pdf` | Template HTML + Puppeteer, miniaturas do canvas | 05, 06 | Sim (PDF aberto) |
 | 10 | `fase/10-empacotamento-aceite` | electron-builder, firewall, CI executado de verdade, testes de aceite V1.0, latência < 200 ms | todas | Sim |
+| 11 | `fase/11-quadro-estilo-paint` | quadro com sensação de Paint: sem moldura/alça/cursor de objeto, sem botão Seleção (pedido do dono em 2026-10-02) | 06, 07 | Sim |
 
 Fase 05 pode andar em paralelo com 03/04 (só depende de 02), mas **nunca duas IAs na mesma branch**.
 
