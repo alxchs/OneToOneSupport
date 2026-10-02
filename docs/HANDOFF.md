@@ -1,3 +1,27 @@
+# HANDOFF DE ESTADO — FASE 11: Quadro com Sensação de Paint
+
+## Mensagem para o Alexandre (Resumo em Português Simples — Fase 11)
+Olá Alexandre! Implementamos com sucesso a **Fase 11: Quadro com sensação de Paint**, atendendo integralmente ao seu pedido de fazer o quadro funcionar como uma verdadeira folha de desenho (estilo Paint do Windows), onde o usuário nunca é exposto a caixas de seleção, alças de redimensionar/girar ou cursores de "mover".
+
+O que mudou na prática:
+1. **O botão de Seleção saiu da barra de ferramentas do Host (P1):** A barra do aplicativo agora contém apenas ferramentas de desenho e escrita direta. A engine continua suportando a ferramenta `select` internamente, e todo o código técnico de arrasto (D15) foi preservado para reativação futura. O Guest já não possuía botão de seleção.
+2. **A ferramenta de Texto não pula mais para a Seleção (P2):** Após confirmar a digitação de um texto (ou clicar fora), a ferramenta ativa permanece sendo `text` no Host e no Guest, permitindo continuar digitando outros textos sem reativar a ferramenta. Clicar fora confirma o texto atual sem criar outro no mesmo clique.
+3. **Texto sem alças de objeto (P3):** Enquanto você digita, não aparecem alças de redimensionamento nem alça de rotação (`hasControls: false`, sem ponto de rotação). Exibe-se apenas o cursor de digitação com uma moldura tracejada fina e discreta em tom azul-ardósia (`borderColor: '#0284c7'`). O botão foi renomeado de "Texto Rotacionável" para "Texto". Elementos gravados também não mostram alças.
+4. **Borracha (Traço inteiro) sem cara de objeto (P4):** O botão foi renomeado para "Borracha (Traço inteiro)" com o título explicativo "Apaga de uma vez o traço ou a forma em que você clicar ou passar por cima". Ao clicar ou passar a borracha sobre qualquer objeto, ele é apagado imediatamente sem nunca mostrar moldura azul de seleção (`getActiveObject() === null`). Substituímos o cursor `not-allowed` por um cursor gráfico de borracha em SVG azul-ardósia com o hotspot na ponta em (2, 22). Ao passar o mouse sobre elementos, o cursor nunca muda para `move`.
+5. **Nenhuma moldura em nenhuma ferramenta (P5):** Começando o traço por cima de qualquer elemento existente com qualquer uma das ferramentas ativas (`pencil`, `brush`, `rectangle`, `ellipse`, `line`, `arrow`, `text`, `eraser`, `object_eraser`), o elemento anterior não é agarrado nem movido, e nenhuma moldura aparece. No Guest, o mesmo comportamento é garantido por toque. Prova visual: 0 pixels de moldura em captura de tela real (`rgb(178,204,255)`).
+6. **Por dentro, tudo continua vetorial (P6):** Os eventos continuam no formato append-only (`DRAW_ADD` e `DRAW_HIDE`), garantindo sincronização bidirecional em tempo real, desfazer/refazer determinístico, integridade no SQLite, exportação para relatórios em PDF e fidelidade HiDPI 4K (documentado detalhadamente na Seção 7 de `docs/ARQUITETURA.md`).
+
+### Evidências e Provas Automatizadas (P7)
+- **Captura de tela real e contagem de pixels (P7.1):** O teste de runtime V8 realizou capturas de tela reais (`page.screenshot`) em todas as 9 ferramentas do Host e no Guest por toque móvel iniciando sobre objetos existentes, comprovando **0 pixels de moldura de seleção** (`rgb(178,204,255)`).
+- **Entrada real do sistema operacional (P7.2):** O script `tools/drag-sendinput.ps1` executou eventos reais de `SendInput` no Windows nos 4 cenários exigidos (retângulo sobre retângulo, seta sobre texto, lápis sobre forma e Borracha (Traço inteiro) sobre forma), sem qualquer seleção acidental.
+- **Cursores corretos (P7.3):** Cursores inspecionados em todas as ferramentas; nenhuma exibe `move` ou `not-allowed` sobre objetos.
+- **Suíte de testes:** 23 novos testes em `tests/quadro-estilo-paint.test.ts` cobrindo requisitos normais e ataques de robustez (duplo clique em texto antigo, troca de ferramenta no meio da digitação, borracha arrastada sobre múltiplos elementos, atalhos de teclado). Total: 434 testes vitest (100% PASS).
+- **Empacotamento e Sonda no Executável Real (P8):** Executado `npm run package` gerando `release/win-unpacked/OneToOneSupport.exe`. Sonda executada com sucesso contra o executável real (`$env:ONETOONE_EXE = "$PWD\release\win-unpacked\OneToOneSupport.exe"; npm run probe`), registrando 47/47 verificações aprovadas com 0 pixels de moldura em captura de tela real.
+- **Autoauditoria completa:** Registrada em `docs/reviews/autoauditoria-11.md`.
+- **Clone limpo verificado:** Clonado em `$env:TEMP\onetoone-clean-fase11`, executado `npm run verify` com aprovação integral (exit code 0).
+
+---
+
 # HANDOFF — CORREÇÃO CRÍTICA: Quadro Branco no Host e Toque no Guest Mobile
 
 ## Mensagem para o Alexandre (Resumo em Português Simples)
