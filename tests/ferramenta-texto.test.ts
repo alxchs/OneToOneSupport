@@ -44,6 +44,8 @@ if (typeof HTMLCanvasElement !== 'undefined') {
         getImageData: () => ({ data: new Uint8ClampedArray(400) }),
         putImageData: () => {},
         drawImage: () => {},
+        setLineDash: () => {},
+        getLineDash: () => [],
       } as unknown as CanvasRenderingContext2D;
     }
     return null;
@@ -100,7 +102,7 @@ describe('D13 — Ferramenta Texto Utilizável (Ciclo de Vida, Edição e Descar
     expect(engine.activeTool).toBe('text');
   });
 
-  it('D13.1.2: texto nasce vazio; se desselecionado sem digitar nada, NENHUM elemento é gravado e volta para select', () => {
+  it('D13.1.2: texto nasce vazio; se desselecionado sem digitar nada, NENHUM elemento é gravado e permanece em text', () => {
     engine.setTool('text');
     const fakeDownEvent = {
       e: { clientX: 300, clientY: 250 },
@@ -123,11 +125,11 @@ describe('D13 — Ferramenta Texto Utilizável (Ciclo de Vida, Edição e Descar
     // O objeto temporário foi removido do canvas
     expect(engine.canvas.getObjects().includes(activeObj)).toBe(false);
 
-    // Ferramenta comutou para 'select'
-    expect(engine.activeTool).toBe('select');
+    // P2: Ferramenta permanece 'text' (sensação de Paint)
+    expect(engine.activeTool).toBe('text');
   });
 
-  it('D13.1.3: digitação de texto com acentuação e multilinha emite DRAW_ADD correto e comuta para select', () => {
+  it('D13.1.3: digitação de texto com acentuação e multilinha emite DRAW_ADD correto e permanece em text', () => {
     engine.setTool('text');
     const fakeDownEvent = {
       e: { clientX: 150, clientY: 180 },
@@ -138,6 +140,9 @@ describe('D13 — Ferramenta Texto Utilizável (Ciclo de Vida, Edição e Descar
 
     const activeObj = engine.canvas.getActiveObject() as any;
     expect(activeObj).toBeTruthy();
+    // P3: Texto em edição sem alças de rotação nem controle
+    expect(activeObj.hasControls).toBe(false);
+    expect(activeObj.hasRotatingPoint).toBe(false);
 
     // Simula digitação no objeto em edição
     activeObj.text = 'Ação Multilinha\nSegunda Linha';
@@ -149,7 +154,8 @@ describe('D13 — Ferramenta Texto Utilizável (Ciclo de Vida, Edição e Descar
     expect(drawAdds.length).toBe(1);
     expect((drawAdds[0].payload as any).tipo).toBe('text');
     expect((drawAdds[0].payload as any).data.text).toBe('Ação Multilinha\nSegunda Linha');
-    expect(engine.activeTool).toBe('select');
+    // P2: Ferramenta permanece 'text' (sensação de Paint)
+    expect(engine.activeTool).toBe('text');
   });
 
   it('D13.1.4: se o usuário troca de ferramenta para "pencil" durante a edição, comita o texto e adota "pencil"', () => {
@@ -200,8 +206,8 @@ describe('D13 — Ferramenta Texto Utilizável (Ciclo de Vida, Edição e Descar
     expect(drawAdds.length).toBe(1);
     expect((drawAdds[0].payload as any).data.text).toBe('Primeiro Texto');
 
-    // Ferramenta comutou para 'select'
-    expect(engine.activeTool).toBe('select');
+    // P2: Ferramenta permanece 'text' (sensação de Paint)
+    expect(engine.activeTool).toBe('text');
 
     // Não existe novo objeto em edição
     const activeAposCliqueFora = engine.canvas.getActiveObject() as any;

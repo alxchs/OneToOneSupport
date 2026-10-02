@@ -184,7 +184,11 @@ export const QuadroBrancoPage: React.FC = () => {
     } else {
       engine.setStrokeColor(corAtual);
       engine.setStrokeWidth(espessuraAtual);
-      engine.setTool(ferramenta);
+      const toolToUse = ferramenta === 'select' ? 'pencil' : ferramenta;
+      if (toolToUse !== ferramenta) {
+        setFerramenta(toolToUse);
+      }
+      engine.setTool(toolToUse);
     }
 
     engineRef.current = engine;
@@ -267,11 +271,12 @@ export const QuadroBrancoPage: React.FC = () => {
 
   // Manipuladores de ferramentas
   const selecionarFerramenta = useCallback((tool: WhiteboardTool) => {
-    setFerramenta(tool);
+    const finalTool = (!quadroSomenteLeitura && tool === 'select') ? 'pencil' : tool;
+    setFerramenta(finalTool);
     if (engineRef.current) {
-      engineRef.current.setTool(tool);
+      engineRef.current.setTool(finalTool);
     }
-  }, []);
+  }, [quadroSomenteLeitura]);
 
   const alterarCor = useCallback((cor: string) => {
     setCorAtual(cor);
@@ -848,25 +853,6 @@ export const QuadroBrancoPage: React.FC = () => {
           {/* Grupo 1: Ferramentas Interativas */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', flexWrap: 'wrap' }}>
             <button
-              id="tool-select"
-              type="button"
-              onClick={() => selecionarFerramenta('select')}
-              title="Selecionar e Mover Objeto"
-              style={{
-                padding: '0.4rem 0.75rem',
-                fontSize: '0.8125rem',
-                fontWeight: 600,
-                borderRadius: '0.375rem',
-                cursor: 'pointer',
-                backgroundColor: ferramenta === 'select' ? '#0284c7' : '#1e293b',
-                border: `1px solid ${ferramenta === 'select' ? '#38bdf8' : '#334155'}`,
-                color: ferramenta === 'select' ? '#ffffff' : '#cbd5e1',
-              }}
-            >
-              ↖ Seleção
-            </button>
-
-            <button
               id="tool-pencil"
               type="button"
               onClick={() => selecionarFerramenta('pencil')}
@@ -984,7 +970,7 @@ export const QuadroBrancoPage: React.FC = () => {
               id="tool-text"
               type="button"
               onClick={() => selecionarFerramenta('text')}
-              title="Texto Rotacionável"
+              title="Texto"
               style={{
                 padding: '0.4rem 0.75rem',
                 fontSize: '0.8125rem',
@@ -996,7 +982,7 @@ export const QuadroBrancoPage: React.FC = () => {
                 color: ferramenta === 'text' ? '#ffffff' : '#cbd5e1',
               }}
             >
-              T Texto
+              Texto
             </button>
 
             <button
@@ -1022,7 +1008,7 @@ export const QuadroBrancoPage: React.FC = () => {
               id="tool-object-eraser"
               type="button"
               onClick={() => selecionarFerramenta('object_eraser')}
-              title="Borracha de Objeto (Oculta o elemento inteiro ao clicar)"
+              title="Apaga de uma vez o traço ou a forma em que você clicar ou passar por cima"
               style={{
                 padding: '0.4rem 0.75rem',
                 fontSize: '0.8125rem',
@@ -1034,7 +1020,7 @@ export const QuadroBrancoPage: React.FC = () => {
                 color: ferramenta === 'object_eraser' ? '#fef3c7' : '#cbd5e1',
               }}
             >
-              ✕ Borracha (Objeto)
+              Borracha (Traço inteiro)
             </button>
           </div>
 

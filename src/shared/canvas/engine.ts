@@ -22,6 +22,22 @@ import { diagLog, isDiagEnabled } from '../diag';
 export const CANONICAL_VIRTUAL_WIDTH = 1200;
 export const CANONICAL_VIRTUAL_HEIGHT = 800;
 
+// Cursor SVG da borracha na paleta azul-ardósia (#0284c7, #0369a1, #0f172a, #38bdf8, #cbd5e1) com hotspot na ponta (2, 22)
+const ERASER_SVG =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none">' +
+  '<path d="M15.5 3.5 L20.5 8.5 L9.5 19.5 L4.5 14.5 Z" fill="#0284c7" stroke="#0f172a" stroke-width="1.5" stroke-linejoin="round"/>' +
+  '<path d="M4.5 14.5 L9.5 19.5 L5.5 22 L2 22 L2 18.5 Z" fill="#cbd5e1" stroke="#0f172a" stroke-width="1.5" stroke-linejoin="round"/>' +
+  '<line x1="8" y1="6" x2="16" y2="14" stroke="#38bdf8" stroke-width="1" stroke-linecap="round"/>' +
+  '</svg>';
+
+export const ERASER_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(ERASER_SVG)}") 2 22, crosshair`;
+
+// Cor canônica de moldura/alças de seleção do Fabric (para prova de 0 pixels nos testes visuais)
+if (FabricObject.ownDefaults) {
+  FabricObject.ownDefaults.borderColor = 'rgb(178,204,255)';
+  FabricObject.ownDefaults.cornerColor = 'rgb(178,204,255)';
+}
+
 /**
  * D15: Controla se o arrasto (mover, redimensionar, girar) de objetos em modo de seleção está ativo.
  *
@@ -123,7 +139,10 @@ export function createFabricObjectFromData(tipo: string, data: any): FabricObjec
 
     case 'path': {
       if (typeof data === 'string') {
-        return new Path(data);
+        return new Path(data, {
+          selectable: false,
+          hasControls: false,
+        });
       }
       if (data.path) {
         return new Path(data.path, {
@@ -140,7 +159,8 @@ export function createFabricObjectFromData(tipo: string, data: any): FabricObjec
           strokeLineCap: data.strokeLineCap ?? 'round',
           strokeLineJoin: data.strokeLineJoin ?? 'round',
           strokeDashArray: data.strokeDashArray,
-          selectable: true,
+          selectable: false,
+          hasControls: false,
         });
       }
       return null;
@@ -157,7 +177,8 @@ export function createFabricObjectFromData(tipo: string, data: any): FabricObjec
         stroke: data.stroke ?? '#0284c7',
         strokeWidth: data.strokeWidth ?? 2,
         angle: data.angle ?? 0,
-        selectable: true,
+        selectable: false,
+        hasControls: false,
       });
     }
 
@@ -172,7 +193,8 @@ export function createFabricObjectFromData(tipo: string, data: any): FabricObjec
         stroke: data.stroke ?? '#0284c7',
         strokeWidth: data.strokeWidth ?? 2,
         angle: data.angle ?? 0,
-        selectable: true,
+        selectable: false,
+        hasControls: false,
       });
     }
 
@@ -181,7 +203,8 @@ export function createFabricObjectFromData(tipo: string, data: any): FabricObjec
       return new Line(points, {
         stroke: data.stroke ?? '#0284c7',
         strokeWidth: data.strokeWidth ?? 2,
-        selectable: true,
+        selectable: false,
+        hasControls: false,
       });
     }
 
@@ -196,9 +219,11 @@ export function createFabricObjectFromData(tipo: string, data: any): FabricObjec
         fontSize: data.fontSize ?? 22,
         fill: data.fill ?? '#0f172a',
         angle: data.angle ?? 0,
-        selectable: true,
-        hasControls: true,
-        hasRotatingPoint: true,
+        selectable: false,
+        editable: false,
+        hasControls: false,
+        hasRotatingPoint: false,
+        hasBorders: false,
       });
     }
 
@@ -245,8 +270,8 @@ export function createArrowObject(data: {
   });
 
   return new Group([line, arrowHead], {
-    selectable: true,
-    hasControls: true,
+    selectable: false,
+    hasControls: false,
     angle: data.angle ?? 0,
   });
 }
@@ -310,6 +335,8 @@ export class WhiteboardEngine {
   private shapeOrigin: { x: number; y: number } | null = null;
   private lastPointerScene: { x: number; y: number } | null = null;
   private previewShape: FabricObject | null = null;
+  private editingTextObj: IText | null = null;
+  private justExitedEditingTimestamp: number = 0;
 
   // Cleanup de listeners de resolução e redimensionamento
   private cleanupFns: Array<() => void> = [];
@@ -641,21 +668,29 @@ export class WhiteboardEngine {
       }
 
       if (this.activeTool === 'text') {
-        const activeObj = this.canvas.getActiveObject();
-        if (activeObj && (activeObj as any).isEditing) {
+        if (Date.now() - this.justExitedEditingTimestamp < 350) {
+          // O clique serviu para comitar/sair do texto em edição anterior; não cria novo texto no mesmo clique
+          return;
+        }
+
+        const editingObj = this.editingTextObj || (this.canvas.getActiveObject() as any);
+        if (editingObj && (editingObj as any).isEditing) {
           const pos = this.pointerToScene(e);
-          const isTargetActive = opt.target === activeObj;
+          const isTargetActive = opt.target === editingObj;
           const containsPoint =
-            typeof (activeObj as any).containsPoint === 'function' &&
-            (activeObj as any).containsPoint(pos);
+            typeof (editingObj as any).containsPoint === 'function' &&
+            (editingObj as any).containsPoint(pos);
 
           if (isTargetActive || containsPoint) {
             // Clicou no próprio texto em edição: permite mover cursor/seleção no Fabric
             return;
           }
 
-          // Clicou fora do texto em edição: encerra edição atual e comita
-          (activeObj as any).exitEditing();
+          // Clicou fora do texto em edição: encerra edição atual e comita SEM criar novo texto
+          this.justExitedEditingTimestamp = Date.now();
+          (editingObj as any).exitEditing();
+          this.canvas.discardActiveObject();
+          this.canvas.requestRenderAll();
           return;
         }
 
@@ -689,6 +724,19 @@ export class WhiteboardEngine {
 
     // D15: Ao criar ou atualizar uma seleção no canvas, aplica travas de movimentação conforme a constante
     this.canvas.on('selection:created', (opt: any) => {
+      if (this.activeTool !== 'select') {
+        const active = this.canvas.getActiveObject();
+        if (
+          this.activeTool === 'text' &&
+          this.editingTextObj &&
+          (active === this.editingTextObj || (opt.selected && opt.selected.includes(this.editingTextObj)))
+        ) {
+          return;
+        }
+        this.canvas.discardActiveObject();
+        this.canvas.requestRenderAll();
+        return;
+      }
       if (opt.target) {
         this.applySelectionDragLocks(opt.target);
       }
@@ -700,6 +748,19 @@ export class WhiteboardEngine {
     });
 
     this.canvas.on('selection:updated', (opt: any) => {
+      if (this.activeTool !== 'select') {
+        const active = this.canvas.getActiveObject();
+        if (
+          this.activeTool === 'text' &&
+          this.editingTextObj &&
+          (active === this.editingTextObj || (opt.selected && opt.selected.includes(this.editingTextObj)))
+        ) {
+          return;
+        }
+        this.canvas.discardActiveObject();
+        this.canvas.requestRenderAll();
+        return;
+      }
       if (opt.target) {
         this.applySelectionDragLocks(opt.target);
       }
@@ -715,9 +776,70 @@ export class WhiteboardEngine {
    * Ação da borracha de objeto: localiza o elemento sob o ponteiro e emite DRAW_HIDE (sem apagar do histórico do reducer)
    */
   private handleEraserAction(opt: any): void {
-    const target = opt.target;
+    let target = opt.target;
+    if (!target && opt.e) {
+      target = (this.canvas as any).findTarget?.(opt.e);
+    }
+    if (!target && opt.e) {
+      const scenePoint = this.pointerToScene(opt.e);
+      const upperEl = this.canvas.upperCanvasEl;
+      const canvasBounds = upperEl ? upperEl.getBoundingClientRect() : null;
+      const rawX = canvasBounds && opt.e.clientX !== undefined ? opt.e.clientX - canvasBounds.left : null;
+      const rawY = canvasBounds && opt.e.clientY !== undefined ? opt.e.clientY - canvasBounds.top : null;
+
+      const objs = this.canvas.getObjects();
+      for (let i = objs.length - 1; i >= 0; i--) {
+        const obj = objs[i];
+        if (obj && (obj as any).elementId && (obj as any).tipo !== 'eraser_stroke') {
+          // 1. Checagem em coordenadas de cena com getBoundingRect(true)
+          const sceneBounds = typeof (obj as any).getBoundingRect === 'function'
+            ? (obj as any).getBoundingRect(true)
+            : null;
+          const insideSceneBounds = Boolean(
+            sceneBounds &&
+            scenePoint.x >= sceneBounds.left - 12 && scenePoint.x <= sceneBounds.left + sceneBounds.width + 12 &&
+            scenePoint.y >= sceneBounds.top - 12 && scenePoint.y <= sceneBounds.top + sceneBounds.height + 12
+          );
+
+          // 2. Checagem direta usando propriedades de cena do objeto (left, top, width, height)
+          const objLeft = (obj as any).left ?? 0;
+          const objTop = (obj as any).top ?? 0;
+          const objW = ((obj as any).width ?? 0) * Math.abs((obj as any).scaleX ?? 1);
+          const objH = ((obj as any).height ?? 0) * Math.abs((obj as any).scaleY ?? 1);
+          const minX = Math.min(objLeft, objLeft + objW) - 12;
+          const maxX = Math.max(objLeft, objLeft + objW) + 12;
+          const minY = Math.min(objTop, objTop + objH) - 12;
+          const maxY = Math.max(objTop, objTop + objH) + 12;
+          const insideDirect = scenePoint.x >= minX && scenePoint.x <= maxX && scenePoint.y >= minY && scenePoint.y <= maxY;
+
+          // 3. Checagem em coordenadas de viewport/CSS (getBoundingRect(false) comparado com rawX, rawY)
+          const viewBounds = typeof (obj as any).getBoundingRect === 'function'
+            ? (obj as any).getBoundingRect(false)
+            : null;
+          const insideViewBounds = Boolean(
+            viewBounds && rawX !== null && rawY !== null &&
+            rawX >= viewBounds.left - 12 && rawX <= viewBounds.left + viewBounds.width + 12 &&
+            rawY >= viewBounds.top - 12 && rawY <= viewBounds.top + viewBounds.height + 12
+          );
+
+          // 4. Fabric containsPoint
+          const containsScene = typeof (obj as any).containsPoint === 'function' && (obj as any).containsPoint(scenePoint);
+
+          if (insideSceneBounds || insideDirect || insideViewBounds || containsScene) {
+            target = obj;
+            break;
+          }
+        }
+      }
+    }
     if (target && (target as any).elementId) {
       const elementId = (target as any).elementId;
+      diagLog('object_eraser', {
+        action: 'apagar',
+        elementId,
+        tipo: (target as any).tipo || (target as any).type,
+      });
+
       const event: WhiteboardEvent = {
         id: generateUUID(),
         sessao_id: this.sessaoId,
@@ -733,6 +855,7 @@ export class WhiteboardEngine {
       };
       this.emitEvent(event);
       this.canvas.discardActiveObject();
+      this.canvas.requestRenderAll();
     }
   }
 
@@ -937,11 +1060,16 @@ export class WhiteboardEngine {
       top: pos.y,
       fontSize: 24,
       fill: this.strokeColor,
-      hasControls: true,
-      hasRotatingPoint: true,
+      hasControls: false,
+      hasRotatingPoint: false,
       selectable: true,
+      borderColor: '#0284c7',
+      borderDashArray: [3, 3],
+      hasBorders: true,
+      editingBorderColor: '#0284c7',
     });
 
+    this.editingTextObj = textObj;
     this.canvas.add(textObj);
     this.canvas.setActiveObject(textObj);
     textObj.enterEditing();
@@ -950,7 +1078,11 @@ export class WhiteboardEngine {
     const commitText = () => {
       if (committed) return;
       committed = true;
+      this.justExitedEditingTimestamp = Date.now();
+      this.editingTextObj = null;
+      this.canvas.discardActiveObject();
       this.canvas.remove(textObj);
+      this.canvas.requestRenderAll();
 
       const textValue = textObj.text?.trim();
       if (!textValue) {
@@ -961,8 +1093,8 @@ export class WhiteboardEngine {
           dist: 0,
           descartado: true,
         });
-        if (this.activeTool === 'text') {
-          this.setTool('select');
+        if (this.onToolChange) {
+          this.onToolChange('text');
         }
         return;
       }
@@ -991,21 +1123,27 @@ export class WhiteboardEngine {
             top: textObj.top,
             fontSize: textObj.fontSize,
             fill: textObj.fill,
-            angle: textObj.angle,
+            angle: 0,
           },
         },
       };
 
       this.emitEvent(event);
 
-      // Volta para ferramenta de seleção após confirmar o texto inserido
-      if (this.activeTool === 'text') {
-        this.setTool('select');
+      // P2: Ferramenta permanece 'text' (sensação de Paint)
+      if (this.onToolChange) {
+        this.onToolChange('text');
       }
     };
 
-    textObj.on('editing:exited', commitText);
-    textObj.on('deselected', commitText);
+    textObj.on('editing:exited', () => {
+      this.justExitedEditingTimestamp = Date.now();
+      commitText();
+    });
+    textObj.on('deselected', () => {
+      this.justExitedEditingTimestamp = Date.now();
+      commitText();
+    });
   }
 
   /**
@@ -1018,6 +1156,9 @@ export class WhiteboardEngine {
       this.canvas.selection = false;
       this.canvas.skipTargetFind = true;
       this.canvas.defaultCursor = 'default';
+      this.canvas.hoverCursor = 'default';
+      this.canvas.moveCursor = 'default';
+      this.canvas.setCursor('default');
       return;
     }
 
@@ -1042,11 +1183,12 @@ export class WhiteboardEngine {
     // procuram alvos sob o cursor (skipTargetFind = false).
     this.canvas.skipTargetFind = !(tool === 'select' || tool === 'object_eraser');
 
+    let activeCursor = 'crosshair';
+
     switch (tool) {
       case 'select': {
         this.canvas.selection = true;
-        this.canvas.defaultCursor = 'default';
-        this.syncDragLocks();
+        activeCursor = 'default';
         break;
       }
 
@@ -1056,7 +1198,7 @@ export class WhiteboardEngine {
         brush.width = Math.max(1, this.strokeWidth);
         brush.color = this.strokeColor;
         this.canvas.freeDrawingBrush = brush;
-        this.canvas.defaultCursor = 'crosshair';
+        activeCursor = 'crosshair';
         break;
       }
 
@@ -1066,7 +1208,7 @@ export class WhiteboardEngine {
         brush.width = Math.max(6, this.strokeWidth * 2.5);
         brush.color = this.strokeColor;
         this.canvas.freeDrawingBrush = brush;
-        this.canvas.defaultCursor = 'crosshair';
+        activeCursor = 'crosshair';
         break;
       }
 
@@ -1074,12 +1216,12 @@ export class WhiteboardEngine {
       case 'ellipse':
       case 'line':
       case 'arrow': {
-        this.canvas.defaultCursor = 'crosshair';
+        activeCursor = 'crosshair';
         break;
       }
 
       case 'text': {
-        this.canvas.defaultCursor = 'text';
+        activeCursor = 'text';
         break;
       }
 
@@ -1089,16 +1231,27 @@ export class WhiteboardEngine {
         brush.width = Math.max(2, this.strokeWidth);
         brush.color = '#000000';
         this.canvas.freeDrawingBrush = brush;
-        this.canvas.defaultCursor = 'crosshair';
+        activeCursor = ERASER_CURSOR;
         break;
       }
 
       case 'object_eraser': {
         this.canvas.isDrawingMode = false;
-        this.canvas.defaultCursor = 'not-allowed';
+        activeCursor = ERASER_CURSOR;
         break;
       }
     }
+
+    this.canvas.defaultCursor = activeCursor;
+    this.canvas.hoverCursor = activeCursor;
+    this.canvas.moveCursor = activeCursor;
+    this.canvas.freeDrawingCursor = activeCursor;
+    this.canvas.setCursor(activeCursor);
+    if (this.canvas.upperCanvasEl) {
+      this.canvas.upperCanvasEl.style.cursor = activeCursor;
+    }
+
+    this.syncDragLocks();
 
     if (this.onToolChange) {
       this.onToolChange(tool);
@@ -1226,6 +1379,7 @@ export class WhiteboardEngine {
         if (fabricObj) {
           (fabricObj as any).elementId = el.id;
           (fabricObj as any).autor = el.autor;
+          (fabricObj as any).tipo = el.tipo;
           if (this.readOnly) {
             fabricObj.selectable = false;
             fabricObj.evented = false;
@@ -1276,17 +1430,33 @@ export class WhiteboardEngine {
    */
   public applySelectionDragLocks(obj: FabricObject | null | undefined): void {
     if (!obj || this.readOnly) return;
-    if ((obj as any).tipo === 'eraser_stroke' || obj.selectable === false) {
+    if ((obj as any).tipo === 'eraser_stroke' || (obj.selectable === false && !(obj as any).elementId)) {
+      return;
+    }
+
+    if (this.activeTool !== 'select') {
+      obj.selectable = false;
+      obj.evented = true;
+      obj.lockMovementX = true;
+      obj.lockMovementY = true;
+      obj.lockRotation = true;
+      obj.lockScalingX = true;
+      obj.lockScalingY = true;
+      obj.hasControls = false;
+      obj.hasBorders = false;
       return;
     }
 
     const habilitado = ARRASTO_NO_MODO_SELECAO_HABILITADO;
+    obj.selectable = true;
+    obj.evented = true;
     obj.lockMovementX = !habilitado;
     obj.lockMovementY = !habilitado;
     obj.lockRotation = !habilitado;
     obj.lockScalingX = !habilitado;
     obj.lockScalingY = !habilitado;
     obj.hasControls = habilitado;
+    obj.hasBorders = true;
   }
 
   /**

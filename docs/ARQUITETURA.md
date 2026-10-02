@@ -134,3 +134,16 @@ Toda mensagem do convidado passa pela função pura `canGuestExecuteAction` e pe
 - [ ] Migrations presentes em `dist/electron/db/migrations/`.
 - [ ] Regra de firewall restrita ao perfil Privado criada na instalação e removida na desinstalação.
 - [ ] Latência local de traços e mídia confirmada em < 200 ms no percentil 95 (p95).
+
+---
+
+## 7. Representação Vetorial dos Elementos e Sensação de Paint (Fase 11)
+
+No aplicativo, a experiência visual do quadro é desenhada para funcionar como uma folha física (estilo Paint do Windows), onde o usuário nunca é exposto a caixas de seleção, alças de agarrar ou cursores de arrasto durante o desenho. Internamente, no entanto, os elementos continuam estritamente vetoriais via Fabric.js e eventos append-only (`DRAW_ADD` e `DRAW_HIDE`).
+
+Essa decisão arquitetural é mandatória e preserva cinco garantias essenciais do sistema:
+1. **Sincronização bidirecional em tempo real (sync):** Eventos leves transmitem apenas o payload com coordenadas e geometria sem trafegar bitmaps pesados pela rede LAN.
+2. **Desfazer e refazer (undo/redo):** Histórico de eventos estruturados permite desfazer e refazer de forma atômica e determinística via reducer puro.
+3. **Persistência e integridade relacional (histórico SQLite):** Reconstituição exata da sessão a partir da tabela imutável `Eventos`.
+4. **Relatório consolidado em PDF:** Renderização nítida via `webContents.printToPDF` com miniaturas fiéis em alta resolução sem perda de qualidade gráfica ou pixelização.
+5. **Suporte a HiDPI (4K @ 150%):** Traços vetoriais escalam com fidelidade matemática baseando-se em `window.devicePixelRatio`.

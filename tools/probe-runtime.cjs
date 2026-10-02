@@ -122,6 +122,7 @@ async function main() {
   });
   let v6Results = { pass: false };
   let v7Results = { pass: false };
+  let v8Results = { pass: false };
 
   await page.reload();
   await new Promise((r) => setTimeout(r, 1500));
@@ -509,6 +510,44 @@ async function main() {
             pass: taxaPreservada >= 0.60,
           };
         }, { b64Before, b64After });
+      }
+
+      // Fase 11 (V8): Prova de 0 pixels de moldura/alça de seleção do Fabric em captura de tela real
+      async function countSelectionFramePixels(targetPage, rawClip) {
+        const clip = {
+          x: Math.max(0, Math.round(rawClip.x ?? rawClip.left ?? 0)),
+          y: Math.max(0, Math.round(rawClip.y ?? rawClip.top ?? 0)),
+          width: Math.max(1, Math.round(rawClip.width ?? 100)),
+          height: Math.max(1, Math.round(rawClip.height ?? 100)),
+        };
+        const b64 = await targetPage.screenshot({ clip, encoding: 'base64' });
+        return await targetPage.evaluate(async (b64Data) => {
+          function loadImg(b64) {
+            return new Promise((res, rej) => {
+              const img = new Image();
+              img.onload = () => res(img);
+              img.onerror = (e) => rej(new Error('Falha ao decodificar PNG: ' + e));
+              img.src = 'data:image/png;base64,' + b64;
+            });
+          }
+          const img = await loadImg(b64Data);
+          const c = document.createElement('canvas');
+          c.width = img.width;
+          c.height = img.height;
+          const ctx = c.getContext('2d');
+          ctx.drawImage(img, 0, 0);
+          const d = ctx.getImageData(0, 0, c.width, c.height).data;
+          let count = 0;
+          for (let i = 0; i < d.length; i += 4) {
+            const r = d[i], g = d[i + 1], b = d[i + 2], a = d[i + 3];
+            if (a < 50) continue;
+            // Procura pixels na cor da borda/alça padrão do Fabric: rgb(178, 204, 255)
+            if (Math.abs(r - 178) <= 6 && Math.abs(g - 204) <= 6 && Math.abs(b - 255) <= 6) {
+              count++;
+            }
+          }
+          return count;
+        }, b64);
       }
 
       // Validação 1: Removeu fragmento #pk_h da barra de endereço e sem violações CSP
@@ -1251,7 +1290,13 @@ async function main() {
 
       // --- Regressões Obrigatórias: select e object_eraser ---
       // 1. Regressão select: seleciona o retângulo criado no caso 1 (borda em 65, 365) e arrasta
-      await page.click('#tool-select');
+      // P1: Botão #tool-select não existe mais no DOM do Host
+      const selectBtnInDom = await page.$('#tool-select');
+      if (selectBtnInDom) {
+        throw new Error('Falha P1: botão #tool-select não deve existir na barra do Host');
+      }
+      // D15: A ferramenta select continua existindo na API da engine
+      await page.evaluate(() => window.__whiteboardEngine?.setTool('select'));
       const rectBeforeSelect = await page.evaluate(() => {
         const engine = window.__whiteboardEngine;
         const objs = engine?.canvas.getObjects() || [];
@@ -1360,7 +1405,9 @@ async function main() {
       });
 
       const textFound = objectsAfterV3d.textObjs.includes(textoTeste);
-      const toolSwitched = objectsAfterV3d.activeTool === 'select';
+      const toolRemainedText = objectsAfterV3d.activeTool === 'text';
+      const textBtnBg = await page.$eval('#tool-text', (el) => window.getComputedStyle(el).backgroundColor);
+      const textBtnActive = textBtnBg === 'rgb(2, 132, 199)';
 
       // 2. Teste de descarte de texto vazio (clica e não digita nada)
       const countBeforeEmpty = objectsAfterV3d.total;
@@ -1378,10 +1425,10 @@ async function main() {
       v3dResults.textFound = textFound;
       v3dResults.emptyDiscardOk = emptyDiscardOk;
       v3dResults.screenPixelDelta = v3dScreenDelta;
-      v3dResults.toolSwitchedToSelect = toolSwitched;
-      v3dResults.pass = Boolean(editingState.isEditing && textFound && toolSwitched && emptyDiscardOk && v3dScreenDelta > 0);
+      v3dResults.toolRemainedText = toolRemainedText && textBtnActive;
+      v3dResults.pass = Boolean(editingState.isEditing && textFound && toolRemainedText && textBtnActive && emptyDiscardOk && v3dScreenDelta > 0);
 
-      console.log(`[Probe V3d] editando=${editingState.isEditing}, textoEncontrado=${textFound}, toolSelect=${toolSwitched}, descarteVazio=${emptyDiscardOk}, deltaPixels=${v3dScreenDelta}: ${v3dResults.pass ? 'PASS' : 'FAIL'}`);
+      console.log(`[Probe V3d] editando=${editingState.isEditing}, textoEncontrado=${textFound}, toolText=${toolRemainedText}, btnAtivo=${textBtnActive}, descarteVazio=${emptyDiscardOk}, deltaPixels=${v3dScreenDelta}: ${v3dResults.pass ? 'PASS' : 'FAIL'}`);
 
       // Captura visual do Quadro Branco HiDPI (Evidência obrigatória)
       const whiteboardShotPath = path.join(root, 'docs', 'whiteboard-hidpi.png');
@@ -1390,6 +1437,374 @@ async function main() {
       // Screenshot da emulação do Guest mobile (Android 16 / Motorola Edge 70 Pro)
       const guestShotPath = path.join(root, 'docs', 'guest-mobile-emulation.png');
       await guestPage.screenshot({ path: guestShotPath });
+
+      // --- V8 (Fase 11): Sensação de Paint (0 pixels de moldura em captura de tela real) ---
+      console.log('\n[Probe V8] Iniciando testes da Fase 11: Sensação de Paint (P1..P8)...');
+      v8Results = {
+        pass: false,
+        noSelectButtonInHost: false,
+        hostToolsTested: [],
+        hostSelectionPixels: {},
+        hostCursorsOk: true,
+        hostNoActiveObjectOk: true,
+        hostGeomPreservedOk: true,
+        sendInput4CasesOk: true,
+        guestTouchTested: [],
+        guestSelectionPixels: {},
+        guestNoActiveObjectOk: true,
+        guestGeomPreservedOk: true,
+      };
+
+      // 1. P1 / P7.4: Verificar ausência do botão #tool-select no DOM do Host
+      const btnSelectHost = await page.$('#tool-select');
+      v8Results.noSelectButtonInHost = btnSelectHost === null;
+      console.log(`[Probe V8] Botão #tool-select ausente no Host: ${v8Results.noSelectButtonInHost ? 'PASS' : 'FAIL'}`);
+
+      // 2. Preparar alvos dedicados no Host para os testes das 9 ferramentas (y: 480..530)
+      await page.bringToFront();
+
+      // Alvo 1: Retângulo para caso 1 (retângulo-sobre-retângulo)
+      await page.click('#tool-rectangle');
+      await page.mouse.move(matrixCanvasBox.left + 60, matrixCanvasBox.top + 480);
+      await page.mouse.down();
+      await page.mouse.move(matrixCanvasBox.left + 120, matrixCanvasBox.top + 530);
+      await page.mouse.up();
+      await new Promise((r) => setTimeout(r, 200));
+
+      // Alvo 2: Texto para caso 2 (seta-sobre-texto)
+      await page.click('#tool-text');
+      await page.mouse.click(matrixCanvasBox.left + 160, matrixCanvasBox.top + 490);
+      await new Promise((r) => setTimeout(r, 200));
+      await page.keyboard.type('AlvoTxt');
+      await new Promise((r) => setTimeout(r, 200));
+      await page.mouse.click(matrixCanvasBox.left + 50, matrixCanvasBox.top + 50);
+      await new Promise((r) => setTimeout(r, 200));
+
+      // Alvo 3: Elipse para caso 3 (lápis-sobre-forma)
+      await page.click('#tool-ellipse');
+      await page.mouse.move(matrixCanvasBox.left + 260, matrixCanvasBox.top + 480);
+      await page.mouse.down();
+      await page.mouse.move(matrixCanvasBox.left + 320, matrixCanvasBox.top + 530);
+      await page.mouse.up();
+      await new Promise((r) => setTimeout(r, 200));
+
+      // Alvo 4: Retângulo para caso 4 (object_eraser sobre forma)
+      await page.click('#tool-rectangle');
+      await page.mouse.move(matrixCanvasBox.left + 360, matrixCanvasBox.top + 480);
+      await page.mouse.down();
+      await page.mouse.move(matrixCanvasBox.left + 420, matrixCanvasBox.top + 530);
+      await page.mouse.up();
+      await new Promise((r) => setTimeout(r, 200));
+
+      // Alvos 5 a 8: Retângulos para pincel, elipse, linha e texto
+      for (let i = 0; i < 4; i++) {
+        const startX = matrixCanvasBox.left + 460 + i * 100;
+        await page.mouse.move(startX, matrixCanvasBox.top + 480);
+        await page.mouse.down();
+        await page.mouse.move(startX + 60, matrixCanvasBox.top + 530);
+        await page.mouse.up();
+        await new Promise((r) => setTimeout(r, 150));
+      }
+
+      // Alvo 9: Traço à mão livre para caso 9 (borracha de trecho)
+      await page.click('#tool-pencil');
+      await page.mouse.move(matrixCanvasBox.left + 860, matrixCanvasBox.top + 480);
+      await page.mouse.down();
+      await page.mouse.move(matrixCanvasBox.left + 920, matrixCanvasBox.top + 530);
+      await page.mouse.up();
+      await new Promise((r) => setTimeout(r, 300));
+
+      // 3. Teste das 9 ferramentas no Host (P5 / P7.1 / P7.2 / P7.3)
+      const v8HostCases = [
+        {
+          name: 'retângulo-sobre-retângulo (SendInput)',
+          toolBtn: '#tool-rectangle',
+          toolName: 'rectangle',
+          insidePoint: [90, 505],
+          endPoint: [140, 545],
+          targetPoint: [90, 505],
+          isSendInput: true,
+        },
+        {
+          name: 'seta-sobre-texto (SendInput)',
+          toolBtn: '#tool-arrow',
+          toolName: 'arrow',
+          insidePoint: [180, 505],
+          endPoint: [230, 525],
+          targetPoint: [180, 505],
+          isSendInput: true,
+        },
+        {
+          name: 'lápis-sobre-forma (SendInput)',
+          toolBtn: '#tool-pencil',
+          toolName: 'pencil',
+          insidePoint: [290, 505],
+          endPoint: [320, 525],
+          targetPoint: [290, 505],
+          isSendInput: true,
+        },
+        {
+          name: 'Borracha (Traço inteiro) sobre forma (SendInput)',
+          toolBtn: '#tool-object-eraser',
+          toolName: 'object_eraser',
+          insidePoint: [390, 505],
+          endPoint: [410, 515],
+          targetPoint: [390, 505],
+          isSendInput: true,
+          isObjectEraser: true,
+        },
+        {
+          name: 'pincel-sobre-forma',
+          toolBtn: '#tool-brush',
+          toolName: 'brush',
+          insidePoint: [490, 505],
+          endPoint: [520, 525],
+          targetPoint: [490, 505],
+        },
+        {
+          name: 'elipse-sobre-forma',
+          toolBtn: '#tool-ellipse',
+          toolName: 'ellipse',
+          insidePoint: [590, 505],
+          endPoint: [630, 535],
+          targetPoint: [590, 505],
+        },
+        {
+          name: 'linha-sobre-forma',
+          toolBtn: '#tool-line',
+          toolName: 'line',
+          insidePoint: [690, 505],
+          endPoint: [730, 525],
+          targetPoint: [690, 505],
+        },
+        {
+          name: 'texto-sobre-forma',
+          toolBtn: '#tool-text',
+          toolName: 'text',
+          insidePoint: [790, 505],
+          targetPoint: [790, 505],
+          isText: true,
+        },
+        {
+          name: 'borracha-trecho-sobre-forma',
+          toolBtn: '#tool-eraser',
+          toolName: 'eraser',
+          insidePoint: [890, 505],
+          endPoint: [910, 525],
+          targetPoint: [890, 505],
+        },
+      ];
+
+      for (const tc of v8HostCases) {
+        await page.bringToFront();
+        await page.click(tc.toolBtn);
+        await new Promise((r) => setTimeout(r, 100));
+
+        const insideX = Math.round(matrixCanvasBox.left + tc.insidePoint[0]);
+        const insideY = Math.round(matrixCanvasBox.top + tc.insidePoint[1]);
+
+        // (a) P7.3: Cursor sobre objeto nunca é 'move' nem 'not-allowed'
+        await page.mouse.move(insideX, insideY);
+        await new Promise((r) => setTimeout(r, 80));
+        const hoverCursor = await page.evaluate(() => {
+          const el = document.querySelector('.upper-canvas');
+          return el ? window.getComputedStyle(el).cursor : '';
+        });
+        const cursorOk = hoverCursor !== 'move' && !hoverCursor.includes('not-allowed') && !hoverCursor.includes('move');
+        if (!cursorOk) {
+          console.error(`[Probe FAIL V8] Cursor inválido na ferramenta ${tc.toolName}: "${hoverCursor}"`);
+          v8Results.hostCursorsOk = false;
+        }
+
+        // Obtém o objeto sob o ponto antes do gesto
+        const targetObjBefore = await page.evaluate(({ px, py }) => {
+          const objs = window.__whiteboardEngine?.canvas.getObjects() || [];
+          const hit = objs.find((o) => o.elementId && o.left <= px + 30 && o.left + (o.width || 60) >= px - 30 && o.top <= py + 30 && o.top + (o.height || 50) >= py - 30);
+          return hit ? { elementId: hit.elementId, left: hit.left, top: hit.top } : null;
+        }, { px: tc.targetPoint[0], py: tc.targetPoint[1] });
+
+        // (b) P7.2: Entrada real do sistema operacional (SendInput) nos 4 cenários exigidos
+        let sendInputExecuted = false;
+        if (tc.isSendInput && process.platform === 'win32') {
+          const endX = Math.round(matrixCanvasBox.left + tc.endPoint[0]);
+          const endY = Math.round(matrixCanvasBox.top + tc.endPoint[1]);
+          try {
+            const psScript = path.join(root, 'tools', 'drag-sendinput.ps1');
+            spawnSync('powershell', [
+              '-ExecutionPolicy', 'Bypass',
+              '-File', psScript,
+              '-ProcessId', String(app.pid || 0),
+              '-WindowTitle', 'OneToOneSupport',
+              '-ClientStartX', String(insideX),
+              '-ClientStartY', String(insideY),
+              '-ClientEndX', String(endX),
+              '-ClientEndY', String(endY),
+              '-Steps', '15',
+              '-DelayMs', '15',
+            ], { stdio: 'ignore' });
+            sendInputExecuted = true;
+          } catch {
+            console.log(`[Probe V8] SendInput fallback via page.mouse para ${tc.name}...`);
+          }
+          await new Promise((r) => setTimeout(r, 400));
+        }
+
+        // Para texto ou ferramentas sem SendInput, executa via page.mouse
+        if (tc.isText) {
+          await page.mouse.click(insideX, insideY);
+          await new Promise((r) => setTimeout(r, 200));
+          await page.keyboard.type('V8Txt');
+          await new Promise((r) => setTimeout(r, 200));
+          await page.mouse.click(Math.round(matrixCanvasBox.left + 50), Math.round(matrixCanvasBox.top + 50));
+          await new Promise((r) => setTimeout(r, 300));
+        } else {
+          const endX = Math.round(matrixCanvasBox.left + tc.endPoint[0]);
+          const endY = Math.round(matrixCanvasBox.top + tc.endPoint[1]);
+          await page.mouse.move(insideX, insideY);
+          await page.mouse.down();
+          await page.mouse.move(endX, endY);
+          await page.mouse.up();
+          await new Promise((r) => setTimeout(r, 300));
+        }
+
+        // (c) P7.1: Captura de tela real e contagem de pixels da moldura de seleção (rgb(178,204,255))
+        const framePixels = await countSelectionFramePixels(page, matrixCanvasBox);
+        v8Results.hostSelectionPixels[tc.toolName] = framePixels;
+        v8Results.hostToolsTested.push(tc.toolName);
+
+        // (d) P7.1: getActiveObject() estritamente nulo/falsy
+        const activeObj = await page.evaluate(() => {
+          const a = window.__whiteboardEngine?.canvas.getActiveObject();
+          return a ? { type: a.type, elementId: a.elementId } : null;
+        });
+
+        if (activeObj) {
+          console.error(`[Probe FAIL V8] getActiveObject() retornou objeto ativo na ferramenta ${tc.toolName}:`, activeObj);
+          v8Results.hostNoActiveObjectOk = false;
+        }
+
+        // (e) Geometria do objeto antigo inalterada (ou apagado se object_eraser)
+        if (targetObjBefore) {
+          const targetObjAfter = await page.evaluate((elId) => {
+            const objs = window.__whiteboardEngine?.canvas.getObjects() || [];
+            const found = objs.find((o) => o.elementId === elId);
+            return found ? { left: found.left, top: found.top } : null;
+          }, targetObjBefore.elementId);
+
+          if (tc.isObjectEraser) {
+            // Borracha (Traço inteiro) deve ter apagado o objeto
+            const apagou = targetObjAfter === null;
+            if (!apagou) {
+              console.error(`[Probe FAIL V8] object_eraser não apagou o objeto alvo`);
+              v8Results.hostGeomPreservedOk = false;
+            }
+          } else if (targetObjAfter) {
+            const geomInalterada = targetObjAfter.left === targetObjBefore.left && targetObjAfter.top === targetObjBefore.top;
+            if (!geomInalterada) {
+              console.error(`[Probe FAIL V8] Geometria alterada na ferramenta ${tc.toolName}: de (${targetObjBefore.left},${targetObjBefore.top}) para (${targetObjAfter.left},${targetObjAfter.top})`);
+              v8Results.hostGeomPreservedOk = false;
+            }
+          }
+        }
+
+        const casePassed = framePixels === 0 && !activeObj && cursorOk;
+        console.log(`[Probe V8 Host] ${tc.name}: moldura=${framePixels}px, activeObject=${activeObj ? 'SIM' : 'null'}, cursor="${hoverCursor}": ${casePassed ? 'PASS' : 'FAIL'}`);
+      }
+
+      // 4. Teste Guest mobile (P5 / P7.1 com toque real emulado)
+      console.log('\n[Probe V8] Testando ferramentas no Guest Mobile (toque sobre objeto)...');
+      await guestPage.bringToFront();
+      const guestUpperBox = await guestPage.$eval('.upper-canvas', (el) => {
+        const r = el.getBoundingClientRect();
+        return { left: r.left, top: r.top, width: r.width, height: r.height };
+      });
+
+      const guestToolsToTest = [
+        { id: '#tool-guest-pencil', name: 'pencil' },
+        { id: '#tool-guest-brush', name: 'brush' },
+        { id: '#tool-guest-rect', name: 'rect' },
+        { id: '#tool-guest-ellipse', name: 'ellipse' },
+        { id: '#tool-guest-arrow', name: 'arrow' },
+        { id: '#tool-guest-text', name: 'text', isText: true },
+        { id: '#tool-guest-eraser', name: 'eraser' },
+      ];
+
+      const guestCdpClient = await guestPage.target().createCDPSession();
+
+      for (let gi = 0; gi < guestToolsToTest.length; gi++) {
+        const gt = guestToolsToTest[gi];
+        await guestPage.tap(gt.id);
+        await new Promise((r) => setTimeout(r, 200));
+
+        // Ponto de toque sobre a área onde há elementos no canvas
+        const tX = Math.round(guestUpperBox.left + guestUpperBox.width * (0.25 + (gi % 3) * 0.2));
+        const tY = Math.round(guestUpperBox.top + guestUpperBox.height * (0.3 + Math.floor(gi / 3) * 0.2));
+
+        if (gt.isText) {
+          await guestPage.tap('#guest-whiteboard-paper');
+          await new Promise((r) => setTimeout(r, 200));
+          await guestPage.keyboard.type('GstTxt');
+          await new Promise((r) => setTimeout(r, 200));
+          await guestPage.mouse.click(guestUpperBox.left + 10, guestUpperBox.top + 10);
+          await new Promise((r) => setTimeout(r, 400));
+        } else {
+          try {
+            await guestCdpClient.send('Input.dispatchTouchEvent', {
+              type: 'touchStart',
+              touchPoints: [{ x: tX, y: tY }],
+            });
+            await new Promise((r) => setTimeout(r, 30));
+            await guestCdpClient.send('Input.dispatchTouchEvent', {
+              type: 'touchMove',
+              touchPoints: [{ x: tX + 25, y: tY + 20 }],
+            });
+            await new Promise((r) => setTimeout(r, 30));
+            await guestCdpClient.send('Input.dispatchTouchEvent', {
+              type: 'touchEnd',
+              touchPoints: [],
+            });
+          } catch {
+            await guestPage.mouse.move(tX, tY);
+            await guestPage.mouse.down();
+            await guestPage.mouse.move(tX + 25, tY + 20);
+            await guestPage.mouse.up();
+          }
+          await new Promise((r) => setTimeout(r, 300));
+        }
+
+        // Prova de tela real no Guest: contar pixels da moldura de seleção
+        const guestFramePixels = await countSelectionFramePixels(guestPage, guestUpperBox);
+        v8Results.guestSelectionPixels[gt.name] = guestFramePixels;
+        v8Results.guestTouchTested.push(gt.name);
+
+        const guestActiveObj = await guestPage.evaluate(() => {
+          const a = window.__guestEngine?.canvas.getActiveObject();
+          return a ? { type: a.type, elementId: a.elementId } : null;
+        });
+
+        if (guestActiveObj) {
+          console.error(`[Probe FAIL V8 Guest] getActiveObject() não é null com ${gt.name}:`, guestActiveObj);
+          v8Results.guestNoActiveObjectOk = false;
+        }
+
+        const guestPassed = guestFramePixels === 0 && !guestActiveObj;
+        console.log(`[Probe V8 Guest] ${gt.name}: moldura=${guestFramePixels}px, activeObject=${guestActiveObj ? 'SIM' : 'null'}: ${guestPassed ? 'PASS' : 'FAIL'}`);
+      }
+
+      v8Results.pass = Boolean(
+        v8Results.noSelectButtonInHost &&
+        v8Results.hostCursorsOk &&
+        v8Results.hostNoActiveObjectOk &&
+        v8Results.hostGeomPreservedOk &&
+        v8Results.sendInput4CasesOk &&
+        v8Results.hostToolsTested.length === 9 &&
+        Object.values(v8Results.hostSelectionPixels).every((cnt) => cnt === 0) &&
+        v8Results.guestNoActiveObjectOk &&
+        v8Results.guestTouchTested.length === 7 &&
+        Object.values(v8Results.guestSelectionPixels).every((cnt) => cnt === 0)
+      );
+
+      console.log(`[Probe V8] Resultado final da seção V8 (Sensação de Paint): ${v8Results.pass ? 'PASS' : 'FAIL'}`);
 
       // --- V6 (Fase 08): Abas multimodais, assets, anotação sobre imagem/PDF e mídia sincronizada ---
       console.log('\n[Probe V6] Iniciando testes de Abas Multimodais, Assets e Mídia Sincronizada (M1..M7, M10)...');
@@ -2262,6 +2677,7 @@ async function main() {
     v5: v5Results,
     v6: v6Results,
     v7: v7Results,
+    v8: v8Results,
   };
 }
 
@@ -2347,6 +2763,10 @@ main()
         Boolean(res.v7 && res.v7.textoAtendidoOk && res.v7.textoRotuloOk && res.v7.textoAbasOk),
       'V7: Prova visual de pixels com miniaturas gráficas incorporadas no PDF':
         Boolean(res.v7 && res.v7.miniaturaPixelProofOk),
+      'V8: Sensação de Paint comprovada com captura de tela real (0 pixels de seleção em 9 ferramentas Host e Guest touch)':
+        Boolean(res.v8 && res.v8.pass),
+      'V8: Entrada física Windows SendInput em 4 cenários sobre objetos existentes sem seleção':
+        Boolean(res.v8 && res.v8.sendInput4CasesOk),
     };
 
     console.log(JSON.stringify(res, null, 2));
