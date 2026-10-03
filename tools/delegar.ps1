@@ -31,7 +31,7 @@ try {
     'auditor' { "Seu papel: AUDITOR (somente leitura no código). Você só pode criar/alterar: $($Permitidos -join ', '). Não commite. Testes de ataque que você escrever ficam dentro desses caminhos.`n" }
     'chefe' { "Seu papel: CHEFE TÉCNICO EM TREINAMENTO. Siga a skill .agents/skills/chefe-tecnico (se existir) e o docs/CHEFE.md. Você só pode criar/alterar: $($Permitidos -join ', ').`n" }
   }
-  $texto = (New-Cabecalho $cfgDir $branch) + $papelTxt + "Leia AGENTS.md e docs/LICOES.md (se existir) antes de começar e execute integralmente a ordem abaixo.`n`n" + (Get-Content $Ordem -Raw)
+  $texto = (New-Cabecalho $cfgDir $branch -SemCommit:($Papel -eq 'auditor')) + $papelTxt + "Leia AGENTS.md e docs/LICOES.md (se existir) antes de começar e execute integralmente a ordem abaixo.`n`n" + (Get-Content $Ordem -Raw)
   Write-Host "Delegando '$Nome' ($Papel, modelo: $(if ($Modelo) { $Modelo } else { 'padrão' })) em $Dir [$branch]. Log: $log"
   Invoke-Agy -Cfg $cfg -Texto $texto -Log $log -Autonomo:$Autonomo -Modelo $Modelo -DryRun:$DryRun -Dir $Dir
   if ($DryRun) { return }

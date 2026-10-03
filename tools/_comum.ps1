@@ -22,10 +22,11 @@ function Get-Cfg {
   }
 }
 
-function New-Cabecalho($cfg, $branch) {
+function New-Cabecalho($cfg, $branch, [switch]$SemCommit) {
+  $fim = if ($SemCommit) { 'Só termine depois de gravar os arquivos pedidos. NÃO commite: seu papel não commita.' } else { 'Só termine depois de commitar TUDO.' }
 @"
 Seu repositório e diretório de trabalho é: $($cfg.Raiz) (branch $branch). Ele JÁ EXISTE e é o diretório atual: NÃO o procure em outros discos e NÃO inicie buscas ou tarefas em segundo plano.
-REGRA CRÍTICA DE EXECUÇÃO: seu processo ENCERRA quando você termina uma resposta sem chamar ferramenta. Se um comando longo (instalação, testes, build) for para segundo plano, NUNCA escreva "aguardando" e pare: continue chamando ferramentas em sequência (ex.: Start-Sleep 20 e ler a saída) até ele terminar, dentro da mesma execução. Só termine depois de commitar TUDO.
+REGRA CRÍTICA DE EXECUÇÃO: seu processo ENCERRA quando você termina uma resposta sem chamar ferramenta. Se um comando longo (instalação, testes, build) for para segundo plano, NUNCA escreva "aguardando" e pare: continue chamando ferramentas em sequência (ex.: Start-Sleep 20 e ler a saída) até ele terminar, dentro da mesma execução. $fim
 Não faça push nem merge. NÃO INVENTE: todo nome (evento, arquivo, função, branch, script, comando) que você citar em documentação precisa existir no código; o verificador de afirmações confere. Não afirme nada que você não executou.
 
 "@
@@ -53,7 +54,8 @@ function Invoke-Agy {
   if (Select-String -Path $Log -Pattern 'auto-denied|permission that headless mode cannot prompt' -Quiet) {
     throw "O agy foi barrado por permissões (veja $Log). Nada foi executado de fato. Use -Autonomo (com autorização do dono) ou ajuste as regras do agy."
   }
-  if (Select-String -Path $Log -Pattern 'RESOURCE_EXHAUSTED|Individual quota reached|HTTP 429' -Quiet) {
+  # Só a linha de erro do próprio agy: o texto da resposta pode CITAR "429" (ex.: ao escrever a regra de cota).
+  if (Select-String -Path $Log -Pattern '^(AGY_ERROR: .*RESOURCE_EXHAUSTED|error: Individual quota reached)' -Quiet) {
     throw "COTA (429) no modelo '$Modelo' (veja $Log). Redispare com um modelo de OUTRO grupo (ex.: -Modelo claude-sonnet-4-6) antes de trocar de conta (regra do CLAUDE.md global)."
   }
 }
