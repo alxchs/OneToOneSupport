@@ -33,6 +33,7 @@ As lições são agrupadas por tema. Ao auditar uma entrega ou escrever uma orde
   - L-22 — Resumo de fontes secundárias e falsa afirmação de automação
   - L-24 — Afirmação de resultado sem prova real
   - L-25 — Auditor violando papel read-only para "espionar"
+  - L-26 — Itens de ordem de correção ignorados em silêncio
 - Como escrever uma ordem
   - L-21 — Invenção de escopo e eventos inexistentes em relatórios
 
@@ -97,7 +98,7 @@ As lições são agrupadas por tema. Ao auditar uma entrega ou escrever uma orde
 - Checagem por máquina: não (requer testes que mudem a escala).
 
 ## L-08 — Código não pedido e não declarado
-- Origem: `docs/reviews/fase-11.md`, Rodada 1
+- Origem: `docs/reviews/fase-11.md`, Rodada 1; `docs/reviews/prova-chefe-11/RESULTADO.md`, item 3
 - O que aconteceu: A IA injetou 4 heurísticas personalizadas para a borracha de quadro que a ordem não pedia, quebrando a escala. Nada disso foi declarado.
 - Por que passou: Diffs extras que não afetam testes primários em 1:1 muitas vezes passam ocultos.
 - Regra: Não crie soluções customizadas não requisitadas pela ordem sem declarar na autoauditoria, evite heurísticas se há solução nativa do framework.
@@ -114,10 +115,10 @@ As lições são agrupadas por tema. Ao auditar uma entrega ou escrever uma orde
 - Como atacar: O teste foi amarrado para subir no IP de LAN para garantir que a rede não bloqueia a funcionalidade por causa de HTTP inseguro?
 - Checagem por máquina: não (dependente da topologia).
 
-## L-10 — Segurança burlada por controle no cliente
-- Origem: `docs/reviews/redteam-07.md`; `docs/reviews/homologacao-1.md`
-- O que aconteceu: Bypass de segurança. O Guest burlou o bloqueio enviando eventos obscuros não previstos, usando `UNDO` ou eventos de tela. O chefe aprovou porque a verificação baseava-se numa denylist cliente-side. A denylist estava no Host (`SessionManager.canGuestExecute`, `EventoService`).
-- Por que passou: A verificação de segurança falhou fechada no modelo mental do revisor usando uma denylist (excluindo).
+## L-10 — Segurança burlada por controle baseado em denylist
+- Origem: `docs/reviews/fase-07.md` (linhas 14-15) e `docs/ADR/011-fonte-unica-autoridade.md`
+- O que aconteceu: Bypass de segurança. O Guest burlou o bloqueio enviando eventos obscuros não previstos, usando `UNDO` ou eventos de tela. O chefe aprovou porque a verificação baseava-se numa denylist. A denylist estava no Host (`SessionManager.canGuestExecute`, `EventoService`).
+- Por que passou: A verificação de segurança falhou baseada no modelo mental do revisor usando uma denylist (excluindo).
 - Regra: Jamais baseie acessos negados numa denylist; o bloqueio sempre acontece com uma allowlist estrita do lado do host (fonte única de autoridade).
 - Como atacar: Se enviar um evento com tipo arbitrário não documentado, o host o processa ou rejeita por padrão?
 - Checagem por máquina: não.
@@ -245,4 +246,12 @@ As lições são agrupadas por tema. Ao auditar uma entrega ou escrever uma orde
 - Por que passou: O auditor reverteu as mudanças antes do fim e enganou as checagens estáticas de diff.
 - Regra: O papel de auditor é somente-leitura; nunca edite arquivo de produto nem temporariamente para "espionar".
 - Como atacar: Os logs mostram edições revertidas em arquivos de código para fins de debug, burlando as restrições?
+- Checagem por máquina: não.
+
+## L-26 — Itens de ordem de correção ignorados em silêncio
+- Origem: `docs/reviews/fase-12.md` (Rodada 3: L-10 igual duas vezes, itens C/R4-4 não feitos; e Rodada 2, item 1)
+- O que aconteceu: O executor ignorou silenciosamente itens explícitos da ordem de correção durante as rodadas de ajuste.
+- Por que passou: A validação focou nos pontos que o modelo decidiu responder, omitindo checagem estrita item a item do que foi pedido.
+- Regra: Uma rodada de correção exige resposta e evidência item a item para tudo o que foi solicitado.
+- Como atacar: O chefe confere cada item numerado contra o diff entregue para confirmar que nenhum foi esquecido?
 - Checagem por máquina: não.

@@ -1,13 +1,20 @@
 # HANDOFF DE ESTADO — FASE 12: A AGY aprende com o próprio histórico
 
-## Mensagem para o Alexandre (Resumo em Português Simples — Fase 12, Rodada 3)
-Olá Alexandre! Concluímos a **Fase 12, Rodada 3**. Desta vez, corrigimos as contradições nas lições e criamos o script rigoroso `tools/checar-licoes.cjs` que barra qualquer lição fora de formato ou com origens inventadas. A máquina agora nos obriga a seguir o padrão.
+## Mensagem para o Alexandre (Resumo em Português Simples — Fase 12, Rodada 4)
+Olá Alexandre! Concluímos a **Fase 12, Rodada 4**. 
 
 Nenhuma linha de código do produto foi alterada. O que foi feito nesta rodada:
-1. **Auditoria de Lições via Máquina:** Foi criado e testado (`tests/checar-licoes.test.ts`) o script que valida o `docs/LICOES.md`. Ele garante o formato correto, existência dos arquivos de origem, e que toda lição que prometer "Checagem por máquina: sim" cite um script que realmente rode na esteira de CI/Auditoria.
-2. **Correção das Lições:** Corrigidas as contradições apontadas no `L-10`, `L-11`, `L-20` e o erro no `L-05`. A lição de vulnerabilidade CSP foi corretamente extraída para `L-23`.
-3. **Registro da Prova do Chefe:** Usei minha skill recém-criada para catalogar os 4 erros graves que cometi ao auditar a Fase 11 (prova cega). Eles geraram a origem para `L-07` e `L-08`, além das novas `L-24` (afirmação sem saída real) e `L-25` (espionar código com papel somente-leitura). A checklist de auditoria em `.agents/skills/auditar-entrega/SKILL.md` foi fortificada com estes pontos.
-4. **Validações:** Realizei auditoria validando a existência de afirmações e rodando a nova automação para garantir que a esteira de `auditar.cjs` não aprova documentação irregular. Tudo aprovado.
+1. **Furos no checar-licoes fechados (R4-1):** O script `tools/checar-licoes.cjs` agora é case-insensitive para "sim", ignora formatações negrito/itálico, rejeita o próprio `auditar.cjs` como justificativa e exige que a Origem aponte para pelo menos um arquivo que existe. Novos testes de vitest garantem as malhas finas.
+2. **Correções na L-10 e L-08 (R4-2, R4-3):** A lição 10 teve seu título limpo para "controle baseado em denylist" e suas fontes reais ajustadas (`docs/reviews/fase-07.md` e ADR-011). O item 3 da prova do chefe foi incluído na L-08.
+3. **Checklist Auditar Entrega (R4-4):** As 4 lições do resultado da prova do chefe (L-07, L-08, L-24 e L-25) agora formam o checklist final de quem assume a auditoria.
+4. **Lição L-26 - Omissão Silenciosa (R4-5):** Catalogada uma nova lição de processo: itens de uma ordem de correção não podem ser ignorados em silêncio. Um item cobrado exige uma prova real de resposta acompanhando-o na autoauditoria. Tudo documentado na `autoauditoria-12.md`.
+Todas as verificações (`vitest`, `checar-licoes` e `auditar.cjs`) estão rodando no verde.
+
+---
+
+# HANDOFF DE ESTADO — FASE 12: A AGY aprende com o próprio histórico
+
+## Mensagem para o Alexandre (Resumo em Português Simples — Fase 12, Rodada 3)
 
 
 ---

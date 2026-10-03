@@ -123,4 +123,61 @@ describe('checar-licoes.cjs', () => {
     const result = runChecarLicoes();
     expect(result.findings.some((f: any) => f.issue.includes('não cita ferramenta válida'))).toBe(true);
   });
+
+  it('deve falhar se Sim (sonda manual) com S maiusculo', () => {
+    fs.writeFileSync(licoesPath, `
+## L-01 — Sim maiusculo
+- Origem: \`fake-file.md\` linha 1
+- O que aconteceu: Teste
+- Por que passou: Teste
+- Regra: Teste
+- Como atacar: Teste
+- Checagem por máquina: Sim (sonda manual)
+`, 'utf8');
+    const result = runChecarLicoes();
+    expect(result.findings.some((f: any) => f.issue.includes('não cita ferramenta válida'))).toBe(true);
+  });
+
+  it('deve falhar se **sim** (sonda) em negrito', () => {
+    fs.writeFileSync(licoesPath, `
+## L-01 — sim negrito
+- Origem: \`fake-file.md\` linha 1
+- O que aconteceu: Teste
+- Por que passou: Teste
+- Regra: Teste
+- Como atacar: Teste
+- Checagem por máquina: **sim** (sonda)
+`, 'utf8');
+    const result = runChecarLicoes();
+    expect(result.findings.some((f: any) => f.issue.includes('não cita ferramenta válida'))).toBe(true);
+  });
+
+  it('deve falhar se sim citar o proprio tools/auditar.cjs', () => {
+    fs.writeFileSync(licoesPath, `
+## L-01 — auditar.cjs
+- Origem: \`fake-file.md\` linha 1
+- O que aconteceu: Teste
+- Por que passou: Teste
+- Regra: Teste
+- Como atacar: Teste
+- Checagem por máquina: sim (\`tools/auditar.cjs\`)
+`, 'utf8');
+    const result = runChecarLicoes();
+    expect(result.findings.some((f: any) => f.issue.includes('não pode ser o próprio auditar.cjs'))).toBe(true);
+  });
+
+  it('deve falhar se Origem fase 7, de memoria', () => {
+    fs.writeFileSync(licoesPath, `
+## L-01 — Sem arquivo
+- Origem: fase 7, de memoria
+- O que aconteceu: Teste
+- Por que passou: Teste
+- Regra: Teste
+- Como atacar: Teste
+- Checagem por máquina: não
+`, 'utf8');
+    const result = runChecarLicoes();
+    expect(result.findings.some((f: any) => f.issue.includes('Origem precisa citar pelo menos um arquivo existente'))).toBe(true);
+  });
 });
+

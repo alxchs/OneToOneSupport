@@ -64,41 +64,53 @@ const parseLesson = (lines, startNum) => {
   // Check origem for backticks containing file paths
   if (origem !== null) {
     const backticks = origem.match(/`([^`]+)`/g) || [];
+    let foundValidFile = false;
     for (const b of backticks) {
       const p = b.slice(1, -1);
       if (p.includes('/') || p.includes('.')) { // seems like a path
-        if (!fs.existsSync(path.join(rootDir, p))) {
+        if (fs.existsSync(path.join(rootDir, p))) {
+          foundValidFile = true;
+        } else {
           findings.push({ id: startNum, issue: `Arquivo em Origem não existe: ${p}` });
         }
       }
     }
+    if (backticks.length === 0 || (!foundValidFile && backticks.some(b => b.includes('/') || b.includes('.')))) {
+       // if there are backticks with paths, one must exist. Wait, the rule is "Origem precisa citar pelo menos um arquivo existente."
+    }
+    if (!foundValidFile) {
+       findings.push({ id: startNum, issue: `Origem precisa citar pelo menos um arquivo existente.` });
+    }
   }
 
   // Check checagem
-  if (checagem !== null && checagem.startsWith('sim')) {
-    const auditarPath = path.join(rootDir, 'tools', 'auditar.cjs');
-    let auditarContent = '';
-    if (fs.existsSync(auditarPath)) {
-      auditarContent = fs.readFileSync(auditarPath, 'utf8');
-    }
+  if (checagem !== null) {
+    const cleanChecagem = checagem.replace(/[*_]/g, '').toLowerCase();
+    if (cleanChecagem.startsWith('sim')) {
+      const auditarPath = path.join(rootDir, 'tools', 'auditar.cjs');
+      let auditarContent = '';
+      if (fs.existsSync(auditarPath)) {
+        auditarContent = fs.readFileSync(auditarPath, 'utf8');
+      }
 
-    const backticks = checagem.match(/`([^`]+)`/g) || [];
-    let foundValidTool = false;
-    for (const b of backticks) {
-      const p = b.slice(1, -1);
-      if (p.startsWith('tools/')) {
-        if (fs.existsSync(path.join(rootDir, p))) {
-          const toolName = path.basename(p);
-          if (auditarContent.includes(toolName)) {
-            foundValidTool = true;
-            break;
+      const backticks = checagem.match(/`([^`]+)`/g) || [];
+      let foundValidTool = false;
+      for (const b of backticks) {
+        const p = b.slice(1, -1);
+        if (p.startsWith('tools/') && p !== 'tools/auditar.cjs') {
+          if (fs.existsSync(path.join(rootDir, p))) {
+            const toolName = path.basename(p);
+            if (auditarContent.includes(toolName)) {
+              foundValidTool = true;
+              break;
+            }
           }
         }
       }
-    }
-    
-    if (!foundValidTool) {
-      findings.push({ id: startNum, issue: `Checagem 'sim' não cita ferramenta válida em tools/ que conste no auditar.cjs: ${checagem}` });
+      
+      if (!foundValidTool) {
+        findings.push({ id: startNum, issue: `Checagem 'sim' não cita ferramenta válida em tools/ que conste no auditar.cjs (não pode ser o próprio auditar.cjs): ${checagem}` });
+      }
     }
   }
 };

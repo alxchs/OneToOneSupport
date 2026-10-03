@@ -23,8 +23,8 @@ As validações manuais ou adições de script do auditor **PRECISAM atacar os e
 - **L-04**: O teste cobriu ambos os lados da rede, simulando injeção do lado não nativo do teste (ex: do Guest no app Host)?
 - **L-05**: Testes visuais verificaram a renderização final real (`page.screenshot`) e o CSS em vez de inspecionar `getImageData` de canvas ocultos?
 - **L-06**: Interações de clique e arraste rodaram via `SendInput` do PowerShell nativo, escapando da abstração sintética CDP?
-- **L-07**: Testes interativos simularam fator de escala DPR (ex. 1.5, 0.34) e buscaram elementos de fato, ou dependeram de alvos injetados (`target: obj`) na escala 1x1?
-- **L-08**: O diff possui implementações paralelas "úteis" ou blocos heurísticos não exigidos e não declarados no HANDOFF?
+- **L-07**: Testes interativos simularam fator de escala DPR (ex. 1.5, 0.34) e buscaram elementos de fato, ou dependeram de alvos injetados (`target: obj`) na escala 1x1? Ataque nunca com alvo injetado nem só escala 1.
+- **L-08**: O diff possui implementações paralelas "úteis" ou blocos heurísticos não exigidos e não declarados no HANDOFF? Código não pedido é o primeiro lugar a ler.
 - **L-09**: Testes de ponta a ponta usaram o IP local real da LAN para garantir restrições de contexto não-seguro HTTP do navegador (ao invés de loopback/127.0.0.1)?
 - **L-10**: Eventos e privilégios são garantidos por uma lista restrita no backend em vez de dependentes da não-ação descrita via cliente?
 - **L-11**: Testes com pacote `asar` rodaram? Todo identificador recebido na rede (ex: `abaId`, `sessaoId`) e usado como caminho foi sanitizado contra injeções (`../`)?
@@ -39,6 +39,9 @@ As validações manuais ou adições de script do auditor **PRECISAM atacar os e
 - **L-20**: Diffs em documentações foram comparados cirurgicamente contra reversão burra?
 - **L-21**: As promessas funcionais em texto e Handoff passam via `grep` no código?
 - **L-22**: As origens listadas na documentação foram derivadas de leitura dos arquivos originais citados? A checagem sistêmica classificada como "sim" reside ativamente no auditar?
+- **L-23**: A CSP foi comprovada carregando um executável real construído em vez do ambiente dev?
+- **L-24**: O defeito apontado na auditoria contém a saída real do teste colada no relatório?
+- **L-25**: O auditor respeitou o papel somente-leitura, sem editar arquivo de produto nem temporariamente para espionar?
 
 ## Passo 3: Ataque Negativo e Controle Positivo
 - Todo teste negativo gerado para invalidar ou estourar a entrega ("não vazou") deve obrigatoriamente possuir um **controle positivo** na mesma bateria (provando, no mesmo run, que o ataque **aconteceu de verdade** e alcançou o alvo — ex.: se o teste ataca envio de dados bloqueados, o controle deve provar primeiro que dados legítimos são recebidos corretamente naquele fluxo). Sem isso, "não vazou" não distingue defesa de ataque inerte. Não é apenas um teste de caminho feliz para garantir que a base não quebrou; é provar que a rota testada está viva.
