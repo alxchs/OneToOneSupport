@@ -53,6 +53,8 @@ if (typeof HTMLCanvasElement !== 'undefined') {
         getImageData: () => ({ data: new Uint8ClampedArray(400) }),
         putImageData: () => {},
         drawImage: () => {},
+        setLineDash: () => {},
+        getLineDash: () => [],
       } as unknown as CanvasRenderingContext2D;
     }
     return null;
