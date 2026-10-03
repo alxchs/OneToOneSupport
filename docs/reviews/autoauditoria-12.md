@@ -66,3 +66,29 @@ AFIRMAÇÕES vs CÓDIGO: 50 verificadas em docs/LICOES.md, .agents/skills/audita
 Checagem LICOES.md: OK
 ```
 - **Resultado**: PASS
+
+- **Comando 3**: `node tools/auditar.cjs`
+- **Saída**:
+```
+AUDITORIA AUTOMATICA — fase/12-aprendizado-agy
+PASS  clone limpo da branch  -> fase/12-aprendizado-agy
+PASS  instalação (npm ci)  -> 32 vulnerabilities (3 moderate, 27 high, 2 critical)
+PASS  verificação (npm run verify)  -> 465 testes ok
+PASS  sonda de runtime  -> 49/49 checagens
+PASS  sem variável/parâmetro não usado
+PASS  Renderer sem fs/electron/better-sqlite3
+PASS  Renderer sem SQL (regra de negócio no Main)
+PASS  sem vermelho na UI (regra do dono)
+PASS  sinais de risco (linhas novas)  -> 0 falha(s), 52 aviso(s)
+PASS  autoauditoria-12 existe
+PASS  autoauditoria lista o que NÃO foi verificado
+PASS  autoauditoria sem FAIL aberto  -> 7 PASS / 0 FAIL
+PASS  HANDOFF atualizado para esta fase
+PASS  afirmações da documentação existem no código  -> 363 verificadas
+PASS  prova prometida (pixel/visual) tem evidência de pixel
+PASS  lições bem formatadas e origens reais
+PASS  commits novos desde a base  -> 13 commits; 50 files changed, 3354 insertions(+), 100 deletions(-)
+
+TUDO VERDE — este relatorio NAO substitui a abertura da tela, a leitura de amostra do diff e a decisão do chefe.
+```
+- **Resultado**: PASS
