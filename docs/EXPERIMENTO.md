@@ -114,4 +114,5 @@ Leitura do lote 1: 3 fases (~10 mil linhas novas, 121 testes, servidor E2EE, UI 
 
 | Data | Entrega auditada | Modelo do auditor | Defeitos do chefe | Achados pela sombra | Defeitos inventados | Nível |
 | --- | --- | --- | --- | --- | --- | --- |
-| - | - | - | - | - | - | - |
+| 2026-10-02 | Fase 11 rodada 1 (prova cega) | AGY gemini-3.1-pro-high | 2 | 0 | 1 | 1 |
+| 2026-10-03 | Fase 12 (a própria AGY como executora, 4 rodadas) | chefe (Claude) | defeitos em R1, R2 e R3; aprovada em R4 | n/a | n/a | 1 |

@@ -134,3 +134,12 @@ de conferência e a saída real. Item sem linha = não feito.
   esta seção (rodada 3: L-10 igual duas vezes, itens C/R4-4 não feitos) e a rodada 2, item 1. Regra: rodada de
   correção responde item a item com evidência. Como atacar: o chefe confere cada item numerado contra o diff.
 Verificação: `npx vitest run tests/checar-licoes.test.ts`, `node tools/checar-licoes.cjs`, `node tools/auditar.cjs`.
+
+## Rodada 4 (2026-10-03, `a0be730`): APROVADA
+
+Reataque do chefe ao `checar-licoes.cjs` (controle positivo + os 5 ataques): válido → 0; `sim (sonda)`, `Sim`,
+`**sim**`, `sim (tools/auditar.cjs)` e Origem sem arquivo → todos 1. 10 testes passando. `node tools/auditar.cjs`
+TUDO VERDE (363 afirmações, "lições bem formatadas e origens reais" PASS). L-10 corrigida (denylist, ADR-011),
+L-08 com a origem do item 3, checklist com L-24/L-07/L-08/L-25, L-26 criada, autoauditoria com uma linha por R4-n.
+Ressalva: a Rodada 4 só ficou correta porque a ordem exigiu resposta item a item (L-26); sem isso o padrão se repetiria.
+Não verificado: se uma conversa nova da AGY carrega as 4 skills de `.agents/skills/` sozinha (teste na próxima tarefa delegada).
