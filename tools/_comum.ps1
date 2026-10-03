@@ -22,32 +22,41 @@ function Get-Cfg {
   }
 }
 
-function New-Cabecalho($cfg, $branch) {
+function New-Cabecalho($cfg, $branch, [switch]$SemCommit) {
+  $fim = if ($SemCommit) { 'Só termine depois de gravar os arquivos pedidos. NÃO commite: seu papel não commita.' } else { 'Só termine depois de commitar TUDO.' }
 @"
 Seu repositório e diretório de trabalho é: $($cfg.Raiz) (branch $branch). Ele JÁ EXISTE e é o diretório atual: NÃO o procure em outros discos e NÃO inicie buscas ou tarefas em segundo plano.
-REGRA CRÍTICA DE EXECUÇÃO: seu processo ENCERRA quando você termina uma resposta sem chamar ferramenta. Se um comando longo (instalação, testes, build) for para segundo plano, NUNCA escreva "aguardando" e pare: continue chamando ferramentas em sequência (ex.: Start-Sleep 20 e ler a saída) até ele terminar, dentro da mesma execução. Só termine depois de commitar TUDO.
+REGRA CRÍTICA DE EXECUÇÃO: seu processo ENCERRA quando você termina uma resposta sem chamar ferramenta. Se um comando longo (instalação, testes, build) for para segundo plano, NUNCA escreva "aguardando" e pare: continue chamando ferramentas em sequência (ex.: Start-Sleep 20 e ler a saída) até ele terminar, dentro da mesma execução. $fim
 Não faça push nem merge. NÃO INVENTE: todo nome (evento, arquivo, função, branch, script, comando) que você citar em documentação precisa existir no código; o verificador de afirmações confere. Não afirme nada que você não executou.
 
 "@
 }
 
 function Invoke-Agy {
-  param($Cfg, [string]$Texto, [string]$Log, [switch]$Autonomo, [string]$Modelo, [switch]$DryRun)
+  param($Cfg, [string]$Texto, [string]$Log, [switch]$Autonomo, [string]$Modelo, [switch]$DryRun, [string]$Dir)
+  if (-not $Dir) { $Dir = $Cfg.Raiz }
+  # Os modelos claude-* do Antigravity recusam --effort ("--effort is not supported for model ...").
+  $effort = if ($Modelo -like 'claude-*') { @() } else { @('--effort', $Cfg.Effort) }
   if ($DryRun) {
     $modo = if ($Autonomo) { ' --dangerously-skip-permissions' } else { ' --mode accept-edits' }
-    Write-Host "[DRY-RUN] agy --print <$($Texto.Length) caracteres> --effort $($Cfg.Effort) --add-dir $($Cfg.Raiz)$modo"
+    Write-Host "[DRY-RUN] agy --print <$($Texto.Length) caracteres> $($effort -join ' ') --add-dir $Dir$modo"
     Set-Content -Path $Log -Value $Texto -Encoding utf8   # o prompt COMPLETO fica no log para conferência
     Write-Host "[DRY-RUN] prompt completo gravado em $Log"
     return
   }
   if (-not (Test-Path $Cfg.AgyPath)) { throw "agy não encontrado em $($Cfg.AgyPath) (ajuste agy.path em orquestrador.config.json)" }
   $env:ELECTRON_RUN_AS_NODE = $null
-  $a = @('--print', $Texto, '--effort', $Cfg.Effort, '--add-dir', $Cfg.Raiz)
+  $a = @('--print', $Texto) + $effort + @('--add-dir', $Dir)
   if ($Autonomo) { $a += '--dangerously-skip-permissions' } else { $a += @('--mode', 'accept-edits') }
   if ($Modelo) { $a += @('--model', $Modelo) }
-  & $Cfg.AgyPath @a 2>&1 | Tee-Object -FilePath $Log
+  Push-Location $Dir
+  try { & $Cfg.AgyPath @a 2>&1 | Tee-Object -FilePath $Log } finally { Pop-Location }
   if (Select-String -Path $Log -Pattern 'auto-denied|permission that headless mode cannot prompt' -Quiet) {
     throw "O agy foi barrado por permissões (veja $Log). Nada foi executado de fato. Use -Autonomo (com autorização do dono) ou ajuste as regras do agy."
+  }
+  # Só a linha de erro do próprio agy: o texto da resposta pode CITAR "429" (ex.: ao escrever a regra de cota).
+  if (Select-String -Path $Log -Pattern '^(AGY_ERROR: .*RESOURCE_EXHAUSTED|error: Individual quota reached)' -Quiet) {
+    throw "COTA (429) no modelo '$Modelo' (veja $Log). Redispare com um modelo de OUTRO grupo (ex.: -Modelo claude-sonnet-4-6) antes de trocar de conta (regra do CLAUDE.md global)."
   }
 }
 

@@ -1,0 +1,62 @@
+// @vitest-environment jsdom
+import { describe, it, expect, beforeEach } from 'vitest';
+import { WhiteboardEngine } from '../../src/shared/canvas/engine';
+import { createInitialTabState, reduceEvent } from '../../src/shared/events/reducer';
+
+// JSDOM Mocks
+if (typeof HTMLCanvasElement !== 'undefined') {
+  HTMLCanvasElement.prototype.getContext = function (this: any, contextType: string) {
+    if (contextType === '2d') {
+      return {
+        canvas: this, save: () => {}, restore: () => {}, scale: () => {}, rotate: () => {}, translate: () => {}, transform: () => {}, setTransform: () => {}, resetTransform: () => {}, fillRect: () => {}, clearRect: () => {}, strokeRect: () => {}, beginPath: () => {}, closePath: () => {}, moveTo: () => {}, lineTo: () => {}, arc: () => {}, fill: () => {}, stroke: () => {}, drawImage: () => {}, measureText: () => ({ width: 10 }), font: '10px sans-serif', textAlign: 'left', textBaseline: 'top', direction: 'ltr', fillStyle: '#000', strokeStyle: '#000', lineWidth: 1,
+      };
+    }
+    return null;
+  };
+}
+
+describe('Sombra 11: Borracha (Traço inteiro) apaga Borracha (Trecho)?', () => {
+  let engine: WhiteboardEngine;
+  let canvasEl: HTMLCanvasElement;
+  let emittedEvents: any[] = [];
+
+  beforeEach(() => {
+    emittedEvents = [];
+    canvasEl = document.createElement('canvas');
+    engine = new WhiteboardEngine(canvasEl, 'sessao-123', 'host', false, (event) => {
+      emittedEvents.push(event);
+    });
+  });
+
+  it('não deve permitir que a borracha de objeto apague a borracha de trecho via opt.target', () => {
+    const addLine = {
+      id: 'e1', sessao_id: 'sessao-123', aba_id: 'aba1', autor: 'host', timestamp: 1, tipo: 'DRAW_ADD',
+      payload: { elementId: 'line1', tipo: 'path', data: { path: 'M 0 0 L 100 100' } }
+    };
+    
+    const addEraser = {
+      id: 'e2', sessao_id: 'sessao-123', aba_id: 'aba1', autor: 'host', timestamp: 2, tipo: 'DRAW_ADD',
+      payload: { elementId: 'eraser1', tipo: 'eraser_stroke', data: { path: 'M 50 50 L 60 60', strokeWidth: 10 } }
+    };
+
+    let state = createInitialTabState();
+    state = reduceEvent(state, addLine as any);
+    state = reduceEvent(state, addEraser as any);
+    
+    engine.renderState(state);
+
+    const fabricCanvas = (engine as any).canvas;
+    expect(fabricCanvas.getObjects().length).toBe(2);
+    const eraserObj = fabricCanvas.getObjects()[1];
+    expect((eraserObj as any).tipo).toBe('eraser_stroke');
+
+    engine.setTool('object_eraser');
+
+    fabricCanvas.fire('mouse:down', { target: eraserObj, e: { buttons: 1, clientX: 0, clientY: 0 } });
+
+    const hideEvent = emittedEvents.find(e => e.tipo === 'DRAW_HIDE');
+    
+    // NENHUM hide event deve ser emitido para eraser_stroke
+    expect(hideEvent).toBeUndefined();
+  });
+});

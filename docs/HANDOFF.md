@@ -1,6 +1,25 @@
-# HANDOFF DE ESTADO — FASE 11: Quadro com Sensação de Paint
+# HANDOFF DE ESTADO — FASE 12: A AGY aprende com o próprio histórico
 
-## Mensagem para o Alexandre (Resumo em Português Simples — Fase 11)
+## Mensagem para o Alexandre (Resumo em Português Simples — Fase 12, Rodada 4)
+Olá Alexandre! Concluímos a **Fase 12, Rodada 4**. 
+
+Nenhuma linha de código do produto foi alterada. O que foi feito nesta rodada:
+1. **Furos no checar-licoes fechados (R4-1):** O script `tools/checar-licoes.cjs` agora é case-insensitive para "sim", ignora formatações negrito/itálico, rejeita o próprio `auditar.cjs` como justificativa e exige que a Origem aponte para pelo menos um arquivo que existe. Novos testes de vitest garantem as malhas finas.
+2. **Correções na L-10 e L-08 (R4-2, R4-3):** A lição 10 teve seu título limpo para "controle baseado em denylist" e suas fontes reais ajustadas (`docs/reviews/fase-07.md` e ADR-011). O item 3 da prova do chefe foi incluído na L-08.
+3. **Checklist Auditar Entrega (R4-4):** As 4 lições do resultado da prova do chefe (L-07, L-08, L-24 e L-25) agora formam o checklist final de quem assume a auditoria.
+4. **Lição L-26 - Omissão Silenciosa (R4-5):** Catalogada uma nova lição de processo: itens de uma ordem de correção não podem ser ignorados em silêncio. Um item cobrado exige uma prova real de resposta acompanhando-o na autoauditoria. Tudo documentado na `autoauditoria-12.md`.
+Todas as verificações (`vitest`, `checar-licoes` e `auditar.cjs`) estão rodando no verde.
+
+---
+
+# HANDOFF DE ESTADO — FASE 12: A AGY aprende com o próprio histórico
+
+## Mensagem para o Alexandre (Resumo em Português Simples — Fase 12, Rodada 3)
+
+
+---
+
+# HANDOFF DE ESTADO — FASE 11: Quadro com Sensação de Paint
 Olá Alexandre! Implementamos com sucesso a **Fase 11: Quadro com sensação de Paint**, atendendo integralmente ao seu pedido de fazer o quadro funcionar como uma verdadeira folha de desenho (estilo Paint do Windows), onde o usuário nunca é exposto a caixas de seleção, alças de redimensionar/girar ou cursores de "mover".
 
 O que mudou na prática:

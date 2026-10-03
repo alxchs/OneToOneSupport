@@ -75,6 +75,13 @@ if (cl.code === 0) {
     const j = JSON.parse(cprv.out.trim().split('\n').pop());
     add('prova prometida (pixel/visual) tem evidência de pixel', j.findings.length === 0, j.findings.length ? j.findings.map((f) => `[${f.id}] ${f.status}`).join('; ') : '');
   } catch { add('prova prometida (pixel/visual) tem evidência de pixel', false, 'não executou: ' + cprv.out.slice(0, 160)); }
+  const clic = run(`node ${q(path.join(__dirname, 'checar-licoes.cjs'))} --root ${q(tmp)} --json`, tmp);
+  try {
+    const j = JSON.parse(clic.out.trim().split('\n').pop());
+    if (fs.existsSync(path.join(tmp, 'docs', 'LICOES.md'))) {
+      add('lições bem formatadas e origens reais', j.findings.length === 0, j.findings.length ? j.findings.map((f) => `[${f.id}] ${f.issue}`).join('; ') : '');
+    }
+  } catch { add('lições bem formatadas e origens reais', false, 'não executou: ' + clic.out.slice(0, 160)); }
   const commits = run(`git rev-list --count origin/${C.baseBranch}..HEAD`, tmp).out.trim();
   const diff = run(`git diff --shortstat origin/${C.baseBranch}...HEAD`, tmp).out.trim();
   add('commits novos desde a base', Number(commits) > 0, `${commits} commits; ${diff}`);

@@ -12,7 +12,7 @@ $saida = "docs/reviews/revisao-cruzada-$Fase.md"
 if (-not $Autonomo) { throw "A revisão cruzada precisa de -Autonomo (headless não lê arquivos sem permissão). Exige autorização do dono." }
 if (-not (Test-ArvoreLimpa @('docs/execucoes', '.gitignore', $saida))) { throw "Working tree suja; commit antes." }
 $pre = (git rev-parse HEAD).Trim()
-$texto = (New-Cabecalho $cfg (git rev-parse --abbrev-ref HEAD).Trim()) + @"
+$texto = (New-Cabecalho $cfg (git rev-parse --abbrev-ref HEAD).Trim() -SemCommit) + @"
 MODO SOMENTE LEITURA ABSOLUTO: não edite, não crie, não apague arquivos; não rode git commit/add/checkout/reset; não instale nada. Só leia.
 Revise criticamente estes artefatos, escritos por outra IA (o chefe técnico), e aponte LACUNAS REAIS: $($cfg.PromptsDir)/fase-$Fase-*.md, tools/*.cjs, tools/*.ps1 e a seção de autoauditoria do AGENTS.md.
 Procure: ambiguidades que fariam um executor errar; requisitos sem critério de aceite verificável; bugs nas ferramentas; casos que o auditor automático não detectaria; riscos de segurança.
