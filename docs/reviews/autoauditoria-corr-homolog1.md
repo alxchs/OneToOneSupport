@@ -17,7 +17,7 @@
 | **H1.4** | Envio de `TAB_STATE` inicial logo após `SESSION_READY` no handshake WebSocket | `node scripts/test-runner.mjs tests/guest-mobile.test.ts` | 14 passed (14) em 4.41s | **PASS** |
 | **H1.5** | Tratar retorno booleano e falha de `broadcastToGuest` em `electron/ipc/evento.ipc.ts` | `npm run typecheck` | 0 erros de compilação TypeScript | **PASS** |
 | **H2.1** | Substituir `crypto.randomUUID()` por `generateUUID()` para contextos HTTP em LAN | `git grep "crypto.randomUUID()"` | 0 ocorrências em todo o repositório | **PASS** |
-| **H3.1** | Borracha padrão como Borracha de Trecho (`destination-out`) no Event Sourcing | `node scripts/test-runner.mjs tests/borracha-trecho.test.ts -t "(a)"` | `eraserObj.globalCompositeOperation === 'destination-out'` | **PASS** |
+| **H3.1** | Borracha padrão como Borracha de Trecho (`destination-out`) no Event Sourcing | `node scripts/test-runner.mjs tests/borracha-trecho.test.ts -t "(a)"` | `eraserObj.globalCompositeOperation === 'destination-out'` (falta amostragem de pixel) | **PASS** |
 | **H3.2** | Undo da borracha oculta o `eraser_stroke` e restaura o trecho apagado | `node scripts/test-runner.mjs tests/borracha-trecho.test.ts -t "(b)"` | 1 passed (1) em 34ms | **PASS** |
 | **H3.3** | Replay do log do zero reproduz exatamente o estado ao vivo | `node scripts/test-runner.mjs tests/borracha-trecho.test.ts -t "(c)"` | Replayed state idêntico ao acumulado | **PASS** |
 | **H3.4** | Sincronização bidirecional da borracha e UNDO/REDO via WebSocket | `node scripts/test-runner.mjs tests/borracha-trecho.test.ts -t "(d)"` | 1 passed (1) em 756ms | **PASS** |

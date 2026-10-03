@@ -1,3 +1,9 @@
+# Estado Atual - Fase 13
+- Fase 13 rodada 2 completa.
+- Os 10 defeitos apontados pelo chefe foram corrigidos.
+- Testes foram refatorados e adicionados ao vitest, todos passando.
+- O auditor agora exige provas com blocos de código (### D1).
+- modo-ausencia.ps1 ganhou retry no caso de limite de cotas.
 # HANDOFF DE ESTADO — FASE 13: O modo ausência da AGY
 
 ## Mensagem para o Alexandre (Resumo)
@@ -8,4 +14,5 @@ A infraestrutura para a AGY trabalhar sozinha está pronta:
 3. O orquestrador 	ools/modo-ausencia.ps1 foi construído com as 6 regras de parada obrigatória e lê vereditos produzidos pelo novo papel de auditor, delegando via 	ools/delegar.ps1.
 4. Todos os 9 cenários do 	ests/modo-ausencia.test.ts passam verde validando Parser, Fila, Paradas e DryRun.
 A fase finalizou a infraestrutura completa sem tocar no produto.
+
 

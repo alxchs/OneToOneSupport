@@ -1,5 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { execSync } from 'child_process';
+import { describe, it, expect } from 'vitest';
 import fs from 'fs';
 
 describe('modo-ausencia.ps1', () => {
@@ -91,4 +90,5 @@ describe('modo-ausencia.ps1', () => {
     });
   });
 });
+
 

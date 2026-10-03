@@ -17,8 +17,8 @@
 | **D1.4** | Timeline unificada no terminal do Host com timestamp, sem exigir abertura de DevTools | `node tools/test-diag-terminal.cjs` | Checkpoints do Host e do Servidor impressos em sequência temporal no mesmo stdout | **PASS** |
 | **D1.5** | Teste automatizado com `ONETOONE_DIAG=1`, retângulo desenhado via SendInput real com Guest mobile conectado, validando a ordem estrita dos checkpoints | `node tools/test-diag-terminal.cjs` | Ordem estrita confirmada: `finishShapeCreation -> emitEvent -> aplicarEventoQuadro -> gravar (IPC) -> broadcastToGuest -> chegada no Guest -> renderState` | **PASS** |
 | **D1.6** | Instrução literal para o dono do produto documentada em `docs/HANDOFF.md` | `git grep "para relatar um problema no quadro branco" docs/HANDOFF.md` | Parágrafo literal encontrado sem desvios | **PASS** |
-| **D2.1** | Não regredir o que já funciona (`npm run verify` completo com 17 suítes, 257 testes e sonda 27/27) | `npm run verify` | Typecheck OK, Build OK, 257 testes OK, Sonda 27/27 OK | **PASS** |
-| **D2.2** | Testes de borracha de trecho e de sincronização de IDs permanecem verdes | `node scripts/test-runner.mjs tests/borracha-trecho.test.ts` e `tests/guest-mobile.test.ts` | 5/5 testes de borracha OK e 14/14 testes mobile OK | **PASS** |
+| **D2.1** | Não regredir o que já funciona (`npm run verify` completo com 17 suítes, 257 testes e sonda 27/27) | `npm run verify` | Typecheck OK, Build OK, 257 testes OK, Sonda 27/27 OK (testes visuais usam pixel) | **PASS** |
+| **D2.2** | Testes de borracha de trecho e de sincronização de IDs permanecem verdes | `node scripts/test-runner.mjs tests/borracha-trecho.test.ts` e `tests/guest-mobile.test.ts` | 5/5 testes de borracha OK e 14/14 testes mobile OK (pixel check indireto) | **PASS** |
 | **GATE** | Varredura de afirmações documentais sem invenções | `node tools/verificar-afirmacoes.cjs` | 137 afirmações verificadas em docs/HANDOFF.md; 0 não encontradas | **PASS** |
 | **RISK** | Varredura de sinais de risco (`tools/sinais-risco.cjs`) | `node tools/sinais-risco.cjs` | 0 falha(s), 15 aviso(s) aceitos | **PASS** |
 
