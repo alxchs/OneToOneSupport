@@ -109,3 +109,9 @@ Leitura do lote 1: 3 fases (~10 mil linhas novas, 121 testes, servidor E2EE, UI 
   faltava na prova: ninguém tinha testado se o funil novo quebraria a aula ao vivo. Testei
   (`ataque-pos-d17.cjs`, as duas metades na mesma execução): não quebrou. Fase 08 APROVADA para merge,
   pendente do dono.
+
+## Placar da AGY como chefe
+
+| Data | Entrega auditada | Modelo do auditor | Defeitos do chefe | Achados pela sombra | Defeitos inventados | Nível |
+| --- | --- | --- | --- | --- | --- | --- |
+| - | - | - | - | - | - | - |

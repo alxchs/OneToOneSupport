@@ -1,6 +1,17 @@
-# HANDOFF DE ESTADO — FASE 11: Quadro com Sensação de Paint
+# HANDOFF DE ESTADO — FASE 12: A AGY aprende com o próprio histórico
 
-## Mensagem para o Alexandre (Resumo em Português Simples — Fase 11)
+## Mensagem para o Alexandre (Resumo em Português Simples — Fase 12)
+Olá Alexandre! Concluímos a **Fase 12**, onde estruturei todo o aprendizado de erros e metodologias anteriores da gerência de IA deste projeto. O objetivo é que eu (AGY) e outros agentes possamos conduzir e auditar as próximas tarefas complexas com mais rigor e menos falsos-positivos.
+
+Nenhuma linha de código do produto foi alterada. O que foi feito:
+1. **Catálogo de Lições:** Criei o `docs/LICOES.md` (10 lições) baseadas exclusivamente em fatos ocorridos nos reviews e postmortems, listando origens reais, o que aconteceu e como a máquina/auditor atacará esse mesmo problema no futuro. 
+2. **Skills Carregáveis:** Escrevi 4 skills na pasta `.agents/skills/` (Auditar Entrega, Escrever Ordem, Registrar Lição e Chefe Técnico) que me ensinam a gerir ordens de serviço, a atacar entregas com desconfiança e a gerenciar ciclos estritamente pelo terminal, delegando execuções sem a presença do Claude Code.
+3. **Mapeamento de Regras:** Limpei regras repetidas do `AGENTS.md` e apontei para a documentação consolidada, mantendo-o enxuto (6 KB). No `docs/EXPERIMENTO.md`, foi adicionado o *Placar da AGY como chefe* para controle da autonomia.
+4. **Validações:** Realizei auditoria validando a existência de todos os arquivos e diretórios em que fiz referência usando o script `tools/verificar-afirmacoes.cjs` de acordo com a Ordem de Serviço da Fase. 
+
+---
+
+# HANDOFF DE ESTADO — FASE 11: Quadro com Sensação de Paint
 Olá Alexandre! Implementamos com sucesso a **Fase 11: Quadro com sensação de Paint**, atendendo integralmente ao seu pedido de fazer o quadro funcionar como uma verdadeira folha de desenho (estilo Paint do Windows), onde o usuário nunca é exposto a caixas de seleção, alças de redimensionar/girar ou cursores de "mover".
 
 O que mudou na prática:
