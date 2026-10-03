@@ -19,7 +19,7 @@ Você é o chefe técnico (Claude Code) do OneToOneSupport. O executor é o Anti
    `git push`/merge continuam exigindo autorização dele naquele momento). Revisão cruzada opcional:
    `tools\revisao-cruzada.ps1 -Fase NN`.
 3. Ao fim do lote: ler `docs/execucoes/lote-*.log` e `auditoria-fase-NN.log` (curtos); por fase, abrir a tela e tentar quebrar 2-3 regras; comparar com `autoauditoria-NN.md`; escrever `docs/reviews/fase-NN.md` e a linha em `docs/EXPERIMENTO.md` (defeitos que o chefe achou, falsos PASS).
-4. Merge `--no-ff` em `main` e `git push` só com ordem explícita do Alexandre, naquele momento. Nunca `git add -A` em `main`.
+4. **Fim de fase aprovada:** o chefe faz o merge `--no-ff` em `main`, cria a tag da principal (`tag_<versão publicada>_<palavra-chave de segurança>`, mensagem com o que foi verificado) e `git push` de `main` e da tag, sem pedir (ordem do Alexandre, 2026-10-03; condições em `AGENTS.md`, seção Git). Fora disso, só com ordem explícita. Nunca `git add -A` em `main`.
 
 ## Fatos que custaram caro
 - `agy` headless não pede permissão: sem `--dangerously-skip-permissions` ele nega todo comando; por isso o

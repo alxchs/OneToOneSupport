@@ -9,14 +9,14 @@ Nota: Os procedimentos de chefe/auditor estão agora carregados como skills em `
    comparando TODAS as colunas de negócio (exceto PK e timestamps). Colunas anuláveis comparam com `IS`, nunca `=`.
 2. **Host 3840x2160 @150%:** canvas/Fabric.js sempre leem `window.devicePixelRatio`.
 3. **Guest:** homologação mental = Motorola Edge 70 Pro, Android 16, sistema em inglês. Mobile-first, touch events.
-4. **Git:** Git Bash 2.52, remoto GitHub (ADR-007; o Mestre dizia AWS CodeCommit). **Nunca `git push` sem confirmação explícita do Alexandre naquele momento.**
+4. **Git:** Git Bash 2.52, remoto GitHub (ADR-007; o Mestre dizia AWS CodeCommit). **Nunca `git push` sem confirmação explícita do Alexandre naquele momento, salvo a exceção de fim de fase abaixo (seção Git).**
 5. **Sem regra de negócio no Renderer.** Lógica no Main (Domain Services).
 6. **Stack fixa.** Divergir só com ADR em `docs/ADR/` + justificativa no HANDOFF.
 7. **Arte/ícones/logos: nunca vermelho, nunca vermelho+amarelo.** Perguntar por paleta alternativa.
 
 <!-- kit-orquestrador:inicio -->
 Papéis: o **chefe técnico** (Claude Code) planeja, escreve as ordens de serviço, audita e decide; o **executor** (Antigravity `agy`
-ou outra IA) implementa. O dono do produto é o único que autoriza merge e `git push`. Nenhuma IA aprova o próprio trabalho.
+ou outra IA) implementa. O dono do produto autoriza merge e `git push` (ao fim de fase aprovada o chefe os faz, ver seção Git). Nenhuma IA aprova o próprio trabalho.
 Antes de qualquer trabalho leia: este arquivo, `docs/FASES.md`, `docs/PROTOCOLO.md`, `docs/HANDOFF.md` e `docs/ADR/` (se existir).
 
 ## Disciplina de verificação
@@ -28,7 +28,7 @@ Antes de qualquer trabalho leia: este arquivo, `docs/FASES.md`, `docs/PROTOCOLO.
 
 ## Git
 - Uma fase = uma branch `fase/NN-slug`. Commits pequenos, mensagem no imperativo. Não commite em `main` durante uma fase.
-- **Nunca `git push` nem merge sem ordem explícita do dono, naquele momento.**
+- **Nunca `git push` nem merge sem ordem explícita do dono, naquele momento.** EXCEÇÃO PERMANENTE (ordem do Alexandre, 2026-10-03): ao FIM de cada fase/spec, depois do veredito APROVADA do chefe (Claude Code) e de `npm run verify`/`node tools/auditar.cjs` verdes, o chefe pode commitar, fazer o merge `--no-ff` da branch da fase em `main`, criar a tag da principal (padrão `tag_<versão publicada>_<palavra-chave de segurança>`) e fazer `git push` de `main` e da tag, sem pedir confirmação. Só o chefe: a AGY e qualquer outro executor continuam proibidos de push e merge. Nunca `--force`. Fora do fim de fase aprovada, a regra geral abaixo continua valendo.
 - Ao terminar: atualize `docs/HANDOFF.md`, commite e pare.
 
 ## Autoauditoria obrigatória (executor) — antes de declarar a fase pronta

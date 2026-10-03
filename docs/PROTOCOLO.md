@@ -54,4 +54,4 @@ lição puder ser checada por máquina, vira regra no auditor; se for de método
 **Independência (vale em todo nível):** quem executou não audita. A auditoria roda em outra conversa e, sempre que
 houver cota, em outro grupo de modelo (executor Gemini → auditor `claude-*`, ou o inverso). Auditor e chefe rodam
 com `tools/delegar.ps1 -Papel auditor|chefe`, que reprova se mexerem fora dos caminhos permitidos.
-**Sempre do dono, em qualquer nível:** merge, `git push`, mudança de escopo/stack, decisões de produto e de paleta.
+**Sempre do dono, em qualquer nível (a AGY nunca faz merge nem push; o chefe só os faz ao fim de fase aprovada, `AGENTS.md`, seção Git):** merge, `git push`, mudança de escopo/stack, decisões de produto e de paleta.
