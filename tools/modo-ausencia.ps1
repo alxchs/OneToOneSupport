@@ -24,10 +24,22 @@ function Parse-Veredito {
         return @{ Status = 'APROVADA'; Motivo = ''; Lixo = $false }
     } elseif ($primeiraLinha -match '(?i)^Veredito:\s*REJEITADA$') {
         $motivo = ($lines | Select-Object -Skip 1) -join "`n"
-        return @{ Status = 'REJEITADA'; Motivo = $motivo; Lixo = $false }
+        $lixo = $false
+        if (-not ($motivo -match '(?s)###\s*D\d+.*?(```|`$+)')) {
+            $lixo = $true
+        }
+        return @{ Status = 'REJEITADA'; Motivo = $motivo; Lixo = $lixo }
     } else {
         return @{ Status = 'REJEITADA'; Motivo = 'Primeira linha fora do padrao'; Lixo = $true }
     }
+}
+
+function Test-Parada {
+    param($Resultado, $UltimaRejeicao)
+    if ($Resultado.Status -eq 'APROVADA') { return 'APROVADA' }
+    if ($Resultado.Lixo -or (-not ($Resultado.Motivo -match '(?s)###\s*D\d+.*?(```|`$+)'))) { return 'ESCALADO_SEM_PROVA' }
+    if ($UltimaRejeicao -ne "" -and $UltimaRejeicao -eq $Resultado.Motivo) { return 'ESCALADO' }
+    return 'NOVA_RODADA'
 }
 
 function Ler-Fila {
@@ -66,15 +78,16 @@ function Salvar-Fila {
 
 if ($TestExport) { return }
 
-$fila = Ler-Fila
+$filaTotal = Ler-Fila
 $ItensArray = $Itens | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ }
+$filaProcessar = $filaTotal
 if ($ItensArray.Count -gt 0) {
-    $fila = $fila | Where-Object { $ItensArray -contains $_.ID }
+    $filaProcessar = $filaTotal | Where-Object { $ItensArray -contains $_.ID }
 }
 
 $consecutiveEscalados = 0
 
-foreach ($item in $fila) {
+foreach ($item in $filaProcessar) {
     if ($item.Status -eq 'PRONTA-PARA-REVISAO' -or $item.Status -eq 'ESCALADO' -or $item.Status -eq 'BLOQUEADA') {
         continue
     }
@@ -112,10 +125,22 @@ foreach ($item in $fila) {
 
     $branch = $item.Branch
     if (-not $DryRun) {
-        git checkout main
-        git checkout -b $branch
+        ia claim agy "$($item.ID)"
+        try {
+            git checkout main
+            if (git branch --list $branch) {
+                git checkout $branch
+            } else {
+                git checkout -b $branch
+            }
+        } catch {
+            Write-Host "Falha ao preparar branch $branch"
+            ia release agy
+            break
+        }
     } else {
-        Write-Host "[DRY-RUN] git checkout main; git checkout -b $branch"
+        Write-Host "[DRY-RUN] ia claim agy $($item.ID)"
+        Write-Host "[DRY-RUN] git checkout main; git checkout ou branch $branch"
     }
 
     $ultimaRejeicao = ""
@@ -125,69 +150,111 @@ foreach ($item in $fila) {
         
         $ordem = $promptPath
         if (-not $DryRun) {
-            try {
-                pwsh -File tools/delegar.ps1 -Ordem $ordem -Nome "exec-$($item.ID)-r$($item.Rodadas)" -Papel executor -Autonomo:$Autonomo
-            } catch {
-                if ($_ -match '429') {
-                    $item.Status = 'BLOQUEADA'
-                    $item.Cota = "Atingida"
-                    Salvar-Fila $fila
-                    Write-Host "Parada obrigatória: Cota 429."
-                    exit 1
-                } else {
-                    throw $_
+            if ($item.Rodadas -gt 1) {
+                $promptRejeicaoPath = "docs/prompts/backlog/tmp-exec-$($item.ID).md"
+                $novoTexto = $promptText + "`n`n## CORREÇÃO OBRIGATÓRIA`nO auditor automático REPROVOU a sua entrega. Corrija os seguintes defeitos e não se esqueça de preencher a autoauditoria com o diff real:`n" + $ultimaRejeicao
+                Set-Content -Path $promptRejeicaoPath -Value $novoTexto -Encoding utf8
+                $ordem = $promptRejeicaoPath
+            }
+            
+            $modelosExecutor = @($null, "flash")
+            $executorSuccess = $false
+            foreach ($m in $modelosExecutor) {
+                try {
+                    $cmd = "pwsh -File tools/delegar.ps1 -Ordem `"$ordem`" -Nome `"exec-$($item.ID)-r$($item.Rodadas)`" -Papel executor -ExigirCommit -Autonomo:$Autonomo"
+                    if ($m) { $cmd += " -Modelo $m" }
+                    Invoke-Expression $cmd
+                    $executorSuccess = $true
+                    break
+                } catch {
+                    if ($_ -match '429') {
+                        Write-Host "Cota 429 no executor (modelo $($m))."
+                        continue
+                    } else {
+                        ia release agy
+                        throw $_
+                    }
                 }
             }
+            
+            if (-not $executorSuccess) {
+                $item.Status = 'BLOQUEADA'
+                $item.Cota = "Atingida"
+                Salvar-Fila $filaTotal
+                Write-Host "Parada obrigatória: Cota 429."
+                ia release agy
+                exit 1
+            }
         } else {
-            Write-Host "[DRY-RUN] delegar executor para $($item.ID) rodada $($item.Rodadas)"
+            Write-Host "[DRY-RUN] delegar executor para $($item.ID) rodada $($item.Rodadas) com -ExigirCommit"
         }
 
         if (-not $DryRun) {
             node tools/auditar.cjs
-            $auditorOrdem = "docs/prompts/backlog/auditor-modelo.md"
+            $auditorOrdem = "docs/prompts/backlog/tmp-auditor-$($item.ID).md"
             $vereditoPath = "docs/reviews/veredito-$($item.ID)-r$($item.Rodadas).md"
+            $auditorTemplate = Get-Content "docs/prompts/backlog/auditor-modelo.md" -Raw
+            $auditorContent = $auditorTemplate -replace '\{\{BRANCH\}\}', $branch -replace '\{\{ID\}\}', $item.ID -replace '\{\{VEREDITO_PATH\}\}', $vereditoPath
+            Set-Content -Path $auditorOrdem -Value $auditorContent -Encoding utf8
             
-            try {
-                pwsh -File tools/delegar.ps1 -Ordem $auditorOrdem -Nome "auditor-$($item.ID)-r$($item.Rodadas)" -Papel auditor -Permitidos "docs/reviews" -Autonomo:$Autonomo
-            } catch {
-                if ($_ -match '429') {
-                    $item.Status = 'BLOQUEADA'
-                    $item.Cota = "Atingida"
-                    Salvar-Fila $fila
-                    Write-Host "Parada obrigatória: Cota 429 no auditor."
-                    exit 1
+            $modelosAuditor = @($null, "flash")
+            $auditorSuccess = $false
+            foreach ($m in $modelosAuditor) {
+                try {
+                    $cmd = "pwsh -File tools/delegar.ps1 -Ordem `"$auditorOrdem`" -Nome `"auditor-$($item.ID)-r$($item.Rodadas)`" -Papel auditor -Permitidos `"docs/reviews`" -Autonomo:$Autonomo"
+                    if ($m) { $cmd += " -Modelo $m" }
+                    Invoke-Expression $cmd
+                    $auditorSuccess = $true
+                    break
+                } catch {
+                    if ($_ -match '429') {
+                        Write-Host "Cota 429 no auditor (modelo $($m))."
+                        continue
+                    }
+                    ia release agy
+                    throw $_
                 }
+            }
+            if (-not $auditorSuccess) {
+                $item.Status = 'BLOQUEADA'
+                $item.Cota = "Atingida"
+                Salvar-Fila $filaTotal
+                Write-Host "Parada obrigatória: Cota 429 no auditor."
+                ia release agy
+                exit 1
             }
             
             $item.Veredito = $vereditoPath
             $resultado = Parse-Veredito -FilePath $vereditoPath
             
-            if ($resultado.Status -eq 'APROVADA') {
+            $decisao = Test-Parada -Resultado $resultado -UltimaRejeicao $ultimaRejeicao
+            if ($decisao -eq 'APROVADA') {
                 $item.Status = 'PRONTA-PARA-REVISAO'
-                Salvar-Fila $fila
+                Salvar-Fila $filaTotal
                 break
-            } else {
-                if ($resultado.Lixo -or (-not ($resultado.Motivo -match '```'))) {
-                    $item.Status = 'ESCALADO'
-                    $item.Decisao = "Auditor sem prova real"
-                    Salvar-Fila $fila
-                    break
-                }
-                
-                if ($ultimaRejeicao -ne "" -and $ultimaRejeicao -eq $resultado.Motivo) {
-                    $item.Status = 'ESCALADO'
-                    $item.Decisao = "Mesmo defeito 2x"
-                    Salvar-Fila $fila
-                    break
-                }
-                
-                $ultimaRejeicao = $resultado.Motivo
+            } elseif ($decisao -eq 'ESCALADO_SEM_PROVA') {
+                $item.Status = 'ESCALADO'
+                $item.Decisao = "Auditor sem prova real"
+                Salvar-Fila $filaTotal
+                break
+            } elseif ($decisao -eq 'ESCALADO') {
+                $item.Status = 'ESCALADO'
+                $item.Decisao = "Mesmo defeito 2x"
+                Salvar-Fila $filaTotal
+                break
             }
+            $ultimaRejeicao = $resultado.Motivo
         } else {
             Write-Host "[DRY-RUN] node tools/auditar.cjs"
             Write-Host "[DRY-RUN] delegar auditor para $($item.ID) rodada $($item.Rodadas)"
             break
         }
+    }
+    
+    if (-not $DryRun) {
+        ia release agy
+    } else {
+        Write-Host "[DRY-RUN] ia release agy"
     }
     
     if ($item.Status -eq 'ESCALADO') {
@@ -200,4 +267,7 @@ foreach ($item in $fila) {
         $consecutiveEscalados = 0
     }
 }
-Salvar-Fila $fila
+
+if (-not $DryRun) {
+    Salvar-Fila $filaTotal
+}
