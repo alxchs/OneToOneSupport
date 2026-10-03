@@ -21,7 +21,7 @@ Quem executou **NÃO** audita. Não avalie o próprio código gerado, nem rode a
 - A auditoria precisa rodar de forma isolada, em **outra conversa** do Antigravity ou CLI. 
 - Havendo cota, utilize **outro grupo de modelo**. Ex: Se você despachou ao Gemini, delege a auditoria ao Claude (via parâmetro `-Modelo claude-sonnet-4-6` ou `claude-opus-4-6-thinking`).
 - Use `tools/delegar.ps1 -Papel auditor` passando a Ordem, para impedir mutação no código. 
-- *Gestão de Estouro*: Todo erro HTTP `429` significa esgotamento de quota e deverá resultar em chaveamento automático (Skills de Cota no `%LOCALAPPDATA%\antigravity-profiles`), nunca adiantando as tarefas das IAs sem autorização.
+- *Gestão de Estouro*: Diante de um erro HTTP 429, a ordem é: (a) redisparar a mesma tarefa com um modelo de **outro grupo** na conta ativa; (b) só se esse grupo também estourar, rodar `trocarConta <nome>`, depois de registrar em ~/.gemini/accounts/esgotada.txt e conferir se outra janela já trocou. Não existem "Skills de Cota".
 
 ## 4. Auditoria e Retornos (O Veredito)
 Analise o output retornado da IA Auditora (ou de sua própria varredura em outra instância).

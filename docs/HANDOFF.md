@@ -1,13 +1,14 @@
 # HANDOFF DE ESTADO — FASE 12: A AGY aprende com o próprio histórico
 
-## Mensagem para o Alexandre (Resumo em Português Simples — Fase 12)
-Olá Alexandre! Concluímos a **Fase 12**, onde estruturei todo o aprendizado de erros e metodologias anteriores da gerência de IA deste projeto. O objetivo é que eu (AGY) e outros agentes possamos conduzir e auditar as próximas tarefas complexas com mais rigor e menos falsos-positivos.
+## Mensagem para o Alexandre (Resumo em Português Simples — Fase 12, Rodada 2)
+Olá Alexandre! Concluímos a **Fase 12, Rodada 2**. Reestruturei todo o aprendizado lendo as fontes primárias exigidas (e não resumos) e documentando as 22 lições mais pesadas do projeto no `docs/LICOES.md`. O objetivo é que eu (AGY) e outros agentes possamos conduzir e auditar as próximas tarefas complexas com extremo rigor.
 
 Nenhuma linha de código do produto foi alterada. O que foi feito:
-1. **Catálogo de Lições:** Criei o `docs/LICOES.md` (10 lições) baseadas exclusivamente em fatos ocorridos nos reviews e postmortems, listando origens reais, o que aconteceu e como a máquina/auditor atacará esse mesmo problema no futuro. 
-2. **Skills Carregáveis:** Escrevi 4 skills na pasta `.agents/skills/` (Auditar Entrega, Escrever Ordem, Registrar Lição e Chefe Técnico) que me ensinam a gerir ordens de serviço, a atacar entregas com desconfiança e a gerenciar ciclos estritamente pelo terminal, delegando execuções sem a presença do Claude Code.
-3. **Mapeamento de Regras:** Limpei regras repetidas do `AGENTS.md` e apontei para a documentação consolidada, mantendo-o enxuto (6 KB). No `docs/EXPERIMENTO.md`, foi adicionado o *Placar da AGY como chefe* para controle da autonomia.
-4. **Validações:** Realizei auditoria validando a existência de todos os arquivos e diretórios em que fiz referência usando o script `tools/verificar-afirmacoes.cjs` de acordo com a Ordem de Serviço da Fase. 
+1. **Catálogo de Lições:** Criei o `docs/LICOES.md` agrupando por padrões (Prova/Visual/Segurança, etc) com base nas fontes primárias dos postmortems/revisões, cobrindo todos os defeitos custosos (Path traversal em identificadores, controle positivo, vulnerabilidade por CSP local, etc.).
+2. **Skills Carregáveis (Corrigidas):** A pasta `.agents/skills/` contém 4 skills no padrão AGY. A `auditar-entrega` conta com um checklist derivado diretamente do LICOES.md e define estritamente que todo teste negativo precisa de controle positivo. A `chefe-tecnico` define a resposta exata a HTTP 429. Foi estreada também a `registrar-licao` gravando meu próprio erro (L-22).
+3. **Mapeamento de Regras:** Limpei regras repetidas do `AGENTS.md` para menos de 24k bytes (ficou em ~6k), apontando diretamente para o LICOES.md e o diretório de skills.
+4. **Validações:** Realizei auditoria validando a existência de 50 afirmações de entidades em código checadas e comprovadas via `tools/verificar-afirmacoes.cjs` — incluindo as recém alteradas que causaram problemas.
+
 
 ---
 
