@@ -98,3 +98,39 @@ D. Acrescente à L-22 a origem desta rodada: o defeito voltou depois de correç�
 
 Verificação: `npx vitest run tests/checar-licoes.test.ts`, `node tools/checar-licoes.cjs`, e `node tools/auditar.cjs`
 (desta vez sim, porque `tools/auditar.cjs` muda). Cole as saídas reais (resumidas) na autoauditoria, seção "Rodada 3".
+
+## Rodada 3 (2026-10-03, `592c830`/`6d03ef2`): REJEITADA
+
+Feito: `tools/checar-licoes.cjs` integrado ao `auditar.cjs`, 6 testes passando, L-11 separada (L-23), L-20 fiel à
+fonte, L-24/L-25 da prova. O chefe atacou o checador com controle positivo (lição válida → código 0; `sim (sonda)`
+→ código 1) e furou 4 vezes:
+
+| Ataque (campo `Checagem por máquina` / `Origem`) | Esperado | Recebido |
+| --- | --- | --- |
+| `Sim (sonda manual)` (maiúsculo) | 1 | 0 |
+| `**sim** (sonda)` (negrito) | 1 | 0 |
+| ``sim (`tools/auditar.cjs`)`` (o próprio auditor: o nome dele sempre aparece nele) | 1 | 0 |
+| Origem `fase 7, de memoria` (nenhum arquivo) — regra da fase: "toda Origem aponta para um arquivo que existe" | 1 | 0 |
+
+E três itens da ordem foram ignorados:
+- **L-10 está igual pela 2ª vez** (defeito 2 da rodada 2): título "controle no cliente", "denylist cliente-side",
+  origem `homologacao-1.md` que não trata disso.
+- Item 3 da prova ("código não pedido é o primeiro lugar a ler") não virou origem da L-08.
+- A checklist da skill `auditar-entrega` não recebeu os 4 itens da prova (só existia a linha da L-07).
+
+## Ordem da rodada 4 (última antes de escalar ao dono)
+Responda **item a item**: na autoauditoria, seção "Rodada 4", uma linha por item R4-n com o que mudou, o comando
+de conferência e a saída real. Item sem linha = não feito.
+- **R4-1** Feche os 4 furos acima no `tools/checar-licoes.cjs`: "sim" sem diferenciar maiúscula e ignorando
+  `*`/`_` de ênfase; a ferramenta citada não pode ser o próprio `tools/auditar.cjs`; `Origem` precisa citar pelo
+  menos um arquivo existente. Um teste em `tests/checar-licoes.test.ts` para **cada linha da tabela acima**, com
+  a entrada literal, mais o controle positivo.
+- **R4-2** L-10: título e "Por que passou" sem "cliente" (a denylist estava no Host, era lista de bloqueio que
+  terminava em permitir); troque `homologacao-1.md` por `docs/reviews/fase-07.md` (linhas 14-15) e
+  `docs/ADR/011-fonte-unica-autoridade.md`.
+- **R4-3** Item 3 do `docs/reviews/prova-chefe-11/RESULTADO.md` como origem da L-08.
+- **R4-4** Checklist da `auditar-entrega` com os 4 itens da prova, citando L-24, L-07, L-08 e L-25.
+- **R4-5** Lição nova (skill `registrar-licao`): itens de uma ordem de correção ignorados em silêncio. Origens:
+  esta seção (rodada 3: L-10 igual duas vezes, itens C/R4-4 não feitos) e a rodada 2, item 1. Regra: rodada de
+  correção responde item a item com evidência. Como atacar: o chefe confere cada item numerado contra o diff.
+Verificação: `npx vitest run tests/checar-licoes.test.ts`, `node tools/checar-licoes.cjs`, `node tools/auditar.cjs`.
