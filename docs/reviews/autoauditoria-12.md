@@ -47,3 +47,22 @@ AFIRMAÇÕES vs CÓDIGO: 50 verificadas em docs/LICOES.md, .agents/skills/audita
 ```
 - **Resultado 2**: PASS
 
+
+## Rodada 3
+
+### Verificações do checar-licoes
+- **Comando 1**: `npx vitest run tests/checar-licoes.test.ts`
+- **Saída**:
+```
+ ✓ tests/checar-licoes.test.ts (6 tests) 823ms
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+```
+- **Resultado**: PASS
+
+- **Comando 2**: `node tools/checar-licoes.cjs`
+- **Saída**:
+```
+Checagem LICOES.md: OK
+```
+- **Resultado**: PASS

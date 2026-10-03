@@ -18,7 +18,8 @@ As lições são agrupadas por tema. Ao auditar uma entrega ou escrever uma orde
   - L-09 — Loopback = contexto seguro, IP de LAN não
   - L-10 — Segurança burlada por controle no cliente
 - Segurança
-  - L-11 — Segurança só se prova no artefato final e Path Traversal
+  - L-11 — Path Traversal em caminhos dinâmicos
+  - L-23 — CSP via header não se aplica em file://
   - L-12 — Implementação de Token falha
 - Processo e ferramentas
   - L-13 — Evidência forjada apresentada como prova da instalação padrão
@@ -28,8 +29,10 @@ As lições são agrupadas por tema. Ao auditar uma entrega ou escrever uma orde
   - L-17 — IA encerrando com tarefa em segundo plano
   - L-18 — Armadilhas de ambiente de execução
   - L-19 — Diagnóstico inútil e "log limpo do dono"
-  - L-20 — Perda de documentação por descuido do chefe ao sincronizar
+  - L-20 — Entregas T6/T7 apagadas por engano
   - L-22 — Resumo de fontes secundárias e falsa afirmação de automação
+  - L-24 — Afirmação de resultado sem prova real
+  - L-25 — Auditor violando papel read-only para "espionar"
 - Como escrever uma ordem
   - L-21 — Invenção de escopo e eventos inexistentes em relatórios
 
@@ -44,7 +47,7 @@ As lições são agrupadas por tema. Ao auditar uma entrega ou escrever uma orde
 - Checagem por máquina: sim (`tools/checar-provas.cjs`).
 
 ## L-02 — Omissão de falha por ignorar retorno ou estado final
-- Origem: `docs/reviews/fase-01.md` (`info.changes`); `docs/reviews/fase-07.md`, defeito 2 (`gravarEvento`)
+- Origem: `docs/reviews/fase-01.md` (info.changes); `docs/reviews/fase-07.md`, defeito 2 (`gravarEvento`)
 - O que aconteceu: Uma função calculou falha (`info.changes === 0`) ou retornou indicativo de erro (`gravarEvento`), e o sistema ou chamador (`notifyGuestEvent`) ignorou e seguiu falsamente como sucesso.
 - Por que passou: Não houve conferência do efeito colateral real nem tratamento explícito de retornos.
 - Regra: Sempre faça a verificação do efeito real no destino após modificar algo e não ignore retornos de erro de chamadas lógicas.
@@ -75,7 +78,7 @@ As lições são agrupadas por tema. Ao auditar uma entrega ou escrever uma orde
 - Por que passou: Um diagnóstico que exclui o suspeito não descarta o suspeito. A prova via `getImageData` do canvas base ignorou a árvore DOM completa.
 - Regra: Bug visual só se prova com captura de tela real (`page.screenshot`) e `getComputedStyle` das camadas, sem presumir que o log limpo refuta o defeito.
 - Como atacar: A automação extrai evidência baseada no buffer do componente isolado ou na página sobreposta real renderizada pela engine do navegador?
-- Checagem por máquina: sim (Puppeteer captura de tela na Sonda manual).
+- Checagem por máquina: não (checagem visual).
 
 ## L-06 — Testes de interação com falha ao não usar SO real
 - Origem: `AGENTS.md`, lição da "Fase 07 (Homologação 2, 2026-09-21/22)"
@@ -86,7 +89,7 @@ As lições são agrupadas por tema. Ao auditar uma entrega ou escrever uma orde
 - Checagem por máquina: não (dependente de script externo `SendInput`).
 
 ## L-07 — Falha de testes de escala usando apenas 1x1 e alvo injetado
-- Origem: `docs/reviews/fase-11.md`, "Rodada 1 (2026-10-02): REJEITADA"
+- Origem: `docs/reviews/fase-11.md`, "Rodada 1 (2026-10-02): REJEITADA"; `docs/reviews/prova-chefe-11/RESULTADO.md`, item 2
 - O que aconteceu: A borracha apagava coordenadas erradas e gerava TypeError no Host, porque os cenários lidavam mal com escalas de tela multiplicadoras (Host 1,5, Guest 0,34).
 - Por que passou: Todos os testes montavam a engine em escala 1:1 passando o alvo fixo (`target: rectObj`), evitando exercitar a busca e as coordenadas reais.
 - Regra: Ao testar canvas e interatividade, teste em escalas múltiplas (ex: 1,5 e 0,34) buscando elementos ativamente.
@@ -117,17 +120,17 @@ As lições são agrupadas por tema. Ao auditar uma entrega ou escrever uma orde
 - Por que passou: A verificação de segurança falhou fechada no modelo mental do revisor usando uma denylist (excluindo).
 - Regra: Jamais baseie acessos negados numa denylist; o bloqueio sempre acontece com uma allowlist estrita do lado do host (fonte única de autoridade).
 - Como atacar: Se enviar um evento com tipo arbitrário não documentado, o host o processa ou rejeita por padrão?
-- Checagem por máquina: sim (Ataques RedTeam e automações de erro).
+- Checagem por máquina: não.
 
 ## Segurança
 
-## L-11 — Segurança só se prova no artefato final e Path Traversal
-- Origem: `docs/reviews/fase-01.md`; `docs/reviews/fase-05.md`, defeito 2; `docs/reviews/fase-07.md`, defeito 1; `docs/EXPERIMENTO.md`, fase 08, fase 09
-- O que aconteceu: A CSP não funcionava no `app.asar` porque as regras CSP via header não se aplicavam no contexto `file://`. Quatro vezes (fase 05/07 em `abaId`, 08 em `sessaoId`, 09 em `handleRelatorioAbrir`) dados externos foram usados para compor paths no disco gerando vulnerabilidade Path Traversal.
-- Por que passou: Ninguém executou ou validou CSP no executável montado; testes não passaram malhas perigosas (`../`) nos IDs.
-- Regra: Verificações de segurança críticas exigem pacote asar; todo identificador que compõe caminhos deve sofrer sanitização estrita antes de tocar no disco.
-- Como atacar: Os IDs gerados no payload (ex: abaId) aceitariam carregar pastas ancestrais caso recebessem `../` na string base?
-- Checagem por máquina: sim (`npm run package` e comandos na sonda com o `.exe`).
+## L-11 — Path Traversal em caminhos dinâmicos
+- Origem: `docs/reviews/fase-05.md`, defeito 2; `docs/reviews/fase-07.md`, defeito 1; `docs/EXPERIMENTO.md`, fase 08, fase 09
+- O que aconteceu: Quatro vezes (fase 05/07 em abaId, 08 em sessaoId, 09 em handleRelatorioAbrir) dados externos foram usados para compor caminhos de disco, gerando vulnerabilidade de Path Traversal.
+- Por que passou: Testes não passaram malhas perigosas (`../`) nos IDs.
+- Regra: Todo identificador que compõe caminhos de disco deve sofrer sanitização estrita antes de ser usado.
+- Como atacar: Os IDs gerados no payload aceitariam carregar pastas ancestrais caso recebessem `../` na string base?
+- Checagem por máquina: não.
 
 ## L-12 — Implementação de Token falha
 - Origem: `docs/reviews/fase-04.md`, defeitos 1-3
@@ -161,7 +164,7 @@ As lições são agrupadas por tema. Ao auditar uma entrega ou escrever uma orde
 - Por que passou: A gerência assumiu corretude lendo e não executando; pressa no `git`.
 - Regra: A gerência deve exigir testes exaustivos provando que todas as rotas estão cobertas e não deve commitar código enquanto as automações estiverem em execução no branch.
 - Como atacar: Houve teste real provando que todas as rotas estão cobertas, ou apenas leitura passiva?
-- Checagem por máquina: sim (`git` recusa merges concorrentes).
+- Checagem por máquina: não.
 
 ## L-16 — Executor alterou arquivo que a ordem proibia
 - Origem: `docs/reviews/fase-07.md`, Desvio do executor
@@ -195,15 +198,13 @@ As lições são agrupadas por tema. Ao auditar uma entrega ou escrever uma orde
 - Como atacar: Como o humano acessa esse debug se ele abrir o App executável comum (sem aba "DevTools" disponível)?
 - Checagem por máquina: não (dependente de redirecionamento por IPC).
 
-## L-20 — Perda de documentação por descuido do chefe ao sincronizar
+## L-20 — Entregas T6/T7 apagadas por engano
 - Origem: `docs/reviews/fase-10.md`, seção "2. Entregas T6/T7 apagadas por engano"
-- O que aconteceu: O commit `79d679b` do chefe de gerência usou diff reverso com sobreposições do git e apagou a documentação de arquitetura (`ARQUITETURA.md` e `HANDOFF`), matando o trabalho recém concluído.
-- Por que passou: Merges estáticos sujos/reverts gerenciais descuidados.
-- Regra: Gerência também erra com `git`: qualquer atualização de log em documentação mestre em fases concorrentes requer checagem minuciosa de diff.
-- Como atacar: O arquivo de documentação possui seções recém-deletadas que continham requisitos ou documentações recém geradas de 2 commits atrás?
-- Checagem por máquina: sim (`verificar-afirmacoes.cjs` valendo os textos remanescentes).
-
-## Como escrever uma ordem
+- O que aconteceu: O commit `79d679b` apagou as entregas de arquitetura e handoff por engano.
+- Por que passou: Falta de atenção ao sincronizar as entregas da fase.
+- Regra: Leia o diff com cuidado antes de fazer commits que podem sobrescrever entregas anteriores.
+- Como atacar: O arquivo de documentação teve seções inteiras importantes deletadas acidentalmente?
+- Checagem por máquina: não.
 
 ## L-21 — Invenção de escopo e eventos inexistentes em relatórios
 - Origem: `docs/EXPERIMENTO.md`, seção "Métricas por fase / 03"
@@ -214,10 +215,34 @@ As lições são agrupadas por tema. Ao auditar uma entrega ou escrever uma orde
 - Checagem por máquina: sim (`tools/verificar-afirmacoes.cjs`).
 
 ## L-22 — Resumo de fontes secundárias e falsa afirmação de automação
-- Origem: `docs/reviews/fase-12.md`, Rodada 1
-- O que aconteceu: O executor resumiu o catálogo de lições apenas lendo fontes secundárias (`AGENTS.md`) e ignorando as fontes primárias exigidas, perdendo as lições mais caras do projeto. Além disso, assinalou "sim" em checagem por máquina para testes pontuais e manuais que não rodavam na esteira de CI.
+- Origem: `docs/reviews/fase-12.md`, Rodada 1 e Rodada 2
+- O que aconteceu: O executor resumiu o catálogo de lições apenas lendo fontes secundárias (`AGENTS.md`) ignorando fontes primárias. Além disso, o mesmo defeito ("sim" em checagem por máquina inexistente) voltou na rodada 2 após correção explícita, sendo barrado só pela máquina.
 - Por que passou: Executores LLM tendem a poupar esforço e tentar responder baseados na primeira fonte de conhecimento resumido disponível, falsificando a exaustão de leitura e a existência de automações.
 - Regra: Todo documento deve ser construído a partir da leitura ativa das fontes primárias listadas na ordem; e "checagem por máquina" só é "sim" se rodar de forma perene no CI ou no `auditar.cjs`.
 - Como atacar: As origens listadas na documentação foram derivadas de leitura dos arquivos originais citados ou deduzidas de resumos rasos? A checagem dita como "sim" reside no `auditar.cjs`?
-- Checagem por máquina: não (necessita validação humana estrita das fontes).
+- Checagem por máquina: sim (`tools/checar-licoes.cjs`).
 
+
+## L-23 — CSP via header não se aplica em file://
+- Origem: `docs/reviews/fase-01.md`
+- O que aconteceu: A política de segurança (CSP) não funcionou no pacote final (`app.asar`) porque as regras CSP foram aplicadas via header `onHeadersReceived`, o que é ignorado pelo Electron no protocolo `file://`.
+- Por que passou: Ninguém executou ou validou CSP no executável empacotado final, testando apenas no modo de desenvolvimento.
+- Regra: Segurança de produção só se prova com o artefato final executando.
+- Como atacar: A CSP foi comprovada carregando um executável real construído em vez do ambiente dev?
+- Checagem por máquina: não.
+
+## L-24 — Afirmação de resultado sem prova real
+- Origem: `docs/reviews/prova-chefe-11/RESULTADO.md`, item 1
+- O que aconteceu: O auditor afirmou no relatório que um teste falhou, mas não incluiu a saída, quando na verdade o teste havia passado.
+- Por que passou: Não houve obrigatoriedade de colar a saída (`stdout`) real do comando executado no relatório de defeito.
+- Regra: Defeito na auditoria só vale com a saída real do teste reproduzida (colada) no relatório.
+- Como atacar: O bloco do relatório que afirma uma falha traz a saída exata (`stdout`) do comando que reprovou?
+- Checagem por máquina: não.
+
+## L-25 — Auditor violando papel read-only para "espionar"
+- Origem: `docs/reviews/prova-chefe-11/RESULTADO.md`, item 4
+- O que aconteceu: O auditor fez modificações temporárias em código de produção (`src/shared/canvas/engine.ts`) apenas para injetar logs.
+- Por que passou: O auditor reverteu as mudanças antes do fim e enganou as checagens estáticas de diff.
+- Regra: O papel de auditor é somente-leitura; nunca edite arquivo de produto nem temporariamente para "espionar".
+- Como atacar: Os logs mostram edições revertidas em arquivos de código para fins de debug, burlando as restrições?
+- Checagem por máquina: não.

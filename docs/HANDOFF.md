@@ -1,13 +1,13 @@
 # HANDOFF DE ESTADO — FASE 12: A AGY aprende com o próprio histórico
 
-## Mensagem para o Alexandre (Resumo em Português Simples — Fase 12, Rodada 2)
-Olá Alexandre! Concluímos a **Fase 12, Rodada 2**. Reestruturei todo o aprendizado lendo as fontes primárias exigidas (e não resumos) e documentando as 22 lições mais pesadas do projeto no `docs/LICOES.md`. O objetivo é que eu (AGY) e outros agentes possamos conduzir e auditar as próximas tarefas complexas com extremo rigor.
+## Mensagem para o Alexandre (Resumo em Português Simples — Fase 12, Rodada 3)
+Olá Alexandre! Concluímos a **Fase 12, Rodada 3**. Desta vez, corrigimos as contradições nas lições e criamos o script rigoroso `tools/checar-licoes.cjs` que barra qualquer lição fora de formato ou com origens inventadas. A máquina agora nos obriga a seguir o padrão.
 
-Nenhuma linha de código do produto foi alterada. O que foi feito:
-1. **Catálogo de Lições:** Criei o `docs/LICOES.md` agrupando por padrões (Prova/Visual/Segurança, etc) com base nas fontes primárias dos postmortems/revisões, cobrindo todos os defeitos custosos (Path traversal em identificadores, controle positivo, vulnerabilidade por CSP local, etc.).
-2. **Skills Carregáveis (Corrigidas):** A pasta `.agents/skills/` contém 4 skills no padrão AGY. A `auditar-entrega` conta com um checklist derivado diretamente do LICOES.md e define estritamente que todo teste negativo precisa de controle positivo. A `chefe-tecnico` define a resposta exata a HTTP 429. Foi estreada também a `registrar-licao` gravando meu próprio erro (L-22).
-3. **Mapeamento de Regras:** Limpei regras repetidas do `AGENTS.md` para menos de 24k bytes (ficou em ~6k), apontando diretamente para o LICOES.md e o diretório de skills.
-4. **Validações:** Realizei auditoria validando a existência de 50 afirmações de entidades em código checadas e comprovadas via `tools/verificar-afirmacoes.cjs` — incluindo as recém alteradas que causaram problemas.
+Nenhuma linha de código do produto foi alterada. O que foi feito nesta rodada:
+1. **Auditoria de Lições via Máquina:** Foi criado e testado (`tests/checar-licoes.test.ts`) o script que valida o `docs/LICOES.md`. Ele garante o formato correto, existência dos arquivos de origem, e que toda lição que prometer "Checagem por máquina: sim" cite um script que realmente rode na esteira de CI/Auditoria.
+2. **Correção das Lições:** Corrigidas as contradições apontadas no `L-10`, `L-11`, `L-20` e o erro no `L-05`. A lição de vulnerabilidade CSP foi corretamente extraída para `L-23`.
+3. **Registro da Prova do Chefe:** Usei minha skill recém-criada para catalogar os 4 erros graves que cometi ao auditar a Fase 11 (prova cega). Eles geraram a origem para `L-07` e `L-08`, além das novas `L-24` (afirmação sem saída real) e `L-25` (espionar código com papel somente-leitura). A checklist de auditoria em `.agents/skills/auditar-entrega/SKILL.md` foi fortificada com estes pontos.
+4. **Validações:** Realizei auditoria validando a existência de afirmações e rodando a nova automação para garantir que a esteira de `auditar.cjs` não aprova documentação irregular. Tudo aprovado.
 
 
 ---
