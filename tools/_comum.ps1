@@ -32,22 +32,29 @@ Não faça push nem merge. NÃO INVENTE: todo nome (evento, arquivo, função, b
 }
 
 function Invoke-Agy {
-  param($Cfg, [string]$Texto, [string]$Log, [switch]$Autonomo, [string]$Modelo, [switch]$DryRun)
+  param($Cfg, [string]$Texto, [string]$Log, [switch]$Autonomo, [string]$Modelo, [switch]$DryRun, [string]$Dir)
+  if (-not $Dir) { $Dir = $Cfg.Raiz }
+  # Os modelos claude-* do Antigravity recusam --effort ("--effort is not supported for model ...").
+  $effort = if ($Modelo -like 'claude-*') { @() } else { @('--effort', $Cfg.Effort) }
   if ($DryRun) {
     $modo = if ($Autonomo) { ' --dangerously-skip-permissions' } else { ' --mode accept-edits' }
-    Write-Host "[DRY-RUN] agy --print <$($Texto.Length) caracteres> --effort $($Cfg.Effort) --add-dir $($Cfg.Raiz)$modo"
+    Write-Host "[DRY-RUN] agy --print <$($Texto.Length) caracteres> $($effort -join ' ') --add-dir $Dir$modo"
     Set-Content -Path $Log -Value $Texto -Encoding utf8   # o prompt COMPLETO fica no log para conferência
     Write-Host "[DRY-RUN] prompt completo gravado em $Log"
     return
   }
   if (-not (Test-Path $Cfg.AgyPath)) { throw "agy não encontrado em $($Cfg.AgyPath) (ajuste agy.path em orquestrador.config.json)" }
   $env:ELECTRON_RUN_AS_NODE = $null
-  $a = @('--print', $Texto, '--effort', $Cfg.Effort, '--add-dir', $Cfg.Raiz)
+  $a = @('--print', $Texto) + $effort + @('--add-dir', $Dir)
   if ($Autonomo) { $a += '--dangerously-skip-permissions' } else { $a += @('--mode', 'accept-edits') }
   if ($Modelo) { $a += @('--model', $Modelo) }
-  & $Cfg.AgyPath @a 2>&1 | Tee-Object -FilePath $Log
+  Push-Location $Dir
+  try { & $Cfg.AgyPath @a 2>&1 | Tee-Object -FilePath $Log } finally { Pop-Location }
   if (Select-String -Path $Log -Pattern 'auto-denied|permission that headless mode cannot prompt' -Quiet) {
     throw "O agy foi barrado por permissões (veja $Log). Nada foi executado de fato. Use -Autonomo (com autorização do dono) ou ajuste as regras do agy."
+  }
+  if (Select-String -Path $Log -Pattern 'RESOURCE_EXHAUSTED|Individual quota reached|HTTP 429' -Quiet) {
+    throw "COTA (429) no modelo '$Modelo' (veja $Log). Redispare com um modelo de OUTRO grupo (ex.: -Modelo claude-sonnet-4-6) antes de trocar de conta (regra do CLAUDE.md global)."
   }
 }
 

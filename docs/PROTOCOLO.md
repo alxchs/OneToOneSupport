@@ -31,3 +31,27 @@ Entregar apenas: "Leia `AGENTS.md` e execute `docs/prompts/fase-NN-*.md`." Todo 
 - Uma IA por vez por branch. Quem termina atualiza o HANDOFF antes de trocar.
 - "Concluído" exige evidência colada (saída real de comando). Sem evidência = não concluído.
 - Divergência da spec = ADR + aviso no HANDOFF, nunca silenciosa.
+
+## Aprendizado da AGY e passagem da gerência (decisão do chefe, 2026-10-02, pedido do Alexandre)
+Objetivo: a AGY assumir tarefas complexas e, por fim, a gerência do projeto na ausência do Claude Code. A memória
+interna do Antigravity é por conversa e opaca; **o que a AGY aprende mora no repositório**:
+- `docs/LICOES.md` — catálogo de lições (cada erro real vira uma entrada com origem, regra e "como atacar").
+- `.agents/skills/` — procedimentos que o Antigravity carrega sozinho: auditar, escrever ordem, registrar lição, conduzir o ciclo.
+- `tools/auditar.cjs` + `orquestrador.config.json` — o que dá para checar por máquina sai da lição e vira regra.
+
+**Ciclo de aprendizado (obrigatório, para qualquer chefe):** toda rodada rejeitada, defeito achado pelo chefe,
+falso PASS ou relato do dono vira uma lição em `docs/LICOES.md` na mesma sessão (skill `registrar-licao`). Se a
+lição puder ser checada por máquina, vira regra no auditor; se for de método, entra na checklist da skill.
+
+**Níveis de autonomia da AGY** (o placar fica em `docs/EXPERIMENTO.md`, seção "Placar da AGY como chefe"):
+| Nível | A AGY faz | O Claude faz | Para subir |
+| --- | --- | --- | --- |
+| 0 | executa ordens | escreve ordens, audita, decide | — |
+| 1 (atual) | executa; faz **auditoria-sombra** de toda entrega e escreve rascunhos de ordem | revisa a ordem antes do despacho; audita e compara com a sombra | 3 auditorias-sombra seguidas que acham **todos** os defeitos que o Claude achou, sem defeito inventado |
+| 2 | conduz o ciclo inteiro (ordem → despacho → auditoria → veredito) | audita por amostragem | 3 ciclos sem defeito escapado (achado depois pelo Claude ou pelo dono) |
+| 3 | gerencia sem o Claude | — | — (volta ao nível 1 se um defeito escapar) |
+
+**Independência (vale em todo nível):** quem executou não audita. A auditoria roda em outra conversa e, sempre que
+houver cota, em outro grupo de modelo (executor Gemini → auditor `claude-*`, ou o inverso). Auditor e chefe rodam
+com `tools/delegar.ps1 -Papel auditor|chefe`, que reprova se mexerem fora dos caminhos permitidos.
+**Sempre do dono, em qualquer nível:** merge, `git push`, mudança de escopo/stack, decisões de produto e de paleta.
