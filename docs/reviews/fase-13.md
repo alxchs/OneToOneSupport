@@ -30,3 +30,14 @@ Autorizada a alterar `tools/modo-ausencia.ps1`, `tests/modo-ausencia.test.ts`, `
 Responda na autoauditoria, seção "Rodada 2", **uma linha por defeito (1-10): o que mudou, comando, saída real** (L-26).
 Prove o 1 com `git status --porcelain` e `git diff --stat` vazios depois de `-DryRun -Itens B1,B2`; o 5 com
 `ia status` sem claim residual depois de uma execução simulada. Não rode o backlog de verdade.
+
+## Rodada 2 (2026-10-03, `cd1032c`): APROVADA, com 2 acertos do chefe
+`-Itens B1,B2 -DryRun` agora só imprime o plano (claim/release, ExigirCommit, auditor por rodada); fila com 5 itens e
+Rodadas 0; 10 testes passam; sem termo proibido no script; fallback de modelo na cota presente (o limite real só se prova
+com 429 de verdade — não verificado).
+Acertos do chefe: (1) a AGY deixou 10 PNGs rastreados modificados (a sonda do `auditar.cjs` regenera capturas) — restaurados
+com `git checkout`; sinal de que o auditor automático suja a árvore e o orquestrador precisa restaurar as capturas
+antes de cada branch (anotado como risco no backlog de processo). (2) Os slugs de branch de B3-B5 na `FILA.md` não
+correspondiam aos itens (`queda-sqlite`, `fabric-4k`…): corrigidos para `icones-botoes`, `npm-audit`, `tamanho-instalador`.
+**Bloqueio para liberar o backlog:** o orquestrador cria as branches dos itens a partir de `main`, e `main` ainda não
+tem `tools/modo-ausencia.ps1`/`delegar.ps1`/`ia`-claim. É preciso o merge da Fase 13 em `main` (ordem do dono).
